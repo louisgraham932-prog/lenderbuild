@@ -1,13 +1,670 @@
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes confettiFall {
+  0%   { transform: translateY(-30px) rotate(0deg); opacity: 1; }
+  75%  { opacity: 0.8; }
+  100% { transform: translateY(110vh) rotate(var(--r-end, 540deg)); opacity: 0; }
+}
+
+@keyframes tourBounce {
+  0%   { opacity: 0; transform: scale(0.88) translateY(10px); }
+  55%  { opacity: 1; transform: scale(1.03) translateY(-3px); }
+  80%  { transform: scale(0.98) translateY(1px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes tourGlowPulse {
+  0%, 100% { box-shadow: 0 0 0 2.5px #3B82F6, 0 0 14px 3px rgba(59,130,246,0.35); }
+  50%       { box-shadow: 0 0 0 2.5px #60A5FA, 0 0 30px 9px rgba(59,130,246,0.62); }
+}
+
+@keyframes tourSlideUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes loginBarFill {
+  from { width: 0%; }
+  to   { width: 100%; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUpSheet {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+/* ── CSS Custom Properties ────────────────────────────────────────────────── */
+:root {
+  /* Semantic colour system */
+  --color-primary:   #3B82F6;
+  --color-success:   #16A34A;
+  --color-warning:   #D97706;
+  --color-danger:    #DC2626;
+  --color-inactive:  #64748B;
+
+  /* Background tints */
+  --color-primary-bg:  #EBF2FF;
+  --color-success-bg:  #DCFCE7;
+  --color-warning-bg:  #FEF3C7;
+  --color-danger-bg:   #FEE2E2;
+  --color-inactive-bg: #F1F5F9;
+
+  /* Text */
+  --color-heading: #1E3A5F;
+  --color-body:    #2C3E50;
+  --color-muted:   #64748B;
+
+  /* Card */
+  --card-padding:  24px;
+  --card-radius:   12px;
+  --card-shadow:   0 2px 8px rgba(0,0,0,0.08);
+  --card-shadow-hover: 0 8px 24px rgba(0,0,0,0.12);
+
+  /* Border */
+  --border-light: 0.5px solid #e0e0e0;
+
+  /* Theme tokens (light) */
+  --bg-page:      #F4F5F7;
+  --bg-card:      #ffffff;
+  --bg-secondary: #F8FAFC;
+  --bg-surface:   #f9f9f7;
+  --bg-nav:       #1E3A5F;
+  --text-primary: #2C3E50;
+  --text-heading: #1E3A5F;
+  --text-muted:   #64748B;
+  --border-card:  #e0e0e0;
+  --accent:       #3B82F6;
+  --accent-bg:    #EBF2FF;
+}
+
+/* ── Dark theme token overrides ───────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg-page:      #0F1117;
+  --bg-card:      #1A1D27;
+  --bg-secondary: #12151F;
+  --bg-surface:   #1E2130;
+  --bg-nav:       #0A0D14;
+  --text-primary: #E8EAF0;
+  --text-heading: #93C5FD;
+  --text-muted:   #94A3B8;
+  --border-card:  #2A2D3A;
+  --border-light: 0.5px solid #2A2D3A;
+  --card-shadow:  0 2px 8px rgba(0,0,0,0.3);
+  --color-heading: #93C5FD;
+  --color-body:    #E8EAF0;
+  --color-muted:   #94A3B8;
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-size: 16px;
+  line-height: 1.7;
+  transition: background 0.2s ease, color 0.2s ease;
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+/* ── Typography system ────────────────────────────────────────────────────── */
+
+h1.display {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 48px;
+  line-height: 1.2;
+  color: var(--color-heading);
+  margin: 0;
+}
+
+h1, h1.h1 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(32px, 5vw, 48px);
+  line-height: 1.2;
+  color: var(--color-heading);
+  margin: 0 0 0.5rem;
+}
+
+h2, h2.h2 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(24px, 4vw, 36px);
+  line-height: 1.3;
+  color: var(--color-heading);
+  margin: 0 0 0.5rem;
+}
+
+h3, h3.h3 {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--color-heading);
+  margin: 0 0 0.5rem;
+}
+
+h4, h4.h4 {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-body);
+  margin: 0 0 0.25rem;
+}
+
+p, .body-text {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--color-body);
+}
+
+.caption, small {
+  font-size: 13px;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+/* ── Standard Card ────────────────────────────────────────────────────────── */
+.card {
+  background: #fff;
+  border-radius: var(--card-radius);
+  padding: var(--card-padding);
+  box-shadow: var(--card-shadow);
+  border: var(--border-light);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.card:hover {
+  box-shadow: var(--card-shadow-hover);
+}
+.card--verified {
+  border-left: 3px solid var(--color-primary);
+}
+.card--great-match {
+  border-left: 3px solid var(--color-success);
+}
+
+/* ── Prevent fixed-width elements from causing horizontal scroll on mobile ── */
+img, video, svg {
+  max-width: 100%;
+}
+
+/* ── Button micro-interactions ────────────────────────────────────────────── */
+button {
+  transition: transform 0.12s ease, box-shadow 0.15s ease;
+}
+button:not(:disabled):hover {
+  box-shadow: 0 0 0 3px rgba(46, 95, 163, 0.22);
+}
+button:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+/* ── Input gold focus glow ────────────────────────────────────────────────── */
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(46, 95, 163, 0.28);
+}
+
+/* ── Page fade-in on navigation ───────────────────────────────────────────── */
+.page-transition {
+  animation: fadeIn 0.22s ease;
+}
+
+/* ── Bottom sheet for mobile filters ─────────────────────────────────────── */
+.filter-sheet-overlay {
+  display: none;
+}
+.filter-sheet {
+  display: none;
+}
+
+/* ── Mobile: screens narrower than 768px ─────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Typography scale down */
+  h1, h1.h1 {
+    font-size: clamp(26px, 7vw, 36px);
+  }
+  h2, h2.h2 {
+    font-size: clamp(20px, 5vw, 28px);
+  }
+  h3, h3.h3 {
+    font-size: 18px;
+  }
+
+  /* Cards get tighter on mobile */
+  .card {
+    padding: 16px;
+  }
+
+  /* Bottom sheet for filters */
+  .filter-sheet-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 500;
+    animation: fadeIn 0.2s ease;
+  }
+  .filter-sheet {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #fff;
+    border-radius: 20px 20px 0 0;
+    padding: 24px 20px calc(env(safe-area-inset-bottom, 0px) + 24px);
+    z-index: 501;
+    animation: slideUpSheet 0.3s ease;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .filter-sheet-handle {
+    width: 40px;
+    height: 4px;
+    background: #e0e0e0;
+    border-radius: 2px;
+    margin: 0 auto 20px;
+  }
+
+  /* Messaging safe area */
+  .messages-input-area {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  }
+}
+
+/* ── Mobile fixes: screens narrower than 420px ────────────────────────────── */
+@media (max-width: 420px) {
+  h1, h2, h3 {
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+
+  input, select, textarea {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  table {
+    font-size: 12px;
+  }
+
+  p {
+    overflow-wrap: break-word;
+  }
+
+  button[style*="minWidth: 110"] {
+    min-width: 0 !important;
+  }
+
+  .deal-stat-box {
+    min-width: 80px !important;
+  }
+}
+
+/* ── Very small screens: 360px and under ─────────────────────────────────── */
+@media (max-width: 360px) {
+  h1 {
+    font-size: clamp(20px, 8vw, 28px) !important;
+  }
+
+  .page-transition > div {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+}
+
+/* ── Dark mode overrides ──────────────────────────────────────────────────── */
+/* data-theme is set on <html> (documentElement) */
+[data-theme="dark"] body,
+[data-theme="dark"] {
+  background: var(--bg-page);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .dm-bg    { background: #1A1D27 !important; }
+[data-theme="dark"] .dm-card  { background: #1A1D27 !important; border-color: #2A2D3A !important; }
+[data-theme="dark"] .dm-text  { color: #E8EAF0 !important; }
+[data-theme="dark"] .dm-muted { color: #94A3B8 !important; }
+[data-theme="dark"] .dm-nav   { background: #0A0D14 !important; }
+[data-theme="dark"] .dm-input { background: #1A1D27 !important; border-color: #2A2D3A !important; color: #E8EAF0 !important; }
+
+/* ── Comprehensive dark mode styles ──────────────────────────────────────── */
+[data-theme="dark"] nav {
+  background: #0A0D14 !important;
+  border-bottom-color: rgba(255,255,255,0.06) !important;
+}
+[data-theme="dark"] input,
+[data-theme="dark"] textarea,
+[data-theme="dark"] select {
+  background: #1A1D27 !important;
+  border-color: #2A2D3A !important;
+  color: #E8EAF0 !important;
+}
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] textarea::placeholder {
+  color: #64748B !important;
+}
+[data-theme="dark"] button:not([class]) {
+  color: inherit;
+}
+/* Cards and panels — override hardcoded white inline styles.
+   Both hex and rgb() forms are listed: Chrome normalises hex→rgb when styles
+   are set via JavaScript (React's style prop), so attribute selectors must
+   include the rgb() equivalent to match in Chromium-based browsers. */
+[data-theme="dark"] [style*="background: #fff"],
+[data-theme="dark"] [style*="background:#fff"],
+[data-theme="dark"] [style*="background: white"],
+[data-theme="dark"] [style*="background: rgb(255, 255, 255)"],
+[data-theme="dark"] [style*="background-color: rgb(255, 255, 255)"] {
+  background: #1A1D27 !important;
+  color: #E8EAF0 !important;
+}
+[data-theme="dark"] [style*="background: #F4F5F7"],
+[data-theme="dark"] [style*="background: rgb(244, 245, 247)"],
+[data-theme="dark"] [style*="background: #f9f9f7"],
+[data-theme="dark"] [style*="background: rgb(249, 249, 247)"],
+[data-theme="dark"] [style*="background: #F8FAFC"],
+[data-theme="dark"] [style*="background: rgb(248, 250, 252)"],
+[data-theme="dark"] [style*="background: #F1F5F9"],
+[data-theme="dark"] [style*="background: rgb(241, 245, 249)"],
+[data-theme="dark"] [style*="background: #f5f5f3"],
+[data-theme="dark"] [style*="background: rgb(245, 245, 243)"],
+[data-theme="dark"] [style*="background: #f0f0f0"],
+[data-theme="dark"] [style*="background: rgb(240, 240, 240)"],
+[data-theme="dark"] [style*="background: #eee"],
+[data-theme="dark"] [style*="background: rgb(238, 238, 238)"],
+[data-theme="dark"] [style*="background: #F1EFE8"],
+[data-theme="dark"] [style*="background: rgb(241, 239, 232)"],
+[data-theme="dark"] [style*="background: #fafafa"],
+[data-theme="dark"] [style*="background: rgb(250, 250, 250)"],
+[data-theme="dark"] [style*="background: #fafaf8"],
+[data-theme="dark"] [style*="background: rgb(250, 250, 248)"] {
+  background: #1E2130 !important;
+}
+[data-theme="dark"] [style*="border: 0.5px solid #e0e0e0"],
+[data-theme="dark"] [style*="border: 0.5px solid rgb(224, 224, 224)"],
+[data-theme="dark"] [style*="borderBottom: 0.5px solid #f0f0f0"],
+[data-theme="dark"] [style*="border-bottom: 0.5px solid #f0f0f0"],
+[data-theme="dark"] [style*="border-bottom: 0.5px solid rgb(240, 240, 240)"],
+[data-theme="dark"] [style*="borderTop: 0.5px solid #f0f0f0"],
+[data-theme="dark"] [style*="border-top: 0.5px solid #f0f0f0"],
+[data-theme="dark"] [style*="border-top: 0.5px solid rgb(240, 240, 240)"],
+[data-theme="dark"] [style*="borderTop: 0.5px solid rgb(240, 240, 240)"] {
+  border-color: #2A2D3A !important;
+}
+[data-theme="dark"] [style*="color: #1E3A5F"]:not(nav *),
+[data-theme="dark"] [style*="color: rgb(30, 58, 95)"]:not(nav *) {
+  color: #93C5FD !important;
+}
+[data-theme="dark"] [style*="color: #64748B"],
+[data-theme="dark"] [style*="color: rgb(100, 116, 139)"] {
+  color: #94A3B8 !important;
+}
+[data-theme="dark"] [style*="color: #374151"],
+[data-theme="dark"] [style*="color: rgb(55, 65, 81)"] {
+  color: #CBD5E1 !important;
+}
+[data-theme="dark"] [style*="color: #475569"],
+[data-theme="dark"] [style*="color: rgb(71, 85, 105)"] {
+  color: #CBD5E1 !important;
+}
+[data-theme="dark"] [style*="color: #2C3E50"],
+[data-theme="dark"] [style*="color: rgb(44, 62, 80)"],
+[data-theme="dark"] [style*="color: #222"],
+[data-theme="dark"] [style*="color: rgb(34, 34, 34)"] {
+  color: #E8EAF0 !important;
+}
+/* CSS class-based overrides */
+[data-theme="dark"] .card {
+  background: #1A1D27 !important;
+  border-color: #2A2D3A !important;
+  color: #E8EAF0 !important;
+}
+[data-theme="dark"] .filter-sheet {
+  background: #1A1D27 !important;
+}
+[data-theme="dark"] .filter-sheet-handle {
+  background: #2A2D3A !important;
+}
+/* Command palette */
+[data-theme="dark"] .palette-bg {
+  background: #1A1D27 !important;
+  color: #E8EAF0 !important;
+}
+/* Scrollbars */
+[data-theme="dark"] ::-webkit-scrollbar        { background: #0F1117; }
+[data-theme="dark"] ::-webkit-scrollbar-thumb  { background: #2A2D3A; border-radius: 4px; }
+
+/* ── Compact density ──────────────────────────────────────────────────────── */
+/* Targets the most common padding patterns rendered from React inline styles */
+[data-density="compact"] .card {
+  padding: calc(var(--card-padding) * 0.7) !important;
+}
+[data-density="compact"] [style*="padding: 1.5rem 1.25rem"] {
+  padding: 1rem 0.875rem !important;
+}
+[data-density="compact"] [style*="padding: 2rem 1.25rem"] {
+  padding: 1.4rem 0.875rem !important;
+}
+[data-density="compact"] [style*="padding: 2rem"] {
+  padding: 1.4rem !important;
+}
+[data-density="compact"] [style*="padding: 16px 20px"] {
+  padding: 11px 14px !important;
+}
+[data-density="compact"] [style*="padding: 20px 24px"] {
+  padding: 14px 17px !important;
+}
+[data-density="compact"] [style*="padding: 14px 20px"] {
+  padding: 10px 14px !important;
+}
+[data-density="compact"] [style*="padding: 0 20px 20px"] {
+  padding: 0 14px 14px !important;
+}
+[data-density="compact"] [style*="padding: 24px"] {
+  padding: 17px !important;
+}
+[data-density="compact"] [style*="margin-bottom: 1.5rem"] {
+  margin-bottom: 1rem !important;
+}
+[data-density="compact"] [style*="margin-bottom: 1rem"] {
+  margin-bottom: 0.7rem !important;
+}
+[data-density="compact"] [style*="gap: 16px"],
+[data-density="compact"] [style*="gap: 12px"] {
+  gap: 8px !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   MOBILE LAYOUT IMPROVEMENTS (max-width: 767px)
+   ══════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 767px) {
+
+  /* ── Typography: enforce minimum 14px ──────────────────────────────────── */
+  p, li, td, th, span, label, input, select, textarea, button {
+    font-size: max(14px, 0.875rem);
+  }
+  .caption, small { font-size: 12px; }
+
+  /* ── Cards: full width, tighter padding ─────────────────────────────────── */
+  .card {
+    padding: 12px !important;
+    border-radius: 10px !important;
+    width: 100%;
+  }
+  /* Override hardcoded card-like padding on inline-styled divs */
+  [style*="padding: 24px"],
+  [style*="padding: 1.5rem"] {
+    padding: 14px !important;
+  }
+  [style*="padding: 20px 24px"] {
+    padding: 14px 16px !important;
+  }
+  [style*="padding: 2rem 1.25rem"],
+  [style*="padding: 2rem"] {
+    padding: 1.25rem 1rem !important;
+  }
+
+  /* ── Grids: force single column for small minmax values ─────────────────── */
+  [style*="grid-template-columns: repeat(auto-fit, minmax(1"],
+  [style*="grid-template-columns: repeat(auto-fill, minmax(1"],
+  [style*="grid-template-columns: repeat(auto-fit, minmax(2"],
+  [style*="grid-template-columns: repeat(auto-fill, minmax(2"] {
+    grid-template-columns: 1fr !important;
+  }
+  /* 3-col and 4-col fixed grids → 2 columns */
+  [style*="grid-template-columns: repeat(3,"],
+  [style*="grid-template-columns: repeat(3, "],
+  [style*="grid-template-columns: repeat(4,"],
+  [style*="grid-template-columns: repeat(4, "] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  /* Explicit 2-col fixed grids: keep 2 cols unless content is wide */
+  [style*="grid-template-columns: 1fr 1fr"] {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  /* ── Buttons: minimum 44px tap target ───────────────────────────────────── */
+  button {
+    min-height: 44px;
+  }
+  /* Action buttons: full width where they appear as primary CTAs */
+  .btn-full-mobile {
+    width: 100% !important;
+  }
+
+  /* ── Prevent horizontal scroll ──────────────────────────────────────────── */
+  body, html { overflow-x: hidden !important; max-width: 100vw; }
+  * { max-width: 100%; box-sizing: border-box; }
+  table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* ── Page containers: use full width with safe padding ──────────────────── */
+  [style*="maxWidth: 900"],
+  [style*="maxWidth: 800"],
+  [style*="maxWidth: 960"],
+  [style*="maxWidth: 1100"],
+  [style*="max-width: 900"],
+  [style*="max-width: 800"] {
+    max-width: 100% !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+
+  /* ── Modals: full screen bottom sheets ──────────────────────────────────── */
+  [style*="position: fixed"][style*="border-radius: 12"],
+  [style*="position: fixed"][style*="border-radius: 16"],
+  [style*="position: fixed"][style*="border-radius: 20"] {
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    border-radius: 20px 20px 0 0 !important;
+    max-height: 90vh !important;
+    overflow-y: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* ── Profile photos: larger on mobile cards ─────────────────────────────── */
+  [style*="width: 40px"][style*="height: 40px"][style*="border-radius: 50%"],
+  [style*="width: 44px"][style*="height: 44px"][style*="border-radius: 50%"] {
+    width: 48px !important;
+    height: 48px !important;
+  }
+
+  /* ── Dashboard stats: 2×2 grid ─────────────────────────────────────────── */
+  .dashboard-stats-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  /* ── Investment overview 3-col → 2-col ──────────────────────────────────── */
+  [style*="grid-template-columns: repeat(3, 1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* ── Flex rows that overflow: switch to column ──────────────────────────── */
+  [style*="display: flex"][style*="gap: 2rem"],
+  [style*="display: flex"][style*="gap: 48px"] {
+    flex-direction: column !important;
+    gap: 1rem !important;
+  }
+
+  /* ── Lender/builder card action button rows: wrap ───────────────────────── */
+  [style*="display: flex"][style*="flexWrap: wrap"] button,
+  [style*="display: flex"][style*="flex-wrap: wrap"] button {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* ── Community chat input: stick above bottom nav ───────────────────────── */
+  .community-chat-input {
+    position: sticky !important;
+    bottom: 60px !important;
+    z-index: 50 !important;
+    background: var(--bg-card) !important;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px) !important;
+  }
+
+  /* ── Filter bottom sheet: correct positioning ───────────────────────────── */
+  .filter-sheet {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 80px) !important;
+  }
+
+  /* ── Horizontal scroll sections → vertical ──────────────────────────────── */
+  [style*="overflow-x: auto"] > [style*="display: flex"],
+  [style*="overflowX: auto"] > [style*="display: flex"] {
+    flex-wrap: wrap !important;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   DESKTOP LAYOUT (min-width: 1024px) — 3-column grids for cards
+   ══════════════════════════════════════════════════════════════════════════════ */
+@media (min-width: 1024px) {
+  /* Lender and builder listing cards: 3-column grid */
+  [style*="grid-template-columns: repeat(auto-fit, minmax(240px"],
+  [style*="grid-template-columns: repeat(auto-fill, minmax(240px"],
+  [style*="grid-template-columns: repeat(auto-fit, minmax(280px"],
+  [style*="grid-template-columns: repeat(auto-fill, minmax(280px"],
+  [style*="grid-template-columns: repeat(auto-fit, minmax(300px"],
+  [style*="grid-template-columns: repeat(auto-fill, minmax(300px"] {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   DARK MODE OVERRIDES for new components
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="dark"] .lb-bottom-nav-override,
+[data-theme="dark"] nav.lb-bottom-nav {
+  background: #0A0D14 !important;
+  border-top-color: rgba(255,255,255,0.06) !important;
 }

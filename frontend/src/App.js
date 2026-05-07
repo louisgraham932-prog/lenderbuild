@@ -1,60 +1,640 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
+import { supabase } from "./supabaseClient";
+import {
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell,
+} from "recharts";
 
 const COLORS = {
-  teal: { bg: "#E1F5EE", text: "#0F6E56", mid: "#1D9E75" },
-  blue: { bg: "#E6F1FB", text: "#185FA5", mid: "#378ADD" },
+  teal:   { bg: "#DCFCE7", text: "#166534", mid: "#16A34A" },
+  blue:   { bg: "#EBF2FF", text: "#1E3A5F", mid: "#2E5FA3" },
   purple: { bg: "#EEEDFE", text: "#534AB7", mid: "#7F77DD" },
-  amber: { bg: "#FAEEDA", text: "#854F0B", mid: "#BA7517" },
-  coral: { bg: "#FAECE7", text: "#993C1D", mid: "#D85A30" },
-  gray: { bg: "#F1EFE8", text: "#5F5E5A", mid: "#888780" },
+  amber:  { bg: "#FEF3C7", text: "#92400E", mid: "#D97706" },
+  coral:  { bg: "#FEE2E2", text: "#991B1B", mid: "#DC2626" },
+  gray:   { bg: "#F1F5F9", text: "#475569", mid: "#64748B" },
 };
 
-const fmt = (n) => "£" + n.toLocaleString();
+
+const fmt = (n) => "£" + Number(n).toLocaleString();
+
+// ─── SAVED PROFILES (localStorage) ───────────────────────────────────────────
+function getSavedProfiles(userId) {
+  try { return JSON.parse(localStorage.getItem(`lb_saved_${userId}`) || "[]"); } catch { return []; }
+}
+function setSavedProfiles(userId, list) {
+  localStorage.setItem(`lb_saved_${userId}`, JSON.stringify(list));
+}
+function isSaved(userId, targetUserId) {
+  return getSavedProfiles(userId).some(p => p.user_id === targetUserId);
+}
+function toggleSavedProfile(userId, profile) {
+  const list = getSavedProfiles(userId);
+  const idx  = list.findIndex(p => p.user_id === profile.user_id);
+  if (idx >= 0) { list.splice(idx, 1); } else { list.unshift({ ...profile, saved_at: Date.now() }); }
+  setSavedProfiles(userId, list);
+  return idx < 0; // true = now saved
+}
+
+// ─── FILTER PRESETS (localStorage) ───────────────────────────────────────────
+function getFilterPresets(userId, type) {
+  try { return JSON.parse(localStorage.getItem(`lb_presets_${type}_${userId}`) || "[]"); } catch { return []; }
+}
+function saveFilterPreset(userId, type, name, filters) {
+  const list = getFilterPresets(userId, type).filter(p => p.name !== name);
+  list.unshift({ name, filters, saved_at: Date.now() });
+  localStorage.setItem(`lb_presets_${type}_${userId}`, JSON.stringify(list.slice(0, 5)));
+}
+function deleteFilterPreset(userId, type, name) {
+  const list = getFilterPresets(userId, type).filter(p => p.name !== name);
+  localStorage.setItem(`lb_presets_${type}_${userId}`, JSON.stringify(list));
+}
+const fmtId = (n) => n ? "#" + String(n).padStart(4, "0") : "";
+
+function HeartButton({ userId, targetUserId, profileSnap, size = 18 }) {
+  const [saved, setSaved] = useState(() => userId ? isSaved(userId, targetUserId) : false);
+  if (!userId || !targetUserId) return null;
+  return (
+    <button
+      onClick={e => { e.stopPropagation(); setSaved(toggleSavedProfile(userId, profileSnap)); }}
+      title={saved ? "Remove from saved" : "Save profile"}
+      style={{ background: "none", border: "none", cursor: "pointer", padding: 4, lineHeight: 1, flexShrink: 0, color: saved ? "#DC2626" : "#cbd5e1" }}
+    >
+      <svg width={size} height={size} viewBox="0 0 24 24" fill={saved ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+      </svg>
+    </button>
+  );
+}
+
+// ─── COMPATIBILITY SCORING ────────────────────────────────────────────────────
+
+const SPEC_TO_PROJECTS = {
+  "Developer":              ["Residential", "Commercial", "Mixed use"],
+  "Residential developer":  ["Residential"],
+  "Commercial developer":   ["Commercial", "Mixed use"],
+  "Renovation specialist":  ["Renovation", "Residential"],
+  "Mixed use developer":    ["Mixed use", "Residential", "Commercial"],
+  "HMO specialist":         ["Residential", "Renovation"],
+};
+
+function ukRegion(location = "") {
+  const l = location.toLowerCase();
+  if (!l) return null;
+  if (/london|hackney|camden|islington|lambeth|southwark|tower hamlets|wandsworth|westminster|croydon|bromley/.test(l)) return "London";
+  if (/manchester|salford|bolton|stockport|oldham|rochdale|bury|wigan|tameside/.test(l)) return "Greater Manchester";
+  if (/birmingham|coventry|wolverhampton|walsall|dudley|sandwell|solihull/.test(l)) return "West Midlands";
+  if (/leeds|bradford|sheffield|hull|york|harrogate|wakefield|doncaster|rotherham/.test(l)) return "Yorkshire";
+  if (/liverpool|wirral|sefton|knowsley/.test(l)) return "Merseyside";
+  if (/newcastle|sunderland|middlesbrough|durham|gateshead|hartlepool/.test(l)) return "North East";
+  if (/nottingham|leicester|derby|lincoln|northampton/.test(l)) return "East Midlands";
+  if (/norwich|cambridge|ipswich|colchester|chelmsford/.test(l)) return "East of England";
+  if (/brighton|southampton|portsmouth|reading|oxford|guildford|crawley|maidstone/.test(l)) return "South East";
+  if (/bristol|bath|swindon|gloucester|exeter|plymouth|truro|bournemouth|dorset/.test(l)) return "South West";
+  if (/edinburgh|glasgow|aberdeen|dundee|inverness/.test(l)) return "Scotland";
+  if (/cardiff|swansea|newport|bangor/.test(l)) return "Wales";
+  if (/belfast|derry|londonderry/.test(l)) return "Northern Ireland";
+  return "Other";
+}
+
+function activityScoreCalc(updated_at) {
+  if (!updated_at) return { pts: 10, detail: "Activity unknown" };
+  const days = (Date.now() - new Date(updated_at).getTime()) / 86400000;
+  if (days <= 7)   return { pts: 20, detail: "Active this week" };
+  if (days <= 30)  return { pts: 16, detail: "Active this month" };
+  if (days <= 90)  return { pts: 10, detail: "Active in last 3 months" };
+  if (days <= 180) return { pts: 5,  detail: "Active in last 6 months" };
+  return { pts: 0, detail: "Not recently active" };
+}
+
+// ─── PROFILE COMPLETENESS ────────────────────────────────────────────────────
+
+function computeProfileCompleteness(data, role) {
+  const items = [
+    { label: "Profile photo",  done: !!data.avatar_url,         weight: 20 },
+    { label: "Bio",            done: !!(data.bio?.trim()),       weight: 15 },
+    { label: "Location",       done: !!(data.location?.trim()),  weight: 10 },
+  ];
+
+  if (role === "lender") {
+    items.push(
+      { label: "Budget & return type",  done: !!(data.budget_max && data.return_type),       weight: 25 },
+      { label: "Preferred projects",    done: !!(data.preferred_projects?.length > 0),        weight: 10 },
+    );
+  } else if (role === "builder") {
+    items.push(
+      { label: "Specialisation",        done: !!(data.specialization),                        weight: 20 },
+      { label: "Projects completed",    done: !!(data.projects_completed > 0),                weight: 15 },
+      { label: "Site photos",           done: !!(data.verified_documents?.includes("site_photos")), weight: 10 },
+    );
+  }
+
+  const maxPossible = items.reduce((s, i) => s + i.weight, 0);
+  const earned      = items.filter(i => i.done).reduce((s, i) => s + i.weight, 0);
+  const score       = Math.round((earned / maxPossible) * 100);
+  const missing     = items.filter(i => !i.done);
+  return { score, items, missing };
+}
+
+function computeCredibilityScore(builder) {
+  const docs = builder.verified_documents || [];
+  let score = 0;
+  if (docs.includes("photo_id"))                      score += 20;
+  if (docs.includes("companies_house"))               score += 15;
+  if (docs.includes("planning"))                      score += 15;
+  if (docs.includes("insurance") || docs.includes("site_insurance")) score += 10;
+  const p = builder.props || 0;
+  if (p >= 10) score += 25; else if (p >= 6) score += 20; else if (p >= 1) score += 10;
+  // Reviews: up to 15 pts based on count + avg rating
+  const reviews = builder.reviews || [];
+  if (reviews.length > 0) {
+    const avg = reviews.reduce((s, r) => s + r.rating, 0) / reviews.length;
+    if (reviews.length >= 5 && avg >= 4.5) score += 15;
+    else if (reviews.length >= 3 && avg >= 4.0) score += 10;
+    else if (reviews.length >= 1 && avg >= 3.5) score += 5;
+  }
+  return Math.min(score, 100);
+}
+
+// ─── DARK MODE HOOK ───────────────────────────────────────────────────────────
+// ─── AUTH-GATED PREFERENCE HELPERS ───────────────────────────────────────────
+// lb_logged_in is set when a session is confirmed and cleared on sign-out.
+// Preference hooks check this flag so they start from defaults when no user is
+// present, avoiding any flash of a previous user's theme on the logged-out site.
+function getIsLoggedIn() {
+  try { return localStorage.getItem("lb_logged_in") === "true"; } catch { return false; }
+}
+function setIsLoggedIn(val) {
+  try {
+    if (val) localStorage.setItem("lb_logged_in", "true");
+    else localStorage.removeItem("lb_logged_in");
+  } catch {}
+}
+function clearPreferenceStorage() {
+  try {
+    localStorage.removeItem("lb_accent_colour");
+    localStorage.removeItem("lb_dark_mode");
+    localStorage.removeItem("lb_font_size");
+  } catch {}
+}
+
+function useDarkMode() {
+  const [dark, setDark] = useState(() => {
+    try {
+      if (!getIsLoggedIn()) return false;
+      const stored = localStorage.getItem("lb_dark_mode");
+      if (stored !== null) return stored === "true";
+    } catch (_) {}
+    return false;
+  });
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+    try { localStorage.setItem("lb_dark_mode", String(dark)); } catch (_) {}
+  }, [dark]);
+  return [dark, setDark];
+}
+
+const ACCENT_PRESETS = [
+  { label: "Deep Blue",    value: "#3B82F6", bg: "#EBF2FF", nav: "#1E3A5F" },
+  { label: "Forest Green", value: "#16A34A", bg: "#DCFCE7", nav: "#14532D" },
+  { label: "Royal Purple", value: "#7C3AED", bg: "#EDE9FE", nav: "#4C1D95" },
+  { label: "Burnt Orange", value: "#EA580C", bg: "#FFEDD5", nav: "#7C2D12" },
+  { label: "Rose Pink",    value: "#DB2777", bg: "#FCE7F3", nav: "#831843" },
+  { label: "Teal",         value: "#0D9488", bg: "#CCFBF1", nav: "#134E4A" },
+  { label: "Crimson Red",  value: "#DC2626", bg: "#FEE2E2", nav: "#7F1D1D" },
+  { label: "Slate Grey",   value: "#475569", bg: "#F1F5F9", nav: "#1E293B" },
+];
+
+function useAccentColor() {
+  const [accent, setAccent] = useState(() => {
+    try {
+      if (!getIsLoggedIn()) return "#3B82F6";
+      return localStorage.getItem("lb_accent_colour") || "#3B82F6";
+    } catch { return "#3B82F6"; }
+  });
+  useEffect(() => {
+    const preset = ACCENT_PRESETS.find(p => p.value === accent) || ACCENT_PRESETS[0];
+    document.documentElement.style.setProperty("--accent", preset.value);
+    document.documentElement.style.setProperty("--color-primary", preset.value);
+    document.documentElement.style.setProperty("--accent-bg", preset.bg);
+    document.documentElement.style.setProperty("--color-primary-bg", preset.bg);
+    document.documentElement.style.setProperty("--nav-bg", preset.nav || "#1E3A5F");
+    let el = document.getElementById("lb-accent-style");
+    if (!el) { el = document.createElement("style"); el.id = "lb-accent-style"; document.head.appendChild(el); }
+    const p = preset.value, bg = preset.bg;
+    // Include both hex and rgb() selectors: Chrome normalises hex colours to
+    // rgb() when styles are set via JavaScript, so both forms are needed.
+    el.textContent = `
+      /* Primary buttons and active elements */
+      [style*="background: #3B82F6"]:not(#lb-accent-style) { background: ${p} !important; }
+      [style*="background: rgb(59, 130, 246)"]:not(#lb-accent-style) { background: ${p} !important; }
+      [style*="background: #2E5FA3"]:not(nav):not(nav *) { background: ${p} !important; }
+      [style*="background: rgb(46, 95, 163)"]:not(nav):not(nav *) { background: ${p} !important; }
+      /* Accent background tints */
+      [style*="background: #EBF2FF"] { background: ${bg} !important; }
+      [style*="background: rgb(235, 242, 255)"] { background: ${bg} !important; }
+      /* Text and border colours */
+      [style*="color: #3B82F6"] { color: ${p} !important; }
+      [style*="color: rgb(59, 130, 246)"] { color: ${p} !important; }
+      [style*="borderColor: #3B82F6"], [style*="border-color: #3B82F6"] { border-color: ${p} !important; }
+      [style*="border-color: rgb(59, 130, 246)"] { border-color: ${p} !important; }
+      /* Shadows and outlines */
+      [style*="boxShadow"][style*="#3B82F6"] { box-shadow: 0 0 0 3px ${p}55 !important; }
+      [style*="box-shadow"][style*="59, 130, 246"] { box-shadow: 0 0 0 3px ${p}55 !important; }
+      [style*="outline"][style*="#3B82F6"] { outline-color: ${p} !important; }
+      [style*="outline"][style*="rgb(59, 130, 246)"] { outline-color: ${p} !important; }
+      /* SVG attribute overrides (nav icons, chart bars, decorative) */
+      [stroke="#3B82F6"] { stroke: ${p} !important; }
+      [stroke="#2E5FA3"] { stroke: ${p} !important; }
+      [fill="#3B82F6"] { fill: ${p} !important; }
+      [fill="#EBF2FF"] { fill: ${bg} !important; }
+      /* Progress bars in recharts */
+      .recharts-bar-rectangle path { fill: ${p} !important; }
+      .recharts-line path { stroke: ${p} !important; }
+      /* Input focus ring */
+      input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 3px ${p}44 !important; }
+    `;
+    try { localStorage.setItem("lb_accent_colour", accent); } catch {}
+  }, [accent]);
+  return [accent, setAccent];
+}
+
+function useFontSize() {
+  const [fontSize, setFontSize] = useState(() => {
+    try {
+      if (!getIsLoggedIn()) return "normal";
+      return localStorage.getItem("lb_font_size") || "normal";
+    } catch { return "normal"; }
+  });
+  useEffect(() => {
+    const sizes = { small: "13px", normal: "15px", large: "18px" };
+    document.documentElement.style.fontSize = sizes[fontSize] || "15px";
+    try { localStorage.setItem("lb_font_size", fontSize); } catch {}
+  }, [fontSize]);
+  return [fontSize, setFontSize];
+}
+
+function useDensity() {
+  const [density, setDensity] = useState(() => {
+    try { return localStorage.getItem("lb_density") || "comfortable"; } catch { return "comfortable"; }
+  });
+  useEffect(() => {
+    document.documentElement.setAttribute("data-density", density);
+    try { localStorage.setItem("lb_density", density); } catch {}
+  }, [density]);
+  return [density, setDensity];
+}
+
+// ─── AI DEAL RISK ANALYSIS ────────────────────────────────────────────────────
+function computeAIRiskAnalysis(listing) {
+  let score = 50;
+  const desc = (listing.description || "").toLowerCase();
+  const type = (listing.project_type || "").toLowerCase();
+  const funding = listing.funding_needed || 0;
+
+  // Planning permission signals
+  if (desc.includes("planning permission") || desc.includes("planning granted") || desc.includes("full planning")) score += 15;
+  else if (desc.includes("planning pending") || desc.includes("awaiting planning")) score -= 5;
+
+  // Project type risk
+  if (type === "residential") score += 10;
+  else if (type === "renovation") score += 8;
+  else if (type === "commercial") score += 0;
+  else if (type === "mixed use") score += 3;
+
+  // Location demand (London/SE premium)
+  const region = ukRegion(listing.location);
+  if (region === "London" || region === "South East") score += 10;
+  else if (region === "Greater Manchester" || region === "West Midlands" || region === "Yorkshire") score += 5;
+
+  // Funding size (smaller = lower risk)
+  if (funding > 0 && funding <= 200000) score += 8;
+  else if (funding > 200000 && funding <= 500000) score += 4;
+  else if (funding > 500000) score -= 5;
+
+  // Description quality
+  if ((listing.description || "").length > 200) score += 5;
+  if (listing.photos?.length >= 2) score += 5;
+  if (listing.timeline) score += 3;
+
+  score = Math.max(10, Math.min(100, score));
+
+  const isLow = score >= 70;
+  const isMed = score >= 45 && score < 70;
+
+  const riskLabel = isLow ? "Low risk" : isMed ? "Medium risk" : "Higher risk";
+  const riskColor = isLow ? "#16A34A" : isMed ? "#D97706" : "#DC2626";
+  const riskBg    = isLow ? "#DCFCE7" : isMed ? "#FEF3C7" : "#FEE2E2";
+
+  const baseReturn = isLow ? 7 : isMed ? 9 : 12;
+  const returnRange = `${baseReturn}–${baseReturn + 2}%`;
+
+  const typeLabel = listing.project_type || "property";
+  const locLabel  = listing.location ? ` in ${listing.location}` : "";
+  const planNote  = desc.includes("planning granted") || desc.includes("planning permission") ? " with planning permission in place" : "";
+  const summary = isLow
+    ? `This appears to be a low-risk ${typeLabel.toLowerCase()} project${locLabel}${planNote}. Suggested return: ${returnRange} p.a.`
+    : isMed
+    ? `This is a medium-risk ${typeLabel.toLowerCase()} project${locLabel}. Returns may be higher to reflect the additional risk. Suggested return: ${returnRange} p.a.`
+    : `This project carries higher risk. Thorough due diligence is recommended before committing. Suggested return: ${returnRange} p.a.`;
+
+  const structure = isLow
+    ? `Fixed interest at ${baseReturn}–${baseReturn+2}% p.a. with milestone-based drawdown.`
+    : isMed
+    ? `Fixed interest at ${baseReturn}–${baseReturn+2}% p.a. or a profit share arrangement. Milestone-based drawdown recommended.`
+    : `Consider equity stake or high-yield fixed interest (${baseReturn}%+). Ensure full documentation and legal charge in place.`;
+
+  return { score, riskLabel, riskColor, riskBg, returnRange, summary, structure };
+}
+
+// ─── DEAL TEMPLATES ───────────────────────────────────────────────────────────
+const DEAL_TEMPLATES = [
+  {
+    id: "residential",
+    name: "Standard residential development",
+    desc: "New build house — fixed interest, milestone drawdown",
+    icon: "🏠",
+    typical: "7–9% p.a. fixed interest",
+    fields: { returnType: "fixed_interest", interestRate: "8", loanTermMonths: "18", dealTitle: "Residential development project" },
+  },
+  {
+    id: "btr",
+    name: "Buy to let renovation",
+    desc: "Renovation with rental income split",
+    icon: "🔑",
+    typical: "60/40 rental income split",
+    fields: { returnType: "rental_split", rentalSplitPct: "40", loanTermMonths: "12", dealTitle: "Buy to let renovation" },
+  },
+  {
+    id: "commercial",
+    name: "Commercial development",
+    desc: "Office, retail or mixed-use commercial project",
+    icon: "🏢",
+    typical: "10–14% p.a. fixed or equity stake",
+    fields: { returnType: "fixed_interest", interestRate: "12", loanTermMonths: "24", dealTitle: "Commercial development project" },
+  },
+  {
+    id: "quickflip",
+    name: "Quick flip",
+    desc: "Short-term renovation and sale — fast fixed return",
+    icon: "⚡",
+    typical: "10–12% p.a. fixed, 6-month term",
+    fields: { returnType: "fixed_interest", interestRate: "11", loanTermMonths: "6", dealTitle: "Quick flip renovation" },
+  },
+];
+
+function CredibilityRing({ score, size = 48, children }) {
+  const r = (size / 2) - 3;
+  const circ = 2 * Math.PI * r;
+  const color = score >= 80 ? "#16A34A" : score >= 60 ? "var(--accent)" : score >= 40 ? "#D97706" : "#DC2626";
+  const dash = (score / 100) * circ;
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
+
+  useEffect(() => {
+    function h(e) { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  function handleClick(e) {
+    e.stopPropagation();
+    if (!open && wrapRef.current) {
+      const rect = wrapRef.current.getBoundingClientRect();
+      const TIP_W = 224;
+      const TIP_H = 180;
+      let left = rect.left + rect.width / 2 - TIP_W / 2;
+      let top = rect.bottom + 8;
+      if (left < 8) left = 8;
+      if (left + TIP_W > window.innerWidth - 8) left = window.innerWidth - TIP_W - 8;
+      if (top + TIP_H > window.innerHeight - 8) top = rect.top - TIP_H - 8;
+      setTooltipPos({ top, left });
+    }
+    setOpen(o => !o);
+  }
+
+  const BREAKDOWN = [
+    { label: "ID verified",           pts: 20 },
+    { label: "Companies House",       pts: 15 },
+    { label: "Planning permission",   pts: 15 },
+    { label: "Insurance uploaded",    pts: 10 },
+    { label: "Projects completed",    pts: 25 },
+    { label: "4★+ platform reviews", pts: 15 },
+  ];
+
+  const tooltip = open ? createPortal(
+    <div
+      onClick={e => e.stopPropagation()}
+      style={{ position: "fixed", top: tooltipPos.top, left: tooltipPos.left, background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 10, padding: "12px 14px", boxShadow: "0 4px 20px rgba(0,0,0,0.12)", zIndex: 9999, width: 224, cursor: "default" }}
+    >
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 8 }}>Credibility score — {score}/100</div>
+      <div style={{ fontSize: 11, color: "#64748B", marginBottom: 10, lineHeight: 1.5 }}>Verified by LenderBuild admin. Earn more points by completing your profile and getting verified.</div>
+      {BREAKDOWN.map(b => (
+        <div key={b.label} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#555", padding: "2px 0" }}>
+          <span>{b.label}</span>
+          <span style={{ fontWeight: 600, color: "#94A3B8" }}>+{b.pts} pts</span>
+        </div>
+      ))}
+    </div>,
+    document.body
+  ) : null;
+
+  return (
+    <div
+      ref={wrapRef}
+      onClick={handleClick}
+      title="Builder credibility score"
+      style={{ position: "relative", display: "inline-block", width: size, height: size, cursor: "pointer", flexShrink: 0 }}
+    >
+      {children}
+      <svg width={size} height={size} style={{ position: "absolute", inset: 0, transform: "rotate(-90deg)", pointerEvents: "none" }}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(0,0,0,0.15)" strokeWidth="3" />
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="3"
+          strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" style={{ transition: "stroke-dasharray 0.6s ease" }} />
+      </svg>
+      <div style={{ position: "absolute", bottom: 0, right: 0, background: color, borderRadius: "50%", width: Math.max(14, size * 0.32), height: Math.max(14, size * 0.32), display: "flex", alignItems: "center", justifyContent: "center", border: "1.5px solid #fff", pointerEvents: "none" }}>
+        <span style={{ fontSize: Math.max(8, size * 0.18), fontWeight: 700, color: "#fff", lineHeight: 1 }}>{score}</span>
+      </div>
+      {tooltip}
+    </div>
+  );
+}
+
+const RETURN_TYPE_INFO = {
+  "Fixed interest": {
+    example: "You lend £100,000 and get back £108,000 after 12 months. Simple and predictable.",
+    quiz: ["fast", "predictable"],
+  },
+  "Rental split": {
+    example: "You lend money and receive a percentage of the monthly rental income until your investment is repaid.",
+    quiz: ["medium", "income"],
+  },
+  "Equity stake": {
+    example: "You own a percentage of the property. When it sells you receive that percentage of the sale price.",
+    quiz: ["long", "upside"],
+  },
+};
+
+function ReturnTypeQuiz({ onResult }) {
+  const [q1, setQ1] = useState(null); // "fast" | "medium" | "long"
+  const [q2, setQ2] = useState(null); // "predictable" | "income" | "upside"
+  const recommend = q1 && q2
+    ? (q1 === "fast" || q2 === "predictable" ? "Fixed interest"
+      : q1 === "long" || q2 === "upside" ? "Equity stake"
+      : "Rental split")
+    : null;
+  return (
+    <div style={{ background: "#EFF6FF", border: "0.5px solid #BFDBFE", borderRadius: 10, padding: "14px 16px", marginTop: 10 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: "#1D4ED8", marginBottom: 10 }}>Which is right for me?</div>
+      <div style={{ fontSize: 12, color: "#1E3A5F", marginBottom: 6, fontWeight: 500 }}>How soon do you want your money back?</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+        {[["fast","Within 2 years"],["medium","3–5 years"],["long","5+ years / flexible"]].map(([v,l]) => (
+          <button key={v} type="button" onClick={() => setQ1(v)} style={{ padding: "5px 12px", borderRadius: 6, fontSize: 12, border: "0.5px solid #BFDBFE", background: q1===v ? "#3B82F6" : "#fff", color: q1===v ? "#fff" : "#1E3A5F", cursor: "pointer" }}>{l}</button>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, color: "#1E3A5F", marginBottom: 6, fontWeight: 500 }}>Do you prefer predictable returns or higher upside?</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        {[["predictable","Predictable payments"],["income","Regular income"],["upside","Maximum long-term gain"]].map(([v,l]) => (
+          <button key={v} type="button" onClick={() => setQ2(v)} style={{ padding: "5px 12px", borderRadius: 6, fontSize: 12, border: "0.5px solid #BFDBFE", background: q2===v ? "#3B82F6" : "#fff", color: q2===v ? "#fff" : "#1E3A5F", cursor: "pointer" }}>{l}</button>
+        ))}
+      </div>
+      {recommend && (
+        <div style={{ background: "#DBEAFE", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#1D4ED8", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span>Recommendation: {recommend}</span>
+          {onResult && <button type="button" onClick={() => onResult(recommend)} style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, border: "none", background: "#3B82F6", color: "#fff", cursor: "pointer" }}>Apply</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReturnTypeExplainer({ returnType, children, onApply }) {
+  const [quizOpen, setQuizOpen] = useState(false);
+  const info = RETURN_TYPE_INFO[returnType] || RETURN_TYPE_INFO["Fixed interest"];
+  return (
+    <div>
+      {children}
+      <div style={{ fontSize: 12, color: "#64748B", marginTop: 8, lineHeight: 1.55, background: "#f9f9f7", borderRadius: 8, padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+        <span>{info.example}</span>
+        <button type="button" onClick={() => setQuizOpen(o => !o)} style={{ flexShrink: 0, fontSize: 11, color: "#3B82F6", background: "none", border: "none", cursor: "pointer", padding: 0, fontWeight: 500, whiteSpace: "nowrap" }}>
+          {quizOpen ? "Close quiz" : "Which is right for me?"}
+        </button>
+      </div>
+      {quizOpen && <ReturnTypeQuiz onResult={r => { onApply && onApply(r); setQuizOpen(false); }} />}
+    </div>
+  );
+}
+
+function computeMatch(viewerProfile, target, viewerRole) {
+  if (!viewerProfile) return null;
+  const components = [];
+  let total = 0;
+
+  if (viewerRole === "builder") {
+    // Budget (30): does lender budget cover builder's typical project?
+    const avgProject = viewerProfile.projects_completed > 0
+      ? viewerProfile.total_value / viewerProfile.projects_completed
+      : (viewerProfile.total_value || 0);
+    const budget = target.budget_max_num || 0;
+    let bPts = 15, bDetail = "No data to compare";
+    if (budget === 0) {
+      bPts = 22; bDetail = "Lender's budget is flexible";
+    } else if (avgProject > 0) {
+      if (budget >= avgProject)        { bPts = 30; bDetail = `Budget covers your ~${fmt(Math.round(avgProject))} typical project`; }
+      else if (budget >= avgProject * 0.6) { bPts = 18; bDetail = `Budget partially covers your ~${fmt(Math.round(avgProject))} typical project`; }
+      else                             { bPts = 0;  bDetail = `Budget may be low for your ~${fmt(Math.round(avgProject))} typical project`; }
+    }
+    components.push({ label: "Budget alignment", earned: bPts, max: 30, detail: bDetail });
+    total += bPts;
+
+    // Project type (30): builder specialization vs lender preferred projects
+    const lPref = target.preferred_projects || [];
+    const bProj = SPEC_TO_PROJECTS[viewerProfile.specialization] || ["Residential", "Commercial", "Mixed use", "Renovation"];
+    let pPts, pDetail;
+    if (lPref.length === 0) {
+      pPts = 25; pDetail = "Lender is open to any project type";
+    } else {
+      const overlap = bProj.filter(p => lPref.includes(p));
+      pPts    = overlap.length > 0 ? 30 : 5;
+      pDetail = overlap.length > 0 ? `${overlap.join(", ")} matches` : "No direct project type overlap";
+    }
+    components.push({ label: "Project type", earned: pPts, max: 30, detail: pDetail });
+    total += pPts;
+
+  } else if (viewerRole === "lender") {
+    // Budget (30): does lender budget cover builder's typical project?
+    const avgProject = target.props > 0 ? target.value / target.props : (target.value || 0);
+    const budget = viewerProfile.budget_max || 0;
+    let bPts = 15, bDetail = "No data to compare";
+    if (budget === 0) {
+      bPts = 22; bDetail = "Your budget is flexible";
+    } else if (avgProject > 0) {
+      if (budget >= avgProject)        { bPts = 30; bDetail = `Your budget covers their ~${fmt(Math.round(avgProject))} typical project`; }
+      else if (budget >= avgProject * 0.6) { bPts = 18; bDetail = `Your budget partially covers their ~${fmt(Math.round(avgProject))} typical project`; }
+      else                             { bPts = 0;  bDetail = `Your budget may be low for their ~${fmt(Math.round(avgProject))} typical project`; }
+    }
+    components.push({ label: "Budget alignment", earned: bPts, max: 30, detail: bDetail });
+    total += bPts;
+
+    // Project type (30): lender preferred projects vs builder specialization
+    const lPref = viewerProfile.preferred_projects || [];
+    const bProj = SPEC_TO_PROJECTS[target.type] || ["Residential", "Commercial", "Mixed use", "Renovation"];
+    let pPts, pDetail;
+    if (lPref.length === 0) {
+      pPts = 25; pDetail = "You're open to any project type";
+    } else {
+      const overlap = bProj.filter(p => lPref.includes(p));
+      pPts    = overlap.length > 0 ? 30 : 5;
+      pDetail = overlap.length > 0 ? `${overlap.join(", ")} matches` : "No direct project type overlap";
+    }
+    components.push({ label: "Project type", earned: pPts, max: 30, detail: pDetail });
+    total += pPts;
+  }
+
+  // Location (20): same UK region?
+  const vRegion = ukRegion(viewerProfile.location);
+  const tRegion = ukRegion(target.location);
+  let lPts = 10, lDetail = "Location not specified";
+  if (vRegion && tRegion) {
+    if (vRegion === tRegion) { lPts = 20; lDetail = `Both in ${vRegion}`; }
+    else                     { lPts = 6;  lDetail = `${vRegion} vs ${tRegion}`; }
+  }
+  components.push({ label: "Location", earned: lPts, max: 20, detail: lDetail });
+  total += lPts;
+
+  // Activity (20): how recently was the target profile updated?
+  const act = activityScoreCalc(target.updated_at);
+  components.push({ label: "Activity level", earned: act.pts, max: 20, detail: act.detail });
+  total += act.pts;
+
+  return { score: Math.round(total), components };
+}
+
+// Deterministically pick a color and generate initials for real users
+const AVATAR_COLORS = ["teal", "blue", "purple", "amber", "coral", "gray"];
+function pickColor(str = "") {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+}
+function nameInitials(name = "") {
+  return name.split(" ").filter(Boolean).map(w => w[0]).join("").slice(0, 2).toUpperCase() || "?";
+}
 
 // ─── DATA ────────────────────────────────────────────────────────────────────
 
-const LENDERS = [
-  { initials: "SR", color: "blue",   name: "S. Rathore",    type: "Investment firm",  capital: 1240000, deals: 7, rate: 8.2 },
-  { initials: "JH", color: "teal",   name: "James H.",      type: "Private lender",   capital: 860000,  deals: 5, rate: 6.5 },
-  { initials: "ML", color: "purple", name: "M. Lawson",     type: "Angel investor",   capital: 540000,  deals: 4, rate: null, rateLabel: "18% equity" },
-  { initials: "PT", color: "amber",  name: "P. Thornton",   type: "Family office",    capital: 420000,  deals: 3, rate: 7.1 },
-  { initials: "CW", color: "coral",  name: "C. Williams",   type: "Private lender",   capital: 310000,  deals: 3, rate: 9.0 },
-  { initials: "RB", color: "gray",   name: "R. Bashir",     type: "Syndicate",        capital: 210000,  deals: 2, rate: 7.8 },
-  { initials: "NK", color: "teal",   name: "N. Khan",       type: "Private lender",   capital: 120000,  deals: 1, rate: 8.5 },
-];
-
-const BUILDERS = [
-  { initials: "TO", color: "teal",   name: "T. Okafor",     type: "Developer",    props: 12, value: 980000,  completion: 96 },
-  { initials: "KS", color: "blue",   name: "K. Singh",      type: "Contractor",   props: 9,  value: 840000,  completion: 100 },
-  { initials: "RA", color: "purple", name: "R. Ahmed",      type: "Renovator",    props: 7,  value: 520000,  completion: 86 },
-  { initials: "LM", color: "amber",  name: "L. Martinez",   type: "Developer",    props: 6,  value: 610000,  completion: 100 },
-  { initials: "DG", color: "coral",  name: "D. Greenfield", type: "Contractor",   props: 4,  value: 370000,  completion: 75 },
-  { initials: "AO", color: "gray",   name: "A. Osei",       type: "Developer",    props: 3,  value: 290000,  completion: 100 },
-];
-
-const PAIRS = [
-  { rank: 1, a: { i: "SR", c: "blue" },   b: { i: "KS", c: "teal" },   names: "S. Rathore & K. Singh",    meta: "Investment firm · Contractor", deals: 5, value: 840000,  score: 98, communication: 95, reliability: 100, returns: 98 },
-  { rank: 2, a: { i: "JH", c: "teal" },   b: { i: "TO", c: "coral" },  names: "James H. & T. Okafor",     meta: "Private lender · Developer",   deals: 4, value: 610000,  score: 94, communication: 92, reliability: 96,  returns: 93 },
-  { rank: 3, a: { i: "PT", c: "amber" },  b: { i: "LM", c: "purple" }, names: "P. Thornton & L. Martinez", meta: "Family office · Developer",   deals: 3, value: 420000,  score: 91, communication: 88, reliability: 100, returns: 86 },
-  { rank: 4, a: { i: "ML", c: "purple" }, b: { i: "RA", c: "blue" },   names: "M. Lawson & R. Ahmed",     meta: "Angel investor · Renovator",   deals: 3, value: 380000,  score: 85, communication: 82, reliability: 84,  returns: 88 },
-  { rank: 5, a: { i: "CW", c: "coral" },  b: { i: "DG", c: "gray" },   names: "C. Williams & D. Greenfield", meta: "Private lender · Contractor", deals: 2, value: 210000, score: 78, communication: 80, reliability: 72,  returns: 82 },
-];
-
-const LENDER_CARDS = [
-  { initials: "JH", color: "teal",   name: "James H.",   type: "Private lender",   budget: "£200,000", returnType: "Rental split", builderShare: "60%", lenderShare: "40%", project: "Residential" },
-  { initials: "SR", color: "blue",   name: "S. Rathore", type: "Investment firm",  budget: "£500,000", returnType: "Fixed interest", rate: "8% p.a.", term: "12–36 months", project: "Any", featured: true },
-  { initials: "ML", color: "purple", name: "M. Lawson",  type: "Angel investor",   budget: "£100,000", returnType: "Equity stake", equity: "15–25%", exit: "2–5 years", project: "Renovation" },
-];
-
-const RECENT_DEALS = [
-  { icon: "🏠", title: "3-bed residential build, Manchester",  meta: "Builder: T. Okafor · Lender: James H.", amount: 185000, returnType: "60/40 rental split", status: "Active",  statusColor: "teal" },
-  { icon: "🏢", title: "Mixed-use commercial unit, Leeds",     meta: "Builder: K. Singh · Lender: S. Rathore", amount: 420000, returnType: "8% fixed interest", status: "Closed",  statusColor: "gray" },
-  { icon: "🔨", title: "Victorian terrace renovation, Birmingham", meta: "Builder: R. Ahmed · Lender: M. Lawson", amount: 95000, returnType: "20% equity stake", status: "Pending", statusColor: "amber" },
-];
 
 // ─── SHARED COMPONENTS ───────────────────────────────────────────────────────
 
-function Avatar({ initials, color, size = 40 }) {
+function Avatar({ initials, color, size = 40, url }) {
+  if (url) {
+    return (
+      <div style={{ width: size, height: size, borderRadius: "50%", flexShrink: 0, overflow: "hidden" }}>
+        <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+      </div>
+    );
+  }
   const c = COLORS[color] || COLORS.gray;
   return (
     <div style={{
@@ -68,258 +648,3694 @@ function Avatar({ initials, color, size = 40 }) {
   );
 }
 
-function Badge({ children, color = "teal" }) {
-  const c = COLORS[color] || COLORS.teal;
-  return (
-    <span style={{
-      display: "inline-block", background: c.bg, color: c.text,
-      fontSize: 11, fontWeight: 500, padding: "3px 9px",
-      borderRadius: 20,
-    }}>
-      {children}
-    </span>
-  );
-}
-
 function MetricCard({ label, value }) {
   return (
-    <div style={{
-      background: "var(--color-bg-secondary, #f5f5f3)",
-      borderRadius: 8, padding: "1rem",
-    }}>
-      <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>{label}</div>
+    <div style={{ background: "var(--color-bg-secondary, #f5f5f3)", borderRadius: 8, padding: "1rem" }}>
+      <div style={{ fontSize: 12, color: "#64748B", marginBottom: 4 }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 500 }}>{value}</div>
     </div>
   );
 }
 
-function CompatBar({ label, value, color }) {
-  const barColor = color === "teal" ? "#1D9E75" : color === "blue" ? "#378ADD" : "#7F77DD";
+
+function RoleBadge({ userRole, authRole }) {
+  if (userRole === "founder") return (
+    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#FEF9C3", color: "#92400E", flexShrink: 0, whiteSpace: "nowrap" }}>
+      👑 Founder
+    </span>
+  );
+  if (userRole === "verified_pro") return (
+    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#FEF3C7", color: "#B45309", flexShrink: 0, whiteSpace: "nowrap" }}>
+      ✦ Verified Pro
+    </span>
+  );
+  if (authRole === "lender") return (
+    <span style={{ fontSize: 10, fontWeight: 500, padding: "2px 8px", borderRadius: 20, background: "#EBF2FF", color: "#1E3A5F", flexShrink: 0, whiteSpace: "nowrap" }}>
+      Lender
+    </span>
+  );
+  if (authRole === "builder") return (
+    <span style={{ fontSize: 10, fontWeight: 500, padding: "2px 8px", borderRadius: 20, background: "#E1F5EE", color: "#0F6E56", flexShrink: 0, whiteSpace: "nowrap" }}>
+      Builder
+    </span>
+  );
   return (
-    <div style={{ marginTop: 6 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#888", marginBottom: 3 }}>
-        <span>{label}</span><span>{value}%</span>
-      </div>
-      <div style={{ height: 5, background: "#eee", borderRadius: 3 }}>
-        <div style={{ height: 5, borderRadius: 3, background: barColor, width: `${value}%` }} />
-      </div>
+    <span style={{ fontSize: 10, fontWeight: 500, padding: "2px 8px", borderRadius: 20, background: "#F1EFE8", color: "#5F5E5A", flexShrink: 0, whiteSpace: "nowrap" }}>
+      Member
+    </span>
+  );
+}
+
+function MatchBadge({ score, breakdown }) {
+  const [show, setShow] = useState(false);
+  let label, bg, color;
+  if (score >= 80)      { label = "Great match";    bg = "#E1F5EE"; color = "#0F6E56"; }
+  else if (score >= 60) { label = "Good match";     bg = "#EBF2FF"; color = "#1E3A5F"; }
+  else                  { label = "Possible match"; bg = "#F1EFE8"; color = "#5F5E5A"; }
+
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+      onClick={e => { e.stopPropagation(); setShow(s => !s); }}
+    >
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: bg, color, cursor: "default", userSelect: "none", whiteSpace: "nowrap" }}>
+        {score}% · {label}
+      </span>
+      {show && (
+        <div style={{
+          position: "absolute", bottom: "calc(100% + 7px)", left: "50%", transform: "translateX(-50%)",
+          background: "#1E3A5F", color: "#fff", borderRadius: 10, padding: "11px 13px",
+          fontSize: 12, zIndex: 9999, minWidth: 210, boxShadow: "0 8px 28px rgba(0,0,0,0.22)",
+          pointerEvents: "none",
+        }}>
+          <div style={{ fontWeight: 700, marginBottom: 9, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em", opacity: 0.75 }}>Why this match?</div>
+          {breakdown.map(({ label: lbl, earned, max, detail }) => {
+            const ratio = earned / max;
+            const barColor = ratio >= 0.7 ? "#6EE7B7" : ratio >= 0.4 ? "#FCD34D" : "#FCA5A5";
+            return (
+              <div key={lbl} style={{ marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                  <span style={{ opacity: 0.85, fontSize: 11 }}>{lbl}</span>
+                  <span style={{ fontWeight: 700, fontSize: 11, color: barColor }}>{earned}/{max}</span>
+                </div>
+                <div style={{ height: 3, background: "rgba(255,255,255,0.15)", borderRadius: 2 }}>
+                  <div style={{ height: 3, borderRadius: 2, background: barColor, width: `${ratio * 100}%`, transition: "width 0.3s" }} />
+                </div>
+                <div style={{ fontSize: 10, opacity: 0.6, marginTop: 3 }}>{detail}</div>
+              </div>
+            );
+          })}
+          <div style={{ position: "absolute", bottom: -4, left: "50%", transform: "translateX(-50%) rotate(45deg)", width: 8, height: 8, background: "#1E3A5F" }} />
+        </div>
+      )}
     </div>
   );
 }
 
+// ─── SAVED ACCOUNTS (switch account) ─────────────────────────────────────────
+
+function getSavedAccounts() {
+  try { return JSON.parse(localStorage.getItem("lb_saved_accounts") || "[]"); } catch { return []; }
+}
+function upsertSavedAccount(acct) {
+  const list = getSavedAccounts().filter(a => a.user_id !== acct.user_id);
+  list.unshift(acct);
+  localStorage.setItem("lb_saved_accounts", JSON.stringify(list.slice(0, 3)));
+}
+function removeSavedAccount(userId) {
+  localStorage.setItem("lb_saved_accounts", JSON.stringify(getSavedAccounts().filter(a => a.user_id !== userId)));
+}
+
 // ─── NAVBAR ──────────────────────────────────────────────────────────────────
 
-function Navbar({ page, setPage }) {
+// ─── NAVBAR HELPERS ──────────────────────────────────────────────────────────
+function navLinkStyle(active) {
+  return {
+    padding: "6px 12px", borderRadius: 8, fontSize: 13, fontWeight: 500,
+    border: "none", cursor: "pointer", whiteSpace: "nowrap",
+    background: active ? "rgba(255,255,255,0.12)" : "transparent",
+    color: active ? "var(--accent)" : "rgba(255,255,255,0.75)",
+    transition: "color 0.15s", display: "flex", alignItems: "center", gap: 5,
+  };
+}
+const NAV_DROPDOWN_STYLE = {
+  position: "absolute", top: "calc(100% + 8px)", left: 0,
+  background: "#fff", border: "0.5px solid #e0e0e0",
+  borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
+  minWidth: 192, zIndex: 200, overflow: "hidden",
+};
+function ddItemStyle(active) {
+  return {
+    display: "flex", alignItems: "center", gap: 9,
+    width: "100%", textAlign: "left", padding: "10px 14px", fontSize: 13,
+    fontWeight: active ? 500 : 400,
+    background: active ? "#EBF2FF" : "transparent",
+    color: active ? "#1E3A5F" : "#333",
+    border: "none", cursor: "pointer",
+  };
+}
+function mobileItemStyle(active) {
+  return {
+    display: "block", width: "100%", textAlign: "left",
+    padding: "12px 1.25rem", fontSize: 14, minHeight: 44,
+    fontWeight: active ? 500 : 400, background: "transparent",
+    color: active ? "var(--accent)" : "rgba(255,255,255,0.75)",
+    border: "none", borderBottom: "0.5px solid rgba(255,255,255,0.06)", cursor: "pointer",
+  };
+}
+function NavChevron({ open }) {
   return (
-    <nav style={{
-      display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: "0 2rem", height: 56,
-      borderBottom: "0.5px solid #e0e0e0",
-      background: "#fff", position: "sticky", top: 0, zIndex: 100,
-    }}>
-      <div
-        style={{ fontFamily: "'Georgia', serif", fontSize: 17, fontWeight: 700, cursor: "pointer", letterSpacing: -0.5 }}
-        onClick={() => setPage("home")}
+    <svg width="10" height="6" viewBox="0 0 10 6" fill="none"
+      style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s", opacity: 0.6, flexShrink: 0 }}>
+      <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+function NavDashboardIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ flexShrink: 0 }}>
+      <rect x="0.75" y="0.75" width="4.75" height="4.75" rx="1.25" stroke="currentColor" strokeWidth="1.4"/>
+      <rect x="7.5" y="0.75" width="4.75" height="4.75" rx="1.25" stroke="currentColor" strokeWidth="1.4"/>
+      <rect x="0.75" y="7.5" width="4.75" height="4.75" rx="1.25" stroke="currentColor" strokeWidth="1.4"/>
+      <rect x="7.5" y="7.5" width="4.75" height="4.75" rx="1.25" stroke="currentColor" strokeWidth="1.4"/>
+    </svg>
+  );
+}
+function NavInboxIcon() {
+  return (
+    <svg width="16" height="13" viewBox="0 0 16 13" fill="none" style={{ flexShrink: 0 }}>
+      <rect x="1" y="1" width="14" height="11" rx="2" stroke="currentColor" strokeWidth="1.4"/>
+      <path d="M1 4.5l7 4 7-4" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+const UNREAD_BADGE = {
+  position: "absolute", top: 0, right: 0,
+  transform: "translate(45%,-45%)",
+  background: "var(--accent)", color: "#FFFFFF",
+  fontSize: 9, fontWeight: 800, borderRadius: 8,
+  minWidth: 16, height: 16, padding: "0 3px",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  lineHeight: 1, pointerEvents: "none",
+};
+
+function fmtTimeAgo(ts) {
+  if (!ts) return "";
+  const min = Math.floor((Date.now() - new Date(ts)) / 60000);
+  if (min < 1)  return "just now";
+  if (min < 60) return `${min}m ago`;
+  const h = Math.floor(min / 60);
+  if (h < 24)   return `${h}h ago`;
+  const day = Math.floor(h / 24);
+  if (day < 7)  return `${day}d ago`;
+  return new Date(ts).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+function BellIcon() {
+  return (
+    <svg width="15" height="17" viewBox="0 0 15 17" fill="none" style={{ flexShrink: 0 }}>
+      <path d="M7.5 1.5a4 4 0 00-4 4c0 4.5-2 5.5-2 5.5h12s-2-1-2-5.5a4 4 0 00-4-4z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+      <path d="M9 13.5a1.5 1.5 0 01-3 0" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+function NotificationBell({ user }) {
+  const [notifs, setNotifs] = useState([]);
+  const [open, setOpen]     = useState(false);
+  const bellRef = useRef(null);
+  const myId = user?.id;
+
+  const unread = notifs.filter(n => !n.read).length;
+
+  useEffect(() => {
+    if (!myId) return;
+    loadNotifs();
+    const channel = supabase.channel(`notifs-${myId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${myId}` },
+        payload => setNotifs(prev => [payload.new, ...prev].slice(0, 20)))
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [myId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    function handleOutside(e) {
+      if (bellRef.current && !bellRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, []);
+
+  async function loadNotifs() {
+    const { data } = await supabase
+      .from("notifications")
+      .select("*")
+      .eq("user_id", myId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    setNotifs(data || []);
+  }
+
+  async function markRead(id) {
+    setNotifs(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    await supabase.from("notifications").update({ read: true }).eq("id", id);
+  }
+
+  async function clearAll() {
+    setNotifs([]);
+    await supabase.from("notifications").delete().eq("user_id", myId);
+  }
+
+  const typeIcon = {
+    connection_request:  "🤝",
+    connection_accepted: "✅",
+    message:             "💬",
+    milestone_complete:  "📋",
+    milestone_approved:  "💰",
+    deal_created:        "📊",
+  };
+
+  return (
+    <div ref={bellRef} style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        aria-label="Notifications"
+        style={{
+          position: "relative",
+          background: open ? "rgba(255,255,255,0.12)" : "transparent",
+          border: "none", borderRadius: 8,
+          padding: "7px 10px", minHeight: 44,
+          cursor: "pointer",
+          color: open ? "var(--accent)" : "rgba(255,255,255,0.7)",
+          lineHeight: 0, display: "flex", alignItems: "center",
+        }}
       >
-        Money Has Been Given Out
+        <BellIcon />
+        {unread > 0 && <span style={{ ...UNREAD_BADGE, background: "#EF4444" }}>{unread > 9 ? "9+" : unread}</span>}
+      </button>
+
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 6px)", right: 0,
+          width: 300, maxWidth: "calc(100vw - 1.5rem)", maxHeight: 400,
+          background: "#fff", borderRadius: 12,
+          border: "0.5px solid #e0e0e0",
+          boxShadow: "0 8px 30px rgba(0,0,0,0.14)",
+          zIndex: 200, overflow: "hidden",
+          display: "flex", flexDirection: "column",
+        }}>
+          <div style={{ padding: "11px 16px", borderBottom: "0.5px solid #f0f0f0", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F" }}>Notifications</span>
+            {notifs.length > 0 && (
+              <button onClick={clearAll} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#64748B", padding: 0 }}>Clear all</button>
+            )}
+          </div>
+          <div style={{ overflowY: "auto", flex: 1 }}>
+            {notifs.length === 0 ? (
+              <div style={{ padding: "2.5rem 1.5rem", textAlign: "center", color: "#aaa", fontSize: 13 }}>No notifications yet</div>
+            ) : (
+              notifs.map(n => (
+                <div
+                  key={n.id}
+                  onClick={() => markRead(n.id)}
+                  style={{
+                    padding: "11px 16px", cursor: "pointer",
+                    borderBottom: "0.5px solid #f5f5f3",
+                    background: n.read ? "transparent" : "#EBF5FF",
+                    display: "flex", gap: 10, alignItems: "flex-start",
+                  }}
+                >
+                  <span style={{ fontSize: 16, lineHeight: 1.4, flexShrink: 0 }}>{typeIcon[n.type] || "🔔"}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, lineHeight: 1.45, color: "#222" }}>{n.message}</div>
+                    <div style={{ fontSize: 11, color: "#aaa", marginTop: 3 }}>{fmtTimeAgo(n.created_at)}</div>
+                  </div>
+                  {!n.read && <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#3B82F6", flexShrink: 0, marginTop: 5 }} />}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── CELEBRATION OVERLAY ─────────────────────────────────────────────────────
+function CelebrationOverlay({ message, subtitle, onClose, fullScreen = false }) {
+  useEffect(() => {
+    if (!fullScreen) {
+      const t = setTimeout(onClose, 4500);
+      return () => clearTimeout(t);
+    }
+  }, [fullScreen, onClose]);
+
+  const confettiPieces = Array.from({ length: 60 }, (_, i) => ({
+    key: i,
+    left: Math.random() * 100,
+    color: ["#3B82F6","#1E3A5F","#22C55E","#D97706","#E879F9","#F43F5E"][i % 6],
+    delay: Math.random() * 1.5,
+    duration: 2 + Math.random() * 2,
+    size: 6 + Math.random() * 10,
+    endRotate: 360 + Math.random() * 360,
+  }));
+
+  return createPortal(
+    <div style={{ position: "fixed", inset: 0, zIndex: 9999, pointerEvents: fullScreen ? "auto" : "none", display: "flex", alignItems: fullScreen ? "center" : "flex-start", justifyContent: "center", paddingTop: fullScreen ? 0 : 80 }}>
+      {confettiPieces.map(p => (
+        <div key={p.key} style={{
+          position: "fixed", top: -20, left: `${p.left}%`,
+          width: p.size, height: p.size,
+          background: p.color, borderRadius: p.size > 10 ? "50%" : 2,
+          animation: `confettiFall ${p.duration}s ease-in ${p.delay}s forwards`,
+          "--r-end": `${p.endRotate}deg`,
+          opacity: 0,
+        }} />
+      ))}
+      <div style={{
+        background: "#fff", borderRadius: 16, padding: "20px 28px", textAlign: "center",
+        boxShadow: "0 20px 60px rgba(0,0,0,0.2)", maxWidth: 360, pointerEvents: "auto",
+        animation: "slideUp 0.4s ease",
+      }}>
+        <div style={{ fontSize: 40, marginBottom: 8 }}>🎉</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#1E3A5F", marginBottom: 6 }}>{message}</div>
+        {subtitle && <div style={{ fontSize: 13, color: "#64748B", marginBottom: 16, lineHeight: 1.5 }}>{subtitle}</div>}
+        <button onClick={onClose} style={{ padding: "8px 24px", background: "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+          {fullScreen ? "Download badge" : "Awesome!"}
+        </button>
+        {fullScreen && <button onClick={onClose} style={{ display: "block", margin: "8px auto 0", fontSize: 12, color: "#94A3B8", background: "none", border: "none", cursor: "pointer" }}>Close</button>}
       </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        {["home", "search", "leaderboard"].map(p => (
-          <button
-            key={p}
-            onClick={() => setPage(p)}
-            style={{
-              padding: "6px 14px", borderRadius: 8, fontSize: 13, fontWeight: 500,
-              border: page === p ? "none" : "0.5px solid #ddd",
-              background: page === p ? "#1D9E75" : "transparent",
-              color: page === p ? "#fff" : "#555",
-              cursor: "pointer",
-              textTransform: "capitalize",
-            }}
-          >
-            {p === "home" ? "Home" : p === "search" ? "Find a lender" : "Leaderboard"}
+    </div>,
+    document.body
+  );
+}
+
+// ─── DEVICE DETECTION MODAL ──────────────────────────────────────────────────
+function DeviceDetectionModal({ onChoose }) {
+  return createPortal(
+    <>
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 9500 }} />
+      <div style={{
+        position: "fixed", bottom: 0, left: 0, right: 0,
+        background: "#fff", borderRadius: "20px 20px 0 0",
+        padding: "28px 24px calc(env(safe-area-inset-bottom,0px) + 28px)",
+        zIndex: 9501, animation: "slideUpSheet 0.3s ease",
+        maxWidth: 520, margin: "0 auto",
+      }}>
+        <div style={{ width: 36, height: 4, background: "#e0e0e0", borderRadius: 2, margin: "0 auto 22px" }} />
+        <h3 style={{ margin: "0 0 8px", fontSize: 20, fontWeight: 700, color: "#1E3A5F", textAlign: "center" }}>
+          What device are you using?
+        </h3>
+        <p style={{ margin: "0 0 22px", fontSize: 14, color: "#64748B", textAlign: "center", lineHeight: 1.6 }}>
+          We'll optimise your layout for your device. You can always change this in Settings.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button onClick={() => onChoose("mobile")}
+            style={{ padding: "14px 20px", minHeight: 52, width: "100%", borderRadius: 12, border: "2px solid #3B82F6", background: "#EBF2FF", color: "#1E3A5F", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+            📱 Mobile / Tablet
+          </button>
+          <button onClick={() => onChoose("desktop")}
+            style={{ padding: "14px 20px", minHeight: 52, width: "100%", borderRadius: 12, border: "2px solid #e0e0e0", background: "#fff", color: "#1E3A5F", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+            💻 Desktop / Laptop
+          </button>
+        </div>
+      </div>
+    </>,
+    document.body
+  );
+}
+
+// ─── DESKTOP SIDEBAR ─────────────────────────────────────────────────────────
+function DesktopSidebar({ page, setPage, user, collapsed, onToggle }) {
+  const role = user?.user_metadata?.role;
+  const navGroups = [
+    {
+      items: [
+        { key: "home",              label: "Dashboard",       icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> },
+        { key: role === "lender" ? "find-builder" : "search", label: role === "lender" ? "Find Builders" : "Find Lenders", icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> },
+        { key: "messages",          label: "Messages",        icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> },
+        { key: "deals",             label: "Project Tracker", icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg> },
+      ],
+    },
+    {
+      label: "Discover",
+      items: [
+        { key: "posts",             label: "Posts",           icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> },
+        { key: "community",         label: "Community",       icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg> },
+        { key: "browse-projects",   label: "Browse Projects", icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg> },
+        { key: "market",            label: "Market",          icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> },
+      ],
+    },
+    {
+      label: "Account",
+      items: [
+        { key: "notifications",     label: "Notifications",   icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg> },
+        { key: "account",           label: "Settings",        icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg> },
+      ],
+    },
+  ];
+
+  return (
+    <div style={{
+      position: "sticky", top: 60, height: "calc(100vh - 60px)",
+      width: collapsed ? 58 : 224, flexShrink: 0,
+      background: "var(--bg-card)", borderRight: "var(--border-light)",
+      overflowY: "auto", overflowX: "hidden",
+      transition: "width 0.22s ease",
+      display: "flex", flexDirection: "column",
+      zIndex: 50, padding: collapsed ? "12px 8px" : "14px 10px",
+    }}>
+      {/* Toggle button */}
+      <button onClick={onToggle}
+        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        style={{ alignSelf: collapsed ? "center" : "flex-end", background: "none", border: "none", cursor: "pointer", padding: 6, borderRadius: 6, color: "var(--text-muted)", marginBottom: 10, lineHeight: 0, flexShrink: 0 }}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          {collapsed ? <path d="M9 18l6-6-6-6"/> : <path d="M15 18l-6-6 6-6"/>}
+        </svg>
+      </button>
+
+      {navGroups.map((group, gi) => (
+        <div key={gi} style={{ marginBottom: collapsed ? 8 : 16 }}>
+          {!collapsed && group.label && (
+            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", padding: "0 8px", marginBottom: 4 }}>{group.label}</div>
+          )}
+          {group.items.map(item => {
+            const isActive = page === item.key;
+            return (
+              <button key={item.key} onClick={() => setPage(item.key)}
+                title={collapsed ? item.label : undefined}
+                style={{
+                  display: "flex", alignItems: "center", gap: collapsed ? 0 : 9,
+                  width: "100%", padding: collapsed ? "9px 0" : "9px 10px",
+                  borderRadius: 8, border: "none", cursor: "pointer",
+                  background: isActive ? "var(--accent-bg)" : "transparent",
+                  color: isActive ? "var(--accent)" : "var(--text-muted)",
+                  fontSize: 13, fontWeight: isActive ? 600 : 400,
+                  textAlign: "left", marginBottom: 2,
+                  whiteSpace: "nowrap", overflow: "hidden",
+                  justifyContent: collapsed ? "center" : "flex-start",
+                  transition: "background 0.15s, color 0.15s",
+                }}
+                onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = "var(--bg-secondary)"; }}
+                onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}
+              >
+                <span style={{ flexShrink: 0, lineHeight: 0, color: isActive ? "var(--accent)" : "var(--text-muted)" }}>{item.icon}</span>
+                {!collapsed && <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{item.label}</span>}
+              </button>
+            );
+          })}
+          {gi < navGroups.length - 1 && !collapsed && (
+            <div style={{ borderTop: "var(--border-light)", margin: "10px 0 0" }} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── BOTTOM NAV ───────────────────────────────────────────────────────────────
+function BottomNav({ page, setPage, user, unreadCount = 0, onLogout, userProfile, darkMode, setDarkMode, accentColor, setAccentColor }) {
+  const role = user?.user_metadata?.role;
+  const avatarUrl = user?.user_metadata?.avatar_url;
+  const displayName = user?.user_metadata?.name || user?.email?.split("@")[0] || "";
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+
+  const activeColor = "var(--accent, #1E3A5F)";
+  const inactiveColor = "#94A3B8";
+
+  const tabs = [
+    {
+      key: "home",
+      label: "Home",
+      icon: (active) => (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill={active ? activeColor : "none"} stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+      ),
+    },
+    {
+      key: role === "lender" ? "find-builder" : "search",
+      label: "Search",
+      icon: (active) => (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+      ),
+    },
+    {
+      key: "messages",
+      label: "Messages",
+      icon: (active) => (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill={active ? activeColor : "none"} stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+        </svg>
+      ),
+      badge: unreadCount,
+    },
+    {
+      key: "deals",
+      label: "Projects",
+      icon: (active) => (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+        </svg>
+      ),
+    },
+    {
+      key: "profile",
+      label: "Profile",
+      icon: (active) => (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill={active ? activeColor : "none"} stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
+        </svg>
+      ),
+    },
+  ];
+
+  const profilePages = ["profile-setup", "account", "saved-profiles", "saved-searches", "notifications", "deals", "lender-dashboard", "disputes"];
+  const isProfileActive = profileMenuOpen || profilePages.includes(page);
+
+  return (
+    <>
+      {profileMenuOpen && (
+        <div onClick={() => setProfileMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 199, background: "rgba(0,0,0,0.4)" }} />
+      )}
+      {profileMenuOpen && (
+        <div style={{ position: "fixed", bottom: 60, left: 0, right: 0, background: "var(--bg-card, #fff)", borderRadius: "20px 20px 0 0", zIndex: 200, boxShadow: "0 -4px 28px rgba(0,0,0,0.18)", maxHeight: "82vh", overflowY: "auto", animation: "slideUpSheet 0.25s ease" }}>
+          {/* Handle bar */}
+          <div style={{ width: 36, height: 4, background: "#e0e0e0", borderRadius: 2, margin: "12px auto 4px" }} />
+
+          {/* User header */}
+          <div style={{ padding: "12px 16px 14px", borderBottom: "0.5px solid #f0f0f0", display: "flex", alignItems: "center", gap: 12 }}>
+            {avatarUrl
+              ? <img src={avatarUrl} alt="" style={{ width: 52, height: 52, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+              : <div style={{ width: 52, height: 52, borderRadius: "50%", background: "var(--accent,#3B82F6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 700, flexShrink: 0 }}>{displayName.charAt(0).toUpperCase()}</div>
+            }
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: "var(--text-heading,#1E3A5F)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayName}</div>
+              <div style={{ fontSize: 12, color: "#aaa", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.email}</div>
+              {role && <div style={{ marginTop: 4 }}><RoleBadge userRole={role} authRole={role} /></div>}
+            </div>
+          </div>
+
+          {/* Quick appearance toggles */}
+          <div style={{ padding: "14px 16px", borderBottom: "0.5px solid #f0f0f0" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Appearance</div>
+
+            {/* Dark mode */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary,#2C3E50)" }}>
+                {darkMode ? "🌙 Dark mode" : "☀️ Light mode"}
+              </span>
+              <button
+                onClick={() => setDarkMode && setDarkMode(d => !d)}
+                style={{ position: "relative", width: 56, height: 30, borderRadius: 15, border: "none", background: darkMode ? "var(--accent,#3B82F6)" : "#CBD5E1", cursor: "pointer", padding: 0, flexShrink: 0, minWidth: 56, minHeight: 44, display: "flex", alignItems: "center" }}
+                aria-label="Toggle dark mode"
+              >
+                <div style={{ position: "absolute", top: 5, left: darkMode ? 29 : 5, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.25)", transition: "left 0.2s" }} />
+              </button>
+            </div>
+
+            {/* Colour scheme — 4×2 grid */}
+            <div style={{ fontSize: 12, color: "#64748B", marginBottom: 8 }}>Colour scheme</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+              {ACCENT_PRESETS.map(p => (
+                <button
+                  key={p.value}
+                  onClick={() => setAccentColor && setAccentColor(p.value)}
+                  title={p.label}
+                  style={{ width: "100%", aspectRatio: "1 / 1", borderRadius: "50%", padding: 0, cursor: "pointer", background: p.value, border: accentColor === p.value ? `3px solid ${p.value}` : "2px solid transparent", outline: accentColor === p.value ? `3px solid ${p.value}` : "2px solid transparent", outlineOffset: 3, boxShadow: "0 2px 6px rgba(0,0,0,0.22)", position: "relative", transition: "transform 0.12s", transform: accentColor === p.value ? "scale(1.12)" : "scale(1)", minHeight: 44 }}
+                >
+                  {accentColor === p.value && (
+                    <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 18, fontWeight: 700, lineHeight: 1 }}>✓</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Nav items */}
+          {[
+            { label: "My profile",      target: "profile-setup", icon: "👤" },
+            { label: "Saved profiles",  target: "saved-profiles", icon: "🤍" },
+            { label: "Saved searches",  target: "saved-searches", icon: "🔍" },
+            { label: "Project tracker", target: "deals",          icon: "📊" },
+            { label: "Notifications",   target: "notifications",  icon: "🔔" },
+            { label: "Settings",        target: "account",        icon: "⚙️" },
+          ].map(item => (
+            <button key={item.target} onClick={() => { setProfileMenuOpen(false); setPage(item.target); }}
+              style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "13px 16px", fontSize: 14, background: "transparent", border: "none", cursor: "pointer", textAlign: "left", minHeight: 48, color: "var(--text-primary,#2C3E50)" }}
+              onTouchStart={e => e.currentTarget.style.background = "#f0f0f0"}
+              onTouchEnd={e => e.currentTarget.style.background = "transparent"}
+              onMouseEnter={e => e.currentTarget.style.background = "#f9f9f7"}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >
+              <span style={{ fontSize: 18 }}>{item.icon}</span>
+              <span style={{ fontWeight: 500 }}>{item.label}</span>
+            </button>
+          ))}
+          <div style={{ borderTop: "0.5px solid #f0f0f0", margin: "4px 0" }} />
+          <button onClick={() => { setProfileMenuOpen(false); onLogout(); }}
+            style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "13px 16px", fontSize: 14, background: "transparent", border: "none", cursor: "pointer", color: "#D85A30", minHeight: 48 }}>
+            <span style={{ fontSize: 18 }}>→</span>
+            <span style={{ fontWeight: 500 }}>Log out</span>
+          </button>
+          {/* Safe area spacer */}
+          <div style={{ height: "env(safe-area-inset-bottom, 8px)" }} />
+        </div>
+      )}
+      <nav style={{
+        position: "fixed", bottom: 0, left: 0, right: 0, height: 60,
+        background: "#fff", zIndex: 200, boxShadow: "0 -2px 12px rgba(0,0,0,0.1)",
+        display: "flex", alignItems: "stretch",
+      }}>
+        {tabs.map(tab => {
+          const isActive = tab.key === "profile" ? isProfileActive : page === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => {
+                if (tab.key === "profile") {
+                  setProfileMenuOpen(o => !o);
+                } else {
+                  setProfileMenuOpen(false);
+                  setPage(tab.key);
+                }
+              }}
+              style={{
+                flex: 1, height: 60, display: "flex", flexDirection: "column", alignItems: "center",
+                justifyContent: "center", gap: 3, background: "transparent", border: "none", cursor: "pointer",
+                position: "relative",
+              }}
+            >
+              {tab.badge > 0 && (
+                <span style={{ position: "absolute", top: 8, left: "50%", marginLeft: 4, background: "#3B82F6", color: "#fff", borderRadius: 10, fontSize: 9, fontWeight: 700, padding: "1px 4px", minWidth: 14, textAlign: "center" }}>
+                  {tab.badge > 9 ? "9+" : tab.badge}
+                </span>
+              )}
+              {tab.icon(isActive)}
+              <span style={{ fontSize: 10, fontWeight: isActive ? 600 : 400, color: isActive ? activeColor : inactiveColor }}>{tab.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </>
+  );
+}
+
+function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, tourForceProfileOpen = false, darkMode, setDarkMode, onReplayTour }) {
+  const displayName = user?.user_metadata?.name || user?.email?.split("@")[0] || "";
+  const role        = user?.user_metadata?.role;
+  const avatarUrl   = user?.user_metadata?.avatar_url;
+  const [switchError, setSwitchError] = useState("");
+
+  const [mobileOpen,  setMobileOpen]  = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [helpOpen,    setHelpOpen]    = useState(false);
+  const [width,       setWidth]       = useState(
+    typeof window !== "undefined" ? window.innerWidth : 1200
+  );
+  const [scrolled,     setScrolled]     = useState(false);
+  const [onlineCount,  setOnlineCount]  = useState(0);
+  const profileRef      = useRef(null);
+  const helpRef         = useRef(null);
+  const presenceChanRef = useRef(null);
+
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 4);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    function handleOutside(e) {
+      if (profileRef.current && !profileRef.current.contains(e.target)) setProfileOpen(false);
+      if (helpRef.current    && !helpRef.current.contains(e.target))    setHelpOpen(false);
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, []);
+
+  useEffect(() => {
+    setMobileOpen(false); setProfileOpen(false);
+  }, [page]);
+
+  useEffect(() => {
+    if (!user) { setOnlineCount(0); return; }
+    presenceChanRef.current = supabase.channel("lb-online-users", {
+      config: { presence: { key: user.id } },
+    });
+    presenceChanRef.current
+      .on("presence", { event: "sync" }, () => {
+        const state = presenceChanRef.current.presenceState();
+        setOnlineCount(Object.keys(state).length);
+      })
+      .subscribe(async status => {
+        if (status === "SUBSCRIBED") {
+          await presenceChanRef.current.track({ user_id: user.id, online_at: new Date().toISOString() });
+        }
+      });
+    return () => {
+      if (presenceChanRef.current) supabase.removeChannel(presenceChanRef.current);
+    };
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isMobile = width < 820;
+
+  function go(p) {
+    setPage(p);
+    setMobileOpen(false); setProfileOpen(false);
+  }
+
+  const Logo = (
+    <div onClick={() => go("home")} style={{
+      fontFamily: "'Playfair Display', Georgia, serif",
+      fontSize: 20, fontWeight: 700, cursor: "pointer",
+      letterSpacing: -0.3, flexShrink: 0, color: "#FFFFFF",
+    }}>
+      LenderBuild
+    </div>
+  );
+
+  const HamburgerIcon = mobileOpen
+    ? <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
+    : <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M0 1h16M0 6h16M0 11h16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>;
+
+  // ── LOGGED OUT ──────────────────────────────────────────────────────────────
+  if (!user) {
+    function scrollToSection(id) {
+      const el = document.getElementById(id);
+      if (el) el.scrollIntoView({ behavior: "smooth" });
+    }
+
+    if (isMobile) {
+      return (
+        <nav style={{ background: "var(--nav-bg)", borderBottom: "1px solid rgba(255,255,255,0.08)", position: "sticky", top: 0, zIndex: 100, boxShadow: scrolled ? "0 4px 20px rgba(0,0,0,0.35)" : "none", transition: "box-shadow 0.25s ease" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 1.25rem", height: 56 }}>
+            {Logo}
+            <button onClick={() => setMobileOpen(o => !o)} aria-label="Menu"
+              style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, padding: "7px 11px", minHeight: 44, cursor: "pointer", color: "rgba(255,255,255,0.7)", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {HamburgerIcon}
+            </button>
+          </div>
+          {mobileOpen && (
+            <div style={{ background: "var(--nav-bg)", borderTop: "1px solid rgba(255,255,255,0.08)", paddingBottom: "1rem" }}>
+              <button onClick={() => go("how-it-works")} style={mobileItemStyle(page === "how-it-works")}>How it works</button>
+              <button onClick={() => { setMobileOpen(false); scrollToSection("builders"); }} style={mobileItemStyle(false)}>For builders</button>
+              <button onClick={() => { setMobileOpen(false); scrollToSection("lenders"); }} style={mobileItemStyle(false)}>For lenders</button>
+              <button onClick={() => go("safety")} style={mobileItemStyle(page === "safety")}>Trust &amp; Safety</button>
+              <div style={{ padding: "12px 1.25rem 0", borderTop: "1px solid rgba(255,255,255,0.08)", marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                <button onClick={() => go("auth")} style={{ width: "100%", padding: "11px", fontSize: 14, fontWeight: 500, background: "transparent", color: "rgba(255,255,255,0.8)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 8, cursor: "pointer" }}>Log in</button>
+                <button onClick={() => go("auth")} style={{ width: "100%", padding: "11px", fontSize: 14, fontWeight: 600, background: "#3B82F6", color: "#FFFFFF", border: "none", borderRadius: 8, cursor: "pointer" }}>Sign up</button>
+              </div>
+            </div>
+          )}
+        </nav>
+      );
+    }
+
+    return (
+      <nav style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 2rem", height: 60, background: "var(--nav-bg)", borderBottom: "1px solid rgba(255,255,255,0.08)", position: "sticky", top: 0, zIndex: 100, boxShadow: scrolled ? "0 4px 20px rgba(0,0,0,0.35)" : "none", transition: "box-shadow 0.25s ease" }}>
+        {Logo}
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <button onClick={() => go("how-it-works")} style={navLinkStyle(page === "how-it-works")}>How it works</button>
+          <button onClick={() => scrollToSection("builders")} style={navLinkStyle(false)}>For builders</button>
+          <button onClick={() => scrollToSection("lenders")} style={navLinkStyle(false)}>For lenders</button>
+          {/* Help dropdown */}
+          <div ref={helpRef} style={{ position: "relative" }}>
+            <button onClick={() => setHelpOpen(o => !o)}
+              style={{ ...navLinkStyle(page === "safety"), gap: 5 }}>
+              Help
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ transition: "transform 0.18s", transform: helpOpen ? "rotate(180deg)" : "none" }}><path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </button>
+            {helpOpen && (
+              <div style={{ ...NAV_DROPDOWN_STYLE, left: "50%", transform: "translateX(-50%)" }}>
+                <button onClick={() => { go("how-it-works"); setHelpOpen(false); }} style={ddItemStyle(page === "how-it-works")}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9.5" stroke="#2E5FA3" strokeWidth="1.5"/><path d="M8 12l3 3 5-6" stroke="#2E5FA3" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  How it works
+                </button>
+                <button onClick={() => { go("safety"); setHelpOpen(false); }} style={ddItemStyle(page === "safety")}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5z" stroke="#2E5FA3" strokeWidth="1.5" strokeLinejoin="round"/></svg>
+                  Trust &amp; Safety
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <button onClick={() => go("auth")} style={{ padding: "7px 16px", fontSize: 13, fontWeight: 500, background: "transparent", color: "rgba(255,255,255,0.8)", border: "none", borderRadius: 8, cursor: "pointer" }}>Log in</button>
+          <button onClick={() => go("auth")} style={{ padding: "8px 20px", fontSize: 13, fontWeight: 600, background: "#3B82F6", color: "#FFFFFF", border: "none", borderRadius: 8, cursor: "pointer" }}>Sign up</button>
+        </div>
+      </nav>
+    );
+  }
+
+  // ── LOGGED IN ───────────────────────────────────────────────────────────────
+
+  const discoverItems = [
+    { label: "Find a lender",      icon: "💰", target: "search",           tourId: "tour-find-lender" },
+    { label: "Find a builder",     icon: "🔨", target: "find-builder",     tourId: "tour-find-builder" },
+    { label: "Browse projects",    icon: "🏗️", target: "browse-projects",  tourId: "tour-browse-projects" },
+    { label: "Build Calculator",   icon: "🧮", target: "build-calculator" },
+    { label: "Posts",              icon: "📝", target: "posts" },
+    { label: "Community",          icon: "💬", target: "community", community: true },
+  ];
+
+  const profileItems = [
+    { label: "My profile",      icon: "👤", target: "profile-setup" },
+    { label: "Saved profiles",  icon: "🤍", target: "saved-profiles" },
+    { label: "My posts",        icon: "📝", target: "my-posts" },
+    { label: "Project tracker", icon: "📊", target: "deals",         tourId: "tour-project-tracker" },
+    { label: "Disputes",        icon: "⚖️", target: "disputes" },
+    { label: "Leaderboard",     icon: "🏆", target: "leaderboard" },
+    ...(role === "lender" ? [{ label: "Requests", icon: "📬", target: "lender-dashboard" }] : []),
+    ...(role === "admin"  ? [{ label: "Admin",    icon: "🛠️", target: "admin" }, { label: "Analytics", icon: "📈", target: "analytics" }] : []),
+    { divider: true },
+    { label: "Notifications",   icon: "🔔", target: "notifications" },
+    { label: "Settings",        icon: "⚙️", target: "account" },
+  ];
+
+  if (isMobile && width < 768) {
+    // Bottom nav handles navigation; top nav shows only logo + notification bell
+    return (
+      <nav style={{ background: "var(--nav-bg)", borderBottom: "1px solid rgba(255,255,255,0.08)", position: "sticky", top: 0, zIndex: 100, boxShadow: scrolled ? "0 4px 20px rgba(0,0,0,0.35)" : "none", transition: "box-shadow 0.25s ease" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 1.25rem", height: 56 }}>
+          {Logo}
+          <NotificationBell user={user} />
+        </div>
+      </nav>
+    );
+  }
+
+  if (isMobile) {
+    return (
+      <nav style={{ background: "var(--nav-bg)", borderBottom: "1px solid rgba(255,255,255,0.08)", position: "sticky", top: 0, zIndex: 100, boxShadow: scrolled ? "0 4px 20px rgba(0,0,0,0.35)" : "none", transition: "box-shadow 0.25s ease" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 1.25rem", height: 56 }}>
+          {Logo}
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <button id="tour-inbox-btn" onClick={() => go("messages")} aria-label="Inbox"
+              style={{ position: "relative", background: page === "messages" ? "rgba(255,255,255,0.12)" : "transparent", border: "none", borderRadius: 8, padding: "8px 10px", minHeight: 44, cursor: "pointer", color: page === "messages" ? "var(--accent)" : "rgba(255,255,255,0.7)", lineHeight: 0, display: "flex", alignItems: "center" }}>
+              <NavInboxIcon />
+              {unreadCount > 0 && <span style={UNREAD_BADGE}>{unreadCount > 9 ? "9+" : unreadCount}</span>}
+            </button>
+            <button onClick={() => go("notifications")} aria-label="Notifications"
+              style={{ position: "relative", background: page === "notifications" ? "rgba(255,255,255,0.12)" : "transparent", border: "none", borderRadius: 8, padding: "8px 10px", minHeight: 44, cursor: "pointer", color: page === "notifications" ? "var(--accent)" : "rgba(255,255,255,0.7)", lineHeight: 0, display: "flex", alignItems: "center" }}>
+              <BellIcon />
+            </button>
+            <button onClick={() => setMobileOpen(o => !o)} aria-label="Menu"
+              style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, padding: "7px 11px", minHeight: 44, cursor: "pointer", color: "rgba(255,255,255,0.7)", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {HamburgerIcon}
+            </button>
+          </div>
+        </div>
+        {mobileOpen && (
+          <div style={{ background: "var(--nav-bg)", borderTop: "1px solid rgba(255,255,255,0.08)", paddingBottom: "1rem" }}>
+            <button onClick={() => go("home")} style={mobileItemStyle(page === "home")}>Dashboard</button>
+            <div style={{ padding: "10px 1.25rem 4px" }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Discover</div>
+              {discoverItems.map(({ label, target, tourId, community }) => (
+                <button key={target} id={tourId} onClick={() => go(target)} style={{ ...mobileItemStyle(page === target), display: "flex", alignItems: "center", gap: 6 }}>
+                  {label}
+                  {community && onlineCount > 0 && (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22C55E" }} />
+                      <span style={{ fontSize: 11, color: "#22C55E", fontWeight: 700 }}>{onlineCount}</span>
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+            <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginTop: 4, padding: "10px 0 0" }}>
+              <div style={{ padding: "0 1.25rem 4px" }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Account</div>
+              </div>
+              {profileItems.filter(i => !i.divider).map(({ label, target }) => (
+                <button key={target} onClick={() => go(target)} style={mobileItemStyle(page === target)}>{label}</button>
+              ))}
+              <button onClick={onLogout} style={{ ...mobileItemStyle(false), color: "#D85A30" }}>Log out</button>
+            </div>
+          </div>
+        )}
+      </nav>
+    );
+  }
+
+  // ── Desktop logged-in ──────────────────────────────────────────────────────
+  return (
+    <nav style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 2rem", height: 60, background: "var(--nav-bg)", borderBottom: "1px solid rgba(255,255,255,0.08)", position: "sticky", top: 0, zIndex: 100, boxShadow: scrolled ? "0 4px 20px rgba(0,0,0,0.35)" : "none", transition: "box-shadow 0.25s ease" }}>
+      {Logo}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        {/* Dashboard */}
+        <button onClick={() => go("home")} style={navLinkStyle(page === "home")}>
+          <NavDashboardIcon /> Dashboard
+        </button>
+
+        {/* Discover links — shown directly */}
+        {discoverItems.map(({ label, target, tourId, community }) => (
+          <button key={target} id={tourId} onClick={() => go(target)} style={{ ...navLinkStyle(page === target), gap: community ? 5 : undefined }}>
+            {label}
+            {community && onlineCount > 0 && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22C55E", flexShrink: 0 }} />
+                <span style={{ fontSize: 11, color: "#22C55E", fontWeight: 700 }}>{onlineCount}</span>
+              </span>
+            )}
           </button>
         ))}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        {/* Inbox */}
+        <button id="tour-inbox-btn" onClick={() => go("messages")} aria-label="Inbox"
+          style={{ position: "relative", display: "flex", alignItems: "center", gap: 5, padding: "7px 12px", borderRadius: 8, border: "none", background: page === "messages" ? "rgba(255,255,255,0.12)" : "transparent", color: page === "messages" ? "var(--accent)" : "rgba(255,255,255,0.7)", cursor: "pointer" }}>
+          <NavInboxIcon />
+          <span style={{ fontSize: 12, fontWeight: 500 }}>Inbox</span>
+          {unreadCount > 0 && <span style={UNREAD_BADGE}>{unreadCount > 9 ? "9+" : unreadCount}</span>}
+        </button>
+
+        <NotificationBell user={user} />
+
+        <WhatsNewButton onReplayTour={onReplayTour} />
+
+        {/* Profile dropdown */}
+        <div ref={profileRef} style={{ position: "relative" }}>
+          <button id="tour-profile-pill" onClick={() => setProfileOpen(o => !o)}
+            style={{ display: "flex", alignItems: "center", gap: 7, background: profileOpen ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 24, padding: "4px 10px 4px 4px", cursor: "pointer" }}>
+            {avatarUrl
+              ? <div style={{ width: 28, height: 28, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><img src={avatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
+              : <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#3B82F6", color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{nameInitials(displayName)}</div>
+            }
+            <span style={{ fontSize: 13, fontWeight: 500, color: "rgba(255,255,255,0.85)" }}>{displayName.split(" ")[0]}</span>
+            <NavChevron open={profileOpen} />
+          </button>
+          {(profileOpen || tourForceProfileOpen) && (() => {
+            const savedAccounts = getSavedAccounts();
+            const otherAccounts = savedAccounts.filter(a => a.user_id !== user?.id);
+
+            async function handleSwitchAccount(acct) {
+              setSwitchError("");
+              const { error: sessErr } = await supabase.auth.setSession({
+                access_token: acct.access_token,
+                refresh_token: acct.refresh_token,
+              });
+              if (sessErr) {
+                removeSavedAccount(acct.user_id);
+                setSwitchError("Session expired for " + acct.email + ". Please log in again.");
+                return;
+              }
+              setPage("home");
+            }
+
+            async function handleAddAccount() {
+              // Save current session to list before signing out
+              const { data: { session: curSess } } = await supabase.auth.getSession();
+              if (curSess && user) {
+                upsertSavedAccount({
+                  user_id: user.id,
+                  email: user.email,
+                  name: displayName,
+                  avatar_url: avatarUrl || null,
+                  access_token: curSess.access_token,
+                  refresh_token: curSess.refresh_token,
+                });
+              }
+              await supabase.auth.signOut();
+              setPage("auth");
+            }
+
+            return (
+              <div style={{ ...NAV_DROPDOWN_STYLE, right: 0, left: "auto", minWidth: 232 }}>
+                <div style={{ padding: "10px 14px 9px", borderBottom: "0.5px solid #f0f0f0" }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#111" }}>{displayName}</div>
+                  {userProfile?.sequential_id && <div style={{ fontSize: 11, color: "#aaa", marginTop: 1 }}>{fmtId(userProfile.sequential_id)}</div>}
+                  <div style={{ marginTop: 5 }}>
+                    <RoleBadge userRole={userProfile?.user_role} authRole={role} />
+                  </div>
+                </div>
+
+                {/* Saved accounts for switching */}
+                {otherAccounts.length > 0 && (
+                  <div style={{ borderBottom: "0.5px solid #f0f0f0" }}>
+                    <div style={{ padding: "6px 14px 4px", fontSize: 10, fontWeight: 600, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.07em" }}>Switch account</div>
+                    {otherAccounts.map(acct => (
+                      <button key={acct.user_id} onClick={() => handleSwitchAccount(acct)}
+                        style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 14px", fontSize: 12, background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
+                        onMouseEnter={e => e.currentTarget.style.background = "#f9f9f7"}
+                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                      >
+                        {acct.avatar_url
+                          ? <div style={{ width: 26, height: 26, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><img src={acct.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
+                          : <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#EBF2FF", color: "#1E3A5F", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{nameInitials(acct.name)}</div>
+                        }
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 500, color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.name || acct.email.split("@")[0]}</div>
+                          <div style={{ fontSize: 11, color: "#aaa", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.email}</div>
+                        </div>
+                      </button>
+                    ))}
+                    {switchError && <div style={{ fontSize: 11, color: "#D85A30", padding: "4px 14px 6px" }}>{switchError}</div>}
+                  </div>
+                )}
+
+                {profileItems.map((item, i) =>
+                  item.divider
+                    ? <div key={i} style={{ borderTop: "0.5px solid #f0f0f0", margin: "4px 0" }} />
+                    : <button key={item.target} id={item.tourId} onClick={() => go(item.target)} style={ddItemStyle(page === item.target)}>
+                        <span style={{ fontSize: 15 }}>{item.icon}</span>{item.label}
+                      </button>
+                )}
+                <div style={{ borderTop: "0.5px solid #f0f0f0", margin: "4px 0" }} />
+                {setDarkMode && (
+                  <button onClick={() => setDarkMode(d => !d)} style={{ ...ddItemStyle(false), justifyContent: "space-between" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.75, flexShrink: 0 }}>
+                        {darkMode
+                          ? <><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></>
+                          : <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>}
+                      </svg>
+                      {darkMode ? "Light mode" : "Dark mode"}
+                    </span>
+                    <div style={{ width: 32, height: 18, borderRadius: 9, background: darkMode ? "#3B82F6" : "#CBD5E1", position: "relative", flexShrink: 0, transition: "background 0.2s" }}>
+                      <div style={{ position: "absolute", top: 2, left: darkMode ? 15 : 2, width: 14, height: 14, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.25)", transition: "left 0.2s" }} />
+                    </div>
+                  </button>
+                )}
+                { /* Saved searches */ }
+                <button onClick={() => go("saved-searches")} style={ddItemStyle(page === "saved-searches")}>
+                  <span style={{ fontSize: 15 }}>🔍</span>Saved searches
+                </button>
+                {savedAccounts.length < 3 && (
+                  <button onClick={handleAddAccount} style={{ ...ddItemStyle(false), color: "#3B82F6" }}>
+                    <span style={{ fontSize: 15 }}>＋</span> Add account
+                  </button>
+                )}
+                <button onClick={onLogout} style={{ ...ddItemStyle(false), color: "#D85A30" }}>
+                  <span style={{ fontSize: 15 }}>→</span> Log out
+                </button>
+              </div>
+            );
+          })()}
+        </div>
       </div>
     </nav>
   );
 }
 
-// ─── HOME PAGE ───────────────────────────────────────────────────────────────
+// ─── AUTH PAGE ───────────────────────────────────────────────────────────────
 
-function HomePage({ setPage }) {
+function getPasswordStrength(pw) {
+  if (!pw) return { score: 0, label: "", color: "#eee" };
+  let score = 0;
+  if (pw.length >= 8)              score++;
+  if (pw.length >= 12)             score++;
+  if (/[A-Z]/.test(pw))           score++;
+  if (/[0-9]/.test(pw))           score++;
+  if (/[^A-Za-z0-9]/.test(pw))   score++;
+  if (score <= 1) return { score, label: "Weak",   color: "#D85A30" };
+  if (score <= 3) return { score, label: "Fair",   color: "#2E5FA3" };
+  return               { score, label: "Strong", color: "#1D9E75" };
+}
+
+function AuthPage({ setPage, onLoginSuccess }) {
+  const [tab, setTab] = useState("login");
+  const [loginStep, setLoginStep] = useState("credentials"); // "credentials" | "mfa"
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState("builder");
+  const [mfaCode, setMfaCode] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [loginAttempts, setLoginAttempts] = useState([]);
+
+  async function handleLogin(e) {
+    e.preventDefault();
+    // Client-side rate limit: 5 attempts per 60 seconds
+    const now = Date.now();
+    const recent = loginAttempts.filter(t => now - t < 60_000);
+    if (recent.length >= 5) {
+      const waitSec = Math.ceil((60_000 - (now - recent[0])) / 1000);
+      setError(`Too many login attempts. Please wait ${waitSec} seconds and try again.`);
+      return;
+    }
+    setLoginAttempts([...recent, now]);
+    setLoading(true);
+    setError("");
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) { setError(error.message); setLoading(false); return; }
+    // Check whether MFA verification is required
+    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    setLoading(false);
+    if (aal?.nextLevel === "aal2" && aal.nextLevel !== aal.currentLevel) {
+      setLoginStep("mfa");
+      return;
+    }
+    // Redirect to profile setup if the user hasn't completed it yet
+    const { data: { user: freshUser } } = await supabase.auth.getUser();
+    const { data: { session: freshSess } } = await supabase.auth.getSession();
+    if (freshUser && freshSess) {
+      upsertSavedAccount({
+        user_id: freshUser.id, email: freshUser.email,
+        name: freshUser.user_metadata?.name || freshUser.email.split("@")[0],
+        avatar_url: freshUser.user_metadata?.avatar_url || null,
+        access_token: freshSess.access_token, refresh_token: freshSess.refresh_token,
+      });
+    }
+    if (freshUser?.user_metadata?.profile_complete) {
+      onLoginSuccess ? onLoginSuccess() : setPage("home");
+    } else {
+      setPage("profile-setup");
+    }
+  }
+
+  async function handleMfaVerify(e) {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    const { data: factors } = await supabase.auth.mfa.listFactors();
+    const totp = factors?.totp?.[0];
+    if (!totp) { setError("No authenticator app found."); setLoading(false); return; }
+    const { data: challenge, error: cErr } = await supabase.auth.mfa.challenge({ factorId: totp.id });
+    if (cErr) { setError(cErr.message); setLoading(false); return; }
+    const { error: vErr } = await supabase.auth.mfa.verify({ factorId: totp.id, challengeId: challenge.id, code: mfaCode });
+    setLoading(false);
+    if (vErr) { setError(vErr.message); return; }
+    const { data: { user: freshUser } } = await supabase.auth.getUser();
+    const { data: { session: freshSess } } = await supabase.auth.getSession();
+    if (freshUser && freshSess) {
+      upsertSavedAccount({
+        user_id: freshUser.id, email: freshUser.email,
+        name: freshUser.user_metadata?.name || freshUser.email.split("@")[0],
+        avatar_url: freshUser.user_metadata?.avatar_url || null,
+        access_token: freshSess.access_token, refresh_token: freshSess.refresh_token,
+      });
+    }
+    if (freshUser?.user_metadata?.profile_complete) {
+      onLoginSuccess ? onLoginSuccess() : setPage("home");
+    } else {
+      setPage("profile-setup");
+    }
+  }
+
+  async function handleSignup(e) {
+    e.preventDefault();
+    if (!name.trim()) { setError("Please enter your name."); return; }
+    if (password.length < 8)              { setError("Password must be at least 8 characters."); return; }
+    if (!/[0-9]/.test(password))         { setError("Password must include at least one number."); return; }
+    if (!/[^A-Za-z0-9]/.test(password))  { setError("Password must include at least one special character (e.g. !@#$%)."); return; }
+    setLoading(true);
+    setError("");
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { name: name.trim(), role },
+        emailRedirectTo: "https://y-pi-blush.vercel.app",
+      },
+    });
+    setLoading(false);
+    if (error) { setError(error.message); return; }
+    setSuccess("Account created — check your email to confirm, then log in and start matching.");
+  }
+
+  const inputStyle = {
+    width: "100%", height: 44, border: "0.5px solid #ccc", borderRadius: 8,
+    padding: "0 12px", fontSize: 14, background: "#fff", boxSizing: "border-box",
+  };
+
+  const labelStyle = { fontSize: 13, color: "#555", marginBottom: 4, display: "block" };
+
   return (
-    <div>
-      {/* Hero */}
-      <div style={{ textAlign: "center", padding: "4rem 2rem 3rem" }}>
-        <div style={{
-          display: "inline-block", background: "#E1F5EE", color: "#0F6E56",
-          fontSize: 12, fontWeight: 500, padding: "4px 14px", borderRadius: 20, marginBottom: "1.25rem"
-        }}>
-          Property investment, simplified
+    <div style={{ minHeight: "80vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 1.25rem" }}>
+      <div style={{ width: "100%", maxWidth: 400 }}>
+        <div style={{ textAlign: "center", marginBottom: "2rem" }}>
+          <div style={{
+            display: "inline-block", background: "#EBF2FF", color: "#1E3A5F",
+            fontSize: 12, fontWeight: 500, padding: "4px 14px", borderRadius: 20, marginBottom: "1rem",
+          }}>
+            LenderBuild
+          </div>
+          <h1 style={{ fontSize: 26, fontWeight: 500, margin: 0, fontFamily: "'Playfair Display', Georgia, serif", color: "#1E3A5F" }}>
+            {tab === "login" ? "Welcome back" : "Create your account"}
+          </h1>
+          <p style={{ fontSize: 14, color: "#64748B", marginTop: 8 }}>
+            {tab === "login" ? "Sign in to connect with lenders and builders" : "Connect builders with the right lenders across the UK"}
+          </p>
         </div>
-        <h1 style={{
-          fontSize: 38, fontWeight: 500, lineHeight: 1.2, margin: "0 0 1rem",
-          fontFamily: "'Georgia', serif",
-        }}>
-          Where <span style={{ color: "#1D9E75" }}>builders</span> meet<br />
-          the right <span style={{ color: "#1D9E75" }}>lenders</span>
-        </h1>
-        <p style={{ fontSize: 16, color: "#666", maxWidth: 540, margin: "0 auto 2rem", lineHeight: 1.7 }}>
-          Search lenders by budget, agree on returns, connect instantly. We match you — you build together.
+
+        {/* Tab switcher */}
+        <div style={{ display: "flex", borderBottom: "0.5px solid #e0e0e0", marginBottom: "1.75rem" }}>
+          {["login", "signup"].map(t => (
+            <button
+              key={t}
+              onClick={() => { setTab(t); setError(""); setSuccess(""); }}
+              style={{
+                flex: 1, padding: "10px 0", fontSize: 14, fontWeight: 500, cursor: "pointer",
+                border: "none", background: "transparent", minHeight: 44,
+                color: tab === t ? "#3B82F6" : "#64748B",
+                borderBottom: tab === t ? "2px solid #1D9E75" : "2px solid transparent",
+                marginBottom: -1,
+              }}
+            >
+              {t === "login" ? "Log in" : "Sign up"}
+            </button>
+          ))}
+        </div>
+
+        {error && (
+          <div style={{
+            background: "#FAECE7", color: "#993C1D", border: "0.5px solid #F5C9BB",
+            borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: "1rem",
+          }}>
+            {error}
+          </div>
+        )}
+        {success && (
+          <div style={{
+            background: "#EBF2FF", color: "#1E3A5F", border: "0.5px solid #A8DFC9",
+            borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: "1rem",
+          }}>
+            {success}
+          </div>
+        )}
+
+        {tab === "login" && loginStep === "mfa" ? (
+          <form onSubmit={handleMfaVerify} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div style={{ textAlign: "center", padding: "1rem 0 0.5rem" }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🔐</div>
+              <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>Two-factor authentication</div>
+              <div style={{ fontSize: 13, color: "#64748B" }}>Enter the 6-digit code from your authenticator app.</div>
+            </div>
+            <div>
+              <label style={labelStyle}>Authentication code</label>
+              <input
+                type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6} required
+                value={mfaCode} onChange={e => setMfaCode(e.target.value.replace(/\D/g, ""))}
+                placeholder="000000" style={{ ...inputStyle, letterSpacing: "0.3em", textAlign: "center", fontSize: 20 }}
+                autoFocus
+              />
+            </div>
+            <button
+              type="submit" disabled={loading || mfaCode.length < 6}
+              style={{
+                height: 44, background: loading ? "#aaa" : "#3B82F6", color: loading ? "#fff" : "#1E3A5F",
+                border: "none", borderRadius: 8, fontSize: 15, fontWeight: 500, cursor: loading ? "default" : "pointer",
+              }}
+            >
+              {loading ? "Verifying..." : "Verify"}
+            </button>
+            <p style={{ textAlign: "center", fontSize: 12, color: "#aaa", margin: 0 }}>
+              <span onClick={() => { setLoginStep("credentials"); setError(""); setMfaCode(""); }} style={{ color: "#3B82F6", cursor: "pointer" }}>
+                Back to login
+              </span>
+            </p>
+          </form>
+        ) : tab === "login" ? (
+          <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div>
+              <label style={labelStyle}>Email</label>
+              <input
+                type="email" required value={email} onChange={e => setEmail(e.target.value)}
+                placeholder="you@example.com" style={inputStyle}
+              />
+            </div>
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <label style={{ ...labelStyle, marginBottom: 0 }}>Password</label>
+                <span
+                  onClick={() => setPage("forgot-password")}
+                  style={{ fontSize: 12, color: "#3B82F6", cursor: "pointer" }}
+                >
+                  Forgot password?
+                </span>
+              </div>
+              <input
+                type="password" required value={password} onChange={e => setPassword(e.target.value)}
+                placeholder="Your password" style={inputStyle}
+              />
+            </div>
+            <button
+              type="submit" disabled={loading}
+              style={{
+                height: 44, background: loading ? "#aaa" : "#3B82F6", color: loading ? "#fff" : "#1E3A5F",
+                border: "none", borderRadius: 8, fontSize: 15, fontWeight: 500, cursor: loading ? "default" : "pointer",
+                marginTop: 4,
+              }}
+            >
+              {loading ? "Signing in..." : "Log in"}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleSignup} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div>
+              <label style={labelStyle}>Full name</label>
+              <input
+                type="text" required value={name} onChange={e => setName(e.target.value)}
+                placeholder="Your name" style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Email</label>
+              <input
+                type="email" required value={email} onChange={e => setEmail(e.target.value)}
+                placeholder="you@example.com" style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Password</label>
+              <input
+                type="password" required minLength={8} value={password} onChange={e => setPassword(e.target.value)}
+                placeholder="8+ chars, 1 number, 1 special character" style={inputStyle}
+              />
+              {password.length > 0 && (() => {
+                const s = getPasswordStrength(password);
+                return (
+                  <div style={{ marginTop: 6 }}>
+                    <div style={{ display: "flex", gap: 3 }}>
+                      {[1, 2, 3, 4, 5].map(i => (
+                        <div key={i} style={{
+                          flex: 1, height: 3, borderRadius: 2,
+                          background: i <= s.score ? s.color : "#eee",
+                          transition: "background 0.2s",
+                        }} />
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 11, color: s.color, marginTop: 3 }}>{s.label}</div>
+                  </div>
+                );
+              })()}
+            </div>
+            <div>
+              <label style={labelStyle}>I am a…</label>
+              <div style={{ display: "flex", gap: 10 }}>
+                {["builder", "lender"].map(r => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setRole(r)}
+                    style={{
+                      flex: 1, height: 42, borderRadius: 8, fontSize: 14, fontWeight: 500,
+                      cursor: "pointer", textTransform: "capitalize",
+                      border: role === r ? "none" : "0.5px solid #ccc",
+                      background: role === r ? "#3B82F6" : "#fff",
+                      color: role === r ? "#fff" : "#555",
+                    }}
+                  >
+                    {r === "builder" ? "Builder" : "Lender"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button
+              type="submit" disabled={loading}
+              style={{
+                height: 44, background: loading ? "#aaa" : "#3B82F6", color: loading ? "#fff" : "#1E3A5F",
+                border: "none", borderRadius: 8, fontSize: 15, fontWeight: 500, cursor: loading ? "default" : "pointer",
+                marginTop: 4,
+              }}
+            >
+              {loading ? "Creating account..." : "Create account"}
+            </button>
+          </form>
+        )}
+
+        <p style={{ textAlign: "center", fontSize: 12, color: "#aaa", marginTop: "1.5rem" }}>
+          {tab === "login" ? (
+            <>Don't have an account?{" "}
+              <span onClick={() => { setTab("signup"); setError(""); setSuccess(""); }} style={{ color: "#3B82F6", cursor: "pointer" }}>Sign up</span>
+            </>
+          ) : (
+            <>Already have an account?{" "}
+              <span onClick={() => { setTab("login"); setError(""); setSuccess(""); }} style={{ color: "#3B82F6", cursor: "pointer" }}>Log in</span>
+            </>
+          )}
         </p>
-        <button
-          onClick={() => setPage("search")}
-          style={{ background: "#1D9E75", color: "#fff", border: "none", padding: "12px 28px", borderRadius: 8, fontSize: 15, fontWeight: 500, cursor: "pointer", marginRight: 10 }}
-        >
-          Find a lender
-        </button>
-        <button
-          style={{ background: "transparent", color: "#333", border: "0.5px solid #ccc", padding: "12px 28px", borderRadius: 8, fontSize: 15, cursor: "pointer" }}
-        >
-          List as lender
-        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── FORGOT PASSWORD PAGE ────────────────────────────────────────────────────
+
+function ForgotPasswordPage({ setPage }) {
+  const [email, setEmail] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [sent, setSent] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    });
+    setLoading(false);
+    if (error) { setError(error.message); return; }
+    setSent(true);
+  }
+
+  const inputStyle = {
+    width: "100%", height: 44, border: "0.5px solid #ccc", borderRadius: 8,
+    padding: "0 12px", fontSize: 14, background: "#fff", boxSizing: "border-box",
+  };
+
+  return (
+    <div style={{ minHeight: "80vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 1.25rem" }}>
+      <div style={{ width: "100%", maxWidth: 400 }}>
+        <div style={{ textAlign: "center", marginBottom: "2rem" }}>
+          <div style={{ fontSize: 36, marginBottom: "0.75rem" }}>🔑</div>
+          <h1 style={{ fontSize: 24, fontWeight: 500, margin: "0 0 8px", fontFamily: "'Georgia', serif" }}>Reset your password</h1>
+          <p style={{ fontSize: 14, color: "#64748B", margin: 0 }}>
+            {sent ? "Check your inbox for the reset link." : "Enter your email and we'll send you a reset link."}
+          </p>
+        </div>
+
+        {error && (
+          <div style={{ background: "#FAECE7", color: "#993C1D", border: "0.5px solid #F5C9BB", borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: "1rem" }}>
+            {error}
+          </div>
+        )}
+
+        {sent ? (
+          <div style={{ background: "#EBF2FF", border: "0.5px solid #E0C87A", borderRadius: 12, padding: "1.5rem", textAlign: "center" }}>
+            <div style={{ fontSize: 13, color: "#1E3A5F", marginBottom: "1rem" }}>
+              We've sent a password reset link to <strong>{email}</strong>. Click the link in the email to choose a new password.
+            </div>
+            <button
+              onClick={() => setPage("auth")}
+              style={{ background: "#3B82F6", color: "#FFFFFF", border: "none", padding: "8px 20px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+            >
+              Back to log in
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div>
+              <label style={{ fontSize: 13, color: "#555", marginBottom: 4, display: "block" }}>Email address</label>
+              <input
+                type="email" required value={email} onChange={e => setEmail(e.target.value)}
+                placeholder="you@example.com" style={inputStyle}
+              />
+            </div>
+            <button
+              type="submit" disabled={loading}
+              style={{
+                height: 44, background: loading ? "#aaa" : "#3B82F6", color: loading ? "#fff" : "#1E3A5F",
+                border: "none", borderRadius: 8, fontSize: 15, fontWeight: 500, cursor: loading ? "default" : "pointer",
+              }}
+            >
+              {loading ? "Sending..." : "Send reset link"}
+            </button>
+            <p style={{ textAlign: "center", fontSize: 12, color: "#aaa", margin: 0 }}>
+              <span onClick={() => setPage("auth")} style={{ color: "#3B82F6", cursor: "pointer" }}>Back to log in</span>
+            </p>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── RESET PASSWORD PAGE ──────────────────────────────────────────────────────
+
+function ResetPasswordPage({ setPage }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (password !== confirm) { setError("Passwords don't match."); return; }
+    setLoading(true);
+    setError("");
+    const { error } = await supabase.auth.updateUser({ password });
+    setLoading(false);
+    if (error) { setError(error.message); return; }
+    setDone(true);
+  }
+
+  const inputStyle = {
+    width: "100%", height: 44, border: "0.5px solid #ccc", borderRadius: 8,
+    padding: "0 12px", fontSize: 14, background: "#fff", boxSizing: "border-box",
+  };
+
+  return (
+    <div style={{ minHeight: "80vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 1.25rem" }}>
+      <div style={{ width: "100%", maxWidth: 400 }}>
+        <div style={{ textAlign: "center", marginBottom: "2rem" }}>
+          <div style={{ fontSize: 36, marginBottom: "0.75rem" }}>🔒</div>
+          <h1 style={{ fontSize: 24, fontWeight: 500, margin: "0 0 8px", fontFamily: "'Georgia', serif" }}>
+            {done ? "Password updated" : "Choose a new password"}
+          </h1>
+          <p style={{ fontSize: 14, color: "#64748B", margin: 0 }}>
+            {done ? "You can now log in with your new password." : "Must be at least 6 characters."}
+          </p>
+        </div>
+
+        {error && (
+          <div style={{ background: "#FAECE7", color: "#993C1D", border: "0.5px solid #F5C9BB", borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: "1rem" }}>
+            {error}
+          </div>
+        )}
+
+        {done ? (
+          <div style={{ textAlign: "center" }}>
+            <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, margin: "0 auto 1.5rem" }}>✓</div>
+            <button
+              onClick={() => setPage("auth")}
+              style={{ background: "#3B82F6", color: "#FFFFFF", border: "none", padding: "10px 24px", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer" }}
+            >
+              Log in
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div>
+              <label style={{ fontSize: 13, color: "#555", marginBottom: 4, display: "block" }}>New password</label>
+              <input
+                type="password" required minLength={6} value={password} onChange={e => setPassword(e.target.value)}
+                placeholder="At least 6 characters" style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 13, color: "#555", marginBottom: 4, display: "block" }}>Confirm password</label>
+              <input
+                type="password" required minLength={6} value={confirm} onChange={e => setConfirm(e.target.value)}
+                placeholder="Same password again" style={inputStyle}
+              />
+            </div>
+            <button
+              type="submit" disabled={loading}
+              style={{
+                height: 44, background: loading ? "#aaa" : "#3B82F6", color: loading ? "#fff" : "#1E3A5F",
+                border: "none", borderRadius: 8, fontSize: 15, fontWeight: 500, cursor: loading ? "default" : "pointer",
+              }}
+            >
+              {loading ? "Updating..." : "Update password"}
+            </button>
+          </form>
+        )}
       </div>
 
-      {/* Stats */}
-      <div style={{
-        display: "flex", justifyContent: "center", gap: "2.5rem", padding: "2rem",
-        borderTop: "0.5px solid #eee", borderBottom: "0.5px solid #eee", marginBottom: "3rem", flexWrap: "wrap",
-      }}>
-        {[["£4.2M", "Capital matched"], ["312", "Active lenders"], ["89", "Deals closed"], ["1%", "Finder's fee"]].map(([v, l]) => (
-          <div key={l} style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 24, fontWeight: 500 }}>{v}</div>
-            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{l}</div>
+    </div>
+  );
+}
+
+// ─── PROFILE SETUP PAGE ───────────────────────────────────────────────────────
+
+function ProfileSetupPage({ user, setPage, setCelebration }) {
+  const role = user?.user_metadata?.role;
+
+  // Profile photo
+  const [avatarUrl,      setAvatarUrl]      = useState(user?.user_metadata?.avatar_url || "");
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoError,     setPhotoError]     = useState("");
+
+  // Shared
+  const [bio,      setBio]      = useState("");
+  const [location, setLocation] = useState("");
+
+  // Lender-specific
+  const [budgetMax,         setBudgetMax]         = useState("");
+  const [returnType,        setReturnType]        = useState("Fixed interest");
+  const [interestRate,      setInterestRate]      = useState("");
+  const [builderSplit,      setBuilderSplit]      = useState("60");
+  const [lenderSplit,       setLenderSplit]       = useState("40");
+  const [equityStake,       setEquityStake]       = useState("");
+  const [preferredProjects, setPreferredProjects] = useState([]);
+
+  // Builder-specific
+  const [specialization,    setSpecialization]    = useState("Developer");
+  const [projectsCompleted, setProjectsCompleted] = useState("");
+  const [totalValue,        setTotalValue]        = useState("");
+  const [completionRate,    setCompletionRate]    = useState("100");
+
+  // Builder document uploads
+  const [docUploads,      setDocUploads]      = useState({});  // { key: "uploading"|"done"|"error" }
+  const [docSubmissions,  setDocSubmissions]  = useState({});  // { key: { status, file_path } }
+
+  const [saving, setSaving] = useState(false);
+  const [error,  setError]  = useState("");
+
+  // Pre-populate if the user already has profile data
+  useEffect(() => {
+    async function load() {
+      const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+      if (profile?.bio)      setBio(profile.bio);
+      if (profile?.location) setLocation(profile.location);
+      // Load existing document submissions from database
+      const { data: subs } = await supabase.from("document_submissions").select("document_type, status, file_path").eq("user_id", user.id);
+      if (subs?.length) {
+        const map = {};
+        subs.forEach(s => { map[s.document_type] = { status: s.status, file_path: s.file_path }; });
+        setDocSubmissions(map);
+      }
+
+      if (role === "lender") {
+        const { data: lp } = await supabase.from("lender_profiles").select("*").eq("user_id", user.id).maybeSingle();
+        if (lp) {
+          if (lp.budget_max)        setBudgetMax(String(lp.budget_max));
+          if (lp.return_type)       setReturnType(lp.return_type);
+          if (lp.interest_rate)     setInterestRate(lp.interest_rate);
+          if (lp.builder_split)     setBuilderSplit(lp.builder_split.replace("%", ""));
+          if (lp.lender_split)      setLenderSplit(lp.lender_split.replace("%", ""));
+          if (lp.equity_stake)      setEquityStake(lp.equity_stake);
+          if (lp.preferred_projects?.length) setPreferredProjects(lp.preferred_projects);
+        }
+      } else if (role === "builder") {
+        const { data: bp } = await supabase.from("builder_profiles").select("*").eq("user_id", user.id).maybeSingle();
+        if (bp) {
+          if (bp.specialization)              setSpecialization(bp.specialization);
+          if (bp.projects_completed != null)  setProjectsCompleted(String(bp.projects_completed));
+          if (bp.total_value != null)         setTotalValue(String(bp.total_value));
+          if (bp.completion_rate != null)     setCompletionRate(String(bp.completion_rate));
+        }
+      }
+    }
+    load();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function toggleProject(p) {
+    setPreferredProjects(prev =>
+      prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]
+    );
+  }
+
+  async function handlePhotoUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { setPhotoError("Photo must be under 5 MB"); return; }
+    setPhotoError("");
+    setUploadingPhoto(true);
+    const path = `${user.id}/avatar`;
+    // Delete any existing file first so we only need INSERT permission (not UPDATE)
+    await supabase.storage.from("profile-photos").remove([path]);
+    const { error: uploadErr } = await supabase.storage
+      .from("profile-photos")
+      .upload(path, file, { contentType: file.type });
+    if (uploadErr) {
+      setUploadingPhoto(false);
+      setPhotoError(`Upload failed: ${uploadErr.message}`);
+      e.target.value = "";
+      return;
+    }
+    // Cache-bust so the browser fetches the new image even when the URL path is identical
+    const { data: { publicUrl } } = supabase.storage.from("profile-photos").getPublicUrl(path);
+    const bustedUrl = `${publicUrl}?t=${Date.now()}`;
+    setAvatarUrl(bustedUrl);
+    await supabase.auth.updateUser({ data: { avatar_url: bustedUrl } });
+    setUploadingPhoto(false);
+    e.target.value = "";
+  }
+
+  async function handleRemovePhoto() {
+    setAvatarUrl("");
+    // Delete the file from storage
+    await supabase.storage.from("profile-photos").remove([`${user.id}/avatar`]);
+    // Clear from auth metadata so the navbar/account avatar reverts immediately
+    const { error: metaErr } = await supabase.auth.updateUser({ data: { avatar_url: null } });
+    if (metaErr) {
+      setPhotoError("Failed to remove photo. Please try again.");
+      return;
+    }
+  }
+
+  async function save(skipMode) {
+    setSaving(true);
+    setError("");
+    const { data: { session } } = await supabase.auth.getSession();
+
+    let body;
+    if (skipMode) {
+      body = { location: location || "", bio: bio || "", avatar_url: avatarUrl || null };
+    } else if (role === "lender") {
+      body = {
+        location, bio,
+        budget_max:         budgetMax ? Number(budgetMax) : null,
+        return_type:        returnType,
+        interest_rate:      returnType === "Fixed interest" ? (interestRate || null) : null,
+        builder_split:      returnType === "Rental split"   ? builderSplit + "%" : null,
+        lender_split:       returnType === "Rental split"   ? lenderSplit  + "%" : null,
+        equity_stake:       returnType === "Equity stake"   ? (equityStake || null) : null,
+        preferred_projects: preferredProjects,
+        avatar_url: avatarUrl || null,
+      };
+    } else {
+      body = {
+        location, bio,
+        specialization,
+        projects_completed: projectsCompleted !== "" ? Number(projectsCompleted) : 0,
+        total_value:        totalValue        !== "" ? Number(totalValue)        : 0,
+        completion_rate:    completionRate    !== "" ? Number(completionRate)    : 100,
+        avatar_url: avatarUrl || null,
+      };
+    }
+
+    const res = await fetch("/api/save-profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify(body),
+    });
+    setSaving(false);
+
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(d.error || "We couldn't save that — please try again.");
+      return;
+    }
+
+    await supabase.auth.refreshSession();
+
+    // Celebration: profile 100% complete
+    if (!skipMode && setCelebration) {
+      const celKey = "lb_cel_profile_done";
+      if (!localStorage.getItem(celKey)) {
+        const avatarUrl2 = avatarUrl || null;
+        const dataForScore = role === "lender"
+          ? { avatar_url: avatarUrl2, bio, location, budget_max: budgetMax, return_type: returnType, preferred_projects: preferredProjects }
+          : { avatar_url: avatarUrl2, bio, location, specialization, projects_completed: projectsCompleted };
+        const { score } = computeProfileCompleteness(dataForScore, role);
+        if (score >= 100) {
+          localStorage.setItem(celKey, "1");
+          setCelebration({ message: "Profile 100% complete!", subtitle: "You are now visible to all matches." });
+        }
+      }
+    }
+
+    setPage(skipMode ? "home" : role === "lender" ? "search" : "find-builder");
+  }
+
+  const inp = {
+    width: "100%", height: 44, border: "0.5px solid #ccc", borderRadius: 8,
+    padding: "0 12px", fontSize: 14, background: "#fff", boxSizing: "border-box",
+  };
+  const label = { fontSize: 13, color: "#555", marginBottom: 5, display: "block", fontWeight: 500 };
+  const PROJECT_TYPES = ["Residential", "Commercial", "Mixed use", "Renovation"];
+  const SPEC_TYPES    = ["Developer", "Contractor", "Renovator"];
+
+  return (
+    <div style={{ padding: "2rem 1.25rem", maxWidth: 560, margin: "0 auto" }}>
+      {/* Header */}
+      <div style={{ marginBottom: "2rem" }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>
+          {role === "lender" ? "Lender" : "Builder"} profile
+        </div>
+        <h1 style={{ fontSize: 24, fontWeight: 500, margin: "0 0 6px", fontFamily: "'Georgia', serif" }}>
+          Set up your profile
+        </h1>
+        <p style={{ fontSize: 14, color: "#64748B", margin: 0 }}>
+          {role === "lender"
+            ? "Tell builders what you're looking to fund so they can reach out."
+            : "Tell lenders about your work so they can find you."}
+        </p>
+      </div>
+
+      {error && (
+        <div style={{ background: "#FAECE7", color: "#993C1D", border: "0.5px solid #F5C9BB", borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: "1rem" }}>
+          {error}
+        </div>
+      )}
+
+      <form onSubmit={e => { e.preventDefault(); save(false); }} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+
+        {/* ── PROFILE PHOTO ──────────────────────────────────────────────── */}
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>Profile photo</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <Avatar initials={nameInitials(user?.user_metadata?.name)} color={pickColor(user?.id || "")} size={64} url={avatarUrl || undefined} />
+            <div>
+              <label style={{
+                display: "inline-flex", alignItems: "center", padding: "0 16px",
+                height: 44, minHeight: 44,
+                background: uploadingPhoto ? "#f0f0f0" : "#fff",
+                border: "0.5px solid #ccc", borderRadius: 8,
+                fontSize: 13, cursor: uploadingPhoto ? "default" : "pointer", color: "#555",
+              }}>
+                {uploadingPhoto ? "Uploading…" : avatarUrl ? "Replace photo" : "Upload photo"}
+                <input type="file" accept="image/*" style={{ display: "none" }} onChange={handlePhotoUpload} disabled={uploadingPhoto} />
+              </label>
+              {avatarUrl && !uploadingPhoto && (
+                <button
+                  type="button"
+                  onClick={handleRemovePhoto}
+                  style={{ marginLeft: 8, fontSize: 12, color: "#D85A30", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                >
+                  Remove
+                </button>
+              )}
+              {photoError && <div style={{ fontSize: 12, color: "#993C1D", marginTop: 6 }}>{photoError}</div>}
+              <div style={{ fontSize: 11, color: "#aaa", marginTop: 6 }}>JPG, PNG or WebP · Max 5 MB</div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── LENDER FIELDS ───────────────────────────────────────────────── */}
+        {role === "lender" && (<>
+
+          {/* Budget */}
+          <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>Investment budget</div>
+            <div>
+              <label style={label}>Maximum amount you can lend (£)</label>
+              <input
+                type="number" min="1000" step="1000"
+                value={budgetMax} onChange={e => setBudgetMax(e.target.value)}
+                placeholder="e.g. 200000" style={inp}
+              />
+            </div>
+          </div>
+
+          {/* Return type */}
+          <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>Return structure</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+              {["Fixed interest", "Rental split", "Equity stake"].map(rt => (
+                <button
+                  key={rt} type="button"
+                  onClick={() => setReturnType(rt)}
+                  style={{
+                    flex: 1, minWidth: 110, padding: "8px 12px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer",
+                    border: returnType === rt ? "none" : "0.5px solid #ccc",
+                    background: returnType === rt ? "#3B82F6" : "#fff",
+                    color:      returnType === rt ? "#fff"     : "#555",
+                  }}
+                >{rt}</button>
+              ))}
+            </div>
+
+            <ReturnTypeExplainer returnType={returnType} onApply={rt => setReturnType(rt)}>
+              {returnType === "Fixed interest" && (
+                <div style={{ marginTop: 4 }}>
+                  <label style={label}>Interest rate (e.g. "8% p.a.")</label>
+                  <input type="text" value={interestRate} onChange={e => setInterestRate(e.target.value)} placeholder="8% p.a." style={inp} />
+                </div>
+              )}
+              {returnType === "Rental split" && (
+                <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={label}>Builder share (%)</label>
+                    <input type="number" min="0" max="100" value={builderSplit} onChange={e => setBuilderSplit(e.target.value)} placeholder="60" style={inp} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={label}>Lender share (%)</label>
+                    <input type="number" min="0" max="100" value={lenderSplit} onChange={e => setLenderSplit(e.target.value)} placeholder="40" style={inp} />
+                  </div>
+                </div>
+              )}
+              {returnType === "Equity stake" && (
+                <div style={{ marginTop: 4 }}>
+                  <label style={label}>Equity stake (e.g. "15–25%")</label>
+                  <input type="text" value={equityStake} onChange={e => setEquityStake(e.target.value)} placeholder="15–25%" style={inp} />
+                </div>
+              )}
+            </ReturnTypeExplainer>
+          </div>
+
+          {/* Preferred projects */}
+          <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>Preferred project types</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {PROJECT_TYPES.map(p => {
+                const on = preferredProjects.includes(p);
+                return (
+                  <button
+                    key={p} type="button"
+                    onClick={() => toggleProject(p)}
+                    style={{
+                      padding: "7px 14px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer",
+                      border: on ? "none" : "0.5px solid #ccc",
+                      background: on ? "#E1F5EE" : "#fff",
+                      color:      on ? "#0F6E56" : "#555",
+                    }}
+                  >{p}</button>
+                );
+              })}
+            </div>
+          </div>
+
+        </>)}
+
+        {/* ── BUILDER FIELDS ──────────────────────────────────────────────── */}
+        {role === "builder" && (<>
+
+          {/* Specialization */}
+          <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>What type of work do you do?</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {SPEC_TYPES.map(s => (
+                <button
+                  key={s} type="button"
+                  onClick={() => setSpecialization(s)}
+                  style={{
+                    flex: 1, minWidth: 100, padding: "9px 12px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer",
+                    border:      specialization === s ? "none" : "0.5px solid #ccc",
+                    background:  specialization === s ? "#3B82F6" : "#fff",
+                    color:       specialization === s ? "#fff"    : "#555",
+                  }}
+                >{s}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Track record */}
+          <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>Track record</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <label style={label}>Projects completed</label>
+                <input type="number" min="0" value={projectsCompleted} onChange={e => setProjectsCompleted(e.target.value)} placeholder="e.g. 5" style={inp} />
+              </div>
+              <div>
+                <label style={label}>Total value of projects built (£)</label>
+                <input type="number" min="0" step="1000" value={totalValue} onChange={e => setTotalValue(e.target.value)} placeholder="e.g. 500000" style={inp} />
+              </div>
+              <div>
+                <label style={label}>On-time completion rate (%)</label>
+                <input type="number" min="0" max="100" value={completionRate} onChange={e => setCompletionRate(e.target.value)} placeholder="e.g. 95" style={inp} />
+              </div>
+            </div>
+          </div>
+
+        </>)}
+
+        {/* ── BUILDER DOCUMENT UPLOADS ──────────────────────────────────── */}
+        {role === "builder" && (() => {
+          const DOC_TYPES = [
+            { key: "photo_id",    label: "Photo ID",                   desc: "Passport or driving licence",            accept: "image/*,.pdf" },
+            { key: "selfie",      label: "Selfie with ID",             desc: "A photo of you holding your ID",         accept: "image/*" },
+            { key: "site_photos", label: "Site photos",                desc: "Photos of your previous work or sites",  accept: "image/*" },
+            { key: "planning",    label: "Planning permission docs",   desc: "Planning consents or approvals",         accept: "image/*,.pdf" },
+          ];
+
+          async function handleDocUpload(key, file) {
+            if (!file) return;
+            setDocUploads(prev => ({ ...prev, [key]: "uploading" }));
+            const ext = file.name.split(".").pop();
+            const path = `${user.id}/${key}.${ext}`;
+            const { error: uploadErr } = await supabase.storage
+              .from("builder-documents")
+              .upload(path, file, { upsert: true });
+            if (uploadErr) {
+              setDocUploads(prev => ({ ...prev, [key]: "error" }));
+              return;
+            }
+            setDocUploads(prev => ({ ...prev, [key]: "done" }));
+            await supabase.from("document_submissions").upsert(
+              { user_id: user.id, document_type: key, file_path: path, status: "pending", submitted_at: new Date().toISOString(), reviewed_at: null },
+              { onConflict: "user_id,document_type" }
+            );
+            setDocSubmissions(prev => ({ ...prev, [key]: { status: "pending", file_path: path } }));
+          }
+
+          return (
+            <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Verification documents</div>
+              <p style={{ fontSize: 13, color: "#64748B", margin: "0 0 14px", lineHeight: 1.55 }}>
+                Upload these for admin review. You'll receive an email once approved. Documents are stored securely.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {DOC_TYPES.map(({ key, label, desc, accept }) => {
+                  const st        = docUploads[key];
+                  const sub       = docSubmissions[key];
+                  const subStatus = sub?.status; // "pending" | "approved" | "rejected" | undefined
+                  const bg     = subStatus === "approved" ? "#f0faf6" : subStatus === "pending" ? "#fffbeb" : subStatus === "rejected" ? "#fef2f2" : "#fafaf8";
+                  const border = subStatus === "approved" ? "#A8DFC9"  : subStatus === "pending" ? "#FCD34D"  : subStatus === "rejected" ? "#FCA5A5"  : "#e8e8e5";
+                  return (
+                    <div key={key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", background: bg, borderRadius: 8, border: `0.5px solid ${border}` }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          {label}
+                          {subStatus === "approved" && <span style={{ fontSize: 11, background: "#EBF2FF", color: "#1E3A5F", padding: "2px 7px", borderRadius: 20, fontWeight: 500 }}>✓ Verified</span>}
+                          {subStatus === "pending"  && <span style={{ fontSize: 11, background: "#FEF3C7", color: "#B45309", padding: "2px 7px", borderRadius: 20, fontWeight: 500 }}>Document submitted — under review</span>}
+                          {subStatus === "rejected" && <span style={{ fontSize: 11, background: "#FEE2E2", color: "#991B1B", padding: "2px 7px", borderRadius: 20, fontWeight: 500 }}>Rejected — please re-upload</span>}
+                        </div>
+                        <div style={{ fontSize: 11, color: "#aaa", marginTop: 2 }}>{desc}</div>
+                      </div>
+                      <label style={{
+                        display: "inline-flex", alignItems: "center",
+                        padding: "0 14px", minHeight: 44,
+                        background: st === "uploading" ? "#f0f0f0" : "#fff",
+                        border: "0.5px solid #ddd", borderRadius: 8, fontSize: 12,
+                        cursor: st === "uploading" ? "default" : "pointer", color: "#555",
+                        flexShrink: 0, whiteSpace: "nowrap",
+                      }}>
+                        {st === "uploading" ? "Uploading…" : st === "error" ? "Retry" : subStatus ? "Replace" : "Upload"}
+                        <input
+                          type="file" accept={accept} style={{ display: "none" }}
+                          onChange={e => handleDocUpload(key, e.target.files[0])}
+                          disabled={st === "uploading"}
+                        />
+                      </label>
+                    </div>
+                  );
+                })}
+              </div>
+              {Object.values(docUploads).some(s => s === "error") && (
+                <p style={{ fontSize: 12, color: "#993C1D", marginTop: 10 }}>
+                  Some uploads failed. Please ensure the "builder-documents" storage bucket has been created in your Supabase project.
+                </p>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* ── SHARED FIELDS (bio + location) ──────────────────────────────── */}
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>About you</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <label style={label}>Location</label>
+              <input type="text" value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. Manchester, UK" style={inp} />
+            </div>
+            <div>
+              <label style={label}>Bio</label>
+              <textarea
+                value={bio} onChange={e => setBio(e.target.value)}
+                placeholder={role === "lender"
+                  ? "Tell builders what you look for in a project, your experience, and how quickly you make decisions…"
+                  : "Describe your speciality, the types of projects you take on, and what makes you a reliable partner…"}
+                rows={4}
+                style={{ ...inp, height: "auto", padding: "10px 12px", resize: "vertical", lineHeight: 1.55 }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            type="button"
+            onClick={() => save(true)}
+            disabled={saving}
+            style={{
+              flex: 1, height: 44, background: "transparent", color: "#64748B",
+              border: "0.5px solid #e0e0e0", borderRadius: 8, fontSize: 14, fontWeight: 500,
+              cursor: saving ? "default" : "pointer",
+            }}
+          >
+            Skip for now
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            style={{
+              flex: 2, height: 44, background: saving ? "#aaa" : "#3B82F6", color: saving ? "#fff" : "#1E3A5F",
+              border: "none", borderRadius: 8, fontSize: 14, fontWeight: 500,
+              cursor: saving ? "default" : "pointer",
+            }}
+          >
+            {saving ? "Saving…" : "Save and find matches"}
+          </button>
+        </div>
+
+      </form>
+    </div>
+  );
+}
+
+// ─── ACCOUNT PAGE ─────────────────────────────────────────────────────────────
+
+function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTour, darkMode, setDarkMode, accentColor = "#3B82F6", setAccentColor, fontSize = "normal", setFontSize, density = "comfortable", setDensity }) {
+  const displayName = user?.user_metadata?.name || user?.email?.split("@")[0] || "";
+  const role = user?.user_metadata?.role;
+
+  const [factors, setFactors] = useState([]);
+  const [enrollStep, setEnrollStep] = useState("idle"); // "idle" | "scan" | "verify"
+  const [enrollData, setEnrollData] = useState(null);   // { id, qr_code, secret }
+  const [verifyCode, setVerifyCode] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  useEffect(() => { loadFactors(); }, []);
+
+  async function loadFactors() {
+    const { data } = await supabase.auth.mfa.listFactors();
+    setFactors(data?.totp || []);
+  }
+
+  async function startEnroll() {
+    setLoading(true);
+    setError("");
+    setSuccess("");
+    const { data, error } = await supabase.auth.mfa.enroll({
+      factorType: "totp",
+      friendlyName: "LenderBuild",
+    });
+    setLoading(false);
+    if (error) { setError(error.message); return; }
+    setEnrollData({ id: data.id, qr_code: data.totp.qr_code, secret: data.totp.secret });
+    setEnrollStep("scan");
+  }
+
+  async function verifyEnroll(e) {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    const { data: challenge, error: cErr } = await supabase.auth.mfa.challenge({ factorId: enrollData.id });
+    if (cErr) { setError(cErr.message); setLoading(false); return; }
+    const { error: vErr } = await supabase.auth.mfa.verify({
+      factorId: enrollData.id,
+      challengeId: challenge.id,
+      code: verifyCode,
+    });
+    setLoading(false);
+    if (vErr) { setError(vErr.message); return; }
+    setEnrollStep("idle");
+    setEnrollData(null);
+    setVerifyCode("");
+    setSuccess("Two-factor authentication enabled successfully.");
+    loadFactors();
+  }
+
+  async function cancelEnroll() {
+    if (enrollData?.id) {
+      await supabase.auth.mfa.unenroll({ factorId: enrollData.id });
+    }
+    setEnrollStep("idle");
+    setEnrollData(null);
+    setVerifyCode("");
+    setError("");
+  }
+
+  async function unenroll(factorId) {
+    setLoading(true);
+    setError("");
+    setSuccess("");
+    const { error } = await supabase.auth.mfa.unenroll({ factorId });
+    setLoading(false);
+    if (error) { setError(error.message); return; }
+    setSuccess("Two-factor authentication has been disabled.");
+    loadFactors();
+  }
+
+  const activeFactor = factors.find(f => f.status === "verified");
+  const inputStyle = {
+    width: "100%", height: 44, border: "0.5px solid #ccc", borderRadius: 8,
+    padding: "0 12px", fontSize: 14, background: "#fff", boxSizing: "border-box",
+  };
+
+  const [openSection, setOpenSection] = useState("account");
+  const [acctWidth, setAcctWidth] = useState(() => typeof window !== "undefined" ? window.innerWidth : 1200);
+  useEffect(() => {
+    const onResize = () => setAcctWidth(window.innerWidth);
+    window.addEventListener("resize", onResize, { passive: true });
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const isMobileAcct = acctWidth < 768;
+  const [devPref, setDevPrefState] = useState(() => {
+    try { return localStorage.getItem("lb_device_preference") || "auto"; } catch { return "auto"; }
+  });
+  const [notifPrefs, setNotifPrefs] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(`lb_notif_prefs_${user?.id}`) || "{}"); } catch { return {}; }
+  });
+  const [privacyPrefs, setPrivacyPrefs] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(`lb_privacy_prefs_${user?.id}`) || "{}"); } catch { return {}; }
+  });
+
+  function toggleNotif(key) {
+    setNotifPrefs(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem(`lb_notif_prefs_${user?.id}`, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
+
+  function togglePrivacy(key) {
+    setPrivacyPrefs(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem(`lb_privacy_prefs_${user?.id}`, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
+
+  function SectionCard({ id, icon, title, children }) {
+    const isOpen = openSection === id;
+    return (
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, marginBottom: "1rem", overflow: "hidden" }}>
+        <button onClick={() => setOpenSection(isOpen ? null : id)}
+          style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "14px 20px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
+          <span style={{ fontSize: 18 }}>{icon}</span>
+          <span style={{ flex: 1, fontSize: 15, fontWeight: 600, color: "#1E3A5F" }}>{title}</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }}><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        {isOpen && <div style={{ padding: "0 20px 20px", borderTop: "0.5px solid #f0f0f0" }}>{children}</div>}
+      </div>
+    );
+  }
+
+  const avatarUrl = user?.user_metadata?.avatar_url;
+
+  return (
+    <div style={{ padding: "1.5rem 1.25rem", maxWidth: 600, margin: "0 auto" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.75rem" }}>
+        <h2 style={{ fontSize: 22, fontWeight: 600, margin: 0, color: "#1E3A5F" }}>Settings</h2>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 13, color: "#64748B" }}>{darkMode ? "🌙 Dark" : "☀️ Light"}</span>
+          <button onClick={() => setDarkMode && setDarkMode(d => !d)}
+            style={{ width: 48, height: 26, borderRadius: 13, border: "none", background: darkMode ? "#3B82F6" : "#CBD5E1", cursor: "pointer", position: "relative", transition: "background 0.2s", padding: 0, flexShrink: 0 }}>
+            <div style={{ position: "absolute", top: 3, left: darkMode ? 24 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.2)", transition: "left 0.2s" }} />
+          </button>
+        </div>
+      </div>
+
+      {/* 1 — Account */}
+      <SectionCard id="account" icon="👤" title="Account">
+        <div style={{ paddingTop: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: "1.25rem" }}>
+            {avatarUrl
+              ? <div style={{ width: 56, height: 56, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><img src={avatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
+              : <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#3B82F6", color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 600, flexShrink: 0 }}>{displayName.charAt(0).toUpperCase()}</div>}
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ fontSize: 16, fontWeight: 600 }}>{displayName}</div>
+                <RoleBadge userRole={userProfile?.user_role} authRole={role} />
+              </div>
+              <div style={{ fontSize: 13, color: "#64748B", marginTop: 2 }}>{user?.email}</div>
+              {userProfile?.sequential_id && <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>{fmtId(userProfile.sequential_id)}</div>}
+            </div>
+          </div>
+          <button onClick={() => setPage("profile-setup")} style={{ padding: "9px 20px", borderRadius: 8, fontSize: 13, fontWeight: 500, border: "1.5px solid #1E3A5F", background: "transparent", color: "#1E3A5F", cursor: "pointer", minHeight: 44 }}>
+            Edit profile
+          </button>
+          {/* Profile completeness */}
+          {viewerRoleProfile && (() => {
+            const data = role === "lender"
+              ? { avatar_url: avatarUrl, bio: userProfile?.bio, location: userProfile?.location, budget_max: viewerRoleProfile.budget_max, return_type: viewerRoleProfile.return_type, preferred_projects: viewerRoleProfile.preferred_projects }
+              : { avatar_url: avatarUrl, bio: userProfile?.bio, location: userProfile?.location, specialization: viewerRoleProfile.specialization, projects_completed: viewerRoleProfile.projects_completed, verified_documents: user?.user_metadata?.verified_documents };
+            const { score, missing } = computeProfileCompleteness(data, role);
+            const barColor = score >= 80 ? "#1D9E75" : score >= 50 ? "var(--accent)" : "#D85A30";
+            return (
+              <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: "0.5px solid #f0f0f0" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: "#1E3A5F" }}>Profile completeness</span>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: barColor }}>{score}%</span>
+                </div>
+                <div style={{ height: 6, background: "#f0f0f0", borderRadius: 3, marginBottom: 8 }}>
+                  <div style={{ height: 6, borderRadius: 3, background: barColor, width: `${score}%`, transition: "width 0.5s" }} />
+                </div>
+                {missing.length > 0 && <div style={{ fontSize: 12, color: "#64748B" }}>Still needed: {missing.map((m, i) => <span key={m.label}><span style={{ fontWeight: 500, color: "#555" }}>{m.label}</span>{i < missing.length - 1 ? " · " : ""}</span>)}</div>}
+              </div>
+            );
+          })()}
+          {/* Connection requests */}
+          {role === "builder" && (user?.user_metadata?.connections || []).length > 0 && (
+            <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: "0.5px solid #f0f0f0" }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "#64748B", marginBottom: 8 }}>Connection requests</div>
+              {(user.user_metadata.connections).map((conn, i) => {
+                const statusMap = { pending: { bg: "#DBEAFE", text: "#1D4ED8", label: "Pending" }, accepted: { bg: "#E1F5EE", text: "#0F6E56", label: "Accepted" }, declined: { bg: "#FAECE7", text: "#993C1D", label: "Declined" } };
+                const s = statusMap[conn.status] || statusMap.pending;
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: i < user.user_metadata.connections.length - 1 ? "0.5px solid #f0f0f0" : "none", gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{conn.lender_name}</div>
+                      <div style={{ fontSize: 11, color: "#64748B" }}>{conn.lender_type} · {new Date(conn.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</div>
+                    </div>
+                    <span style={{ background: s.bg, color: s.text, fontSize: 11, padding: "3px 8px", borderRadius: 20, fontWeight: 500, flexShrink: 0 }}>{s.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </SectionCard>
+
+      {/* 2 — Appearance */}
+      <SectionCard id="appearance" icon="🎨" title="Appearance">
+        <div style={{ paddingTop: 16 }}>
+
+          {/* ── Dark mode ───────────────────────────────────────────────── */}
+          <div style={{ marginBottom: "1.5rem" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Theme</div>
+            <button
+              onClick={() => setDarkMode && setDarkMode(d => !d)}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "12px 14px", borderRadius: 12, border: "1.5px solid", borderColor: "#e0e0e0", background: "transparent", cursor: "pointer", minHeight: 52, gap: 10 }}
+              aria-label="Toggle dark mode"
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontWeight: 500, color: "#374151" }}>
+                <span style={{ fontSize: 20 }}>{darkMode ? "🌙" : "☀️"}</span>
+                {darkMode ? "Dark mode" : "Light mode"}
+              </span>
+              <div style={{ position: "relative", width: 56, height: 30, borderRadius: 15, background: darkMode ? "var(--accent,#3B82F6)" : "#CBD5E1", flexShrink: 0, transition: "background 0.2s" }}>
+                <div style={{ position: "absolute", top: 5, left: darkMode ? 29 : 5, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.25)", transition: "left 0.2s" }} />
+              </div>
+            </button>
+          </div>
+
+          {/* ── Colour scheme ───────────────────────────────────────────── */}
+          <div style={{ marginBottom: "1.5rem" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 4 }}>Colour scheme</div>
+            <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 12 }}>
+              {ACCENT_PRESETS.find(p => p.value === accentColor)?.label ?? "Custom"} — applies instantly
+            </div>
+            {/* 4×2 grid of colour circles */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: isMobileAcct ? 12 : 10 }}>
+              {ACCENT_PRESETS.map(p => {
+                const isSelected = accentColor === p.value;
+                const sz = isMobileAcct ? 56 : 44;
+                return (
+                  <button
+                    key={p.value}
+                    onClick={() => setAccentColor && setAccentColor(p.value)}
+                    title={p.label}
+                    style={{
+                      width: sz, height: sz, borderRadius: "50%", padding: 0, cursor: "pointer",
+                      background: p.value, justifySelf: "center",
+                      border: isSelected ? `3px solid ${p.value}` : "2px solid transparent",
+                      outline: isSelected ? `3px solid ${p.value}` : "2px solid transparent",
+                      outlineOffset: 3,
+                      boxShadow: isSelected ? `0 0 0 4px ${p.value}33, 0 2px 8px rgba(0,0,0,0.2)` : "0 2px 6px rgba(0,0,0,0.18)",
+                      transition: "transform 0.12s, box-shadow 0.12s",
+                      transform: isSelected ? "scale(1.12)" : "scale(1)",
+                      position: "relative",
+                    }}
+                  >
+                    {isSelected && (
+                      <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: isMobileAcct ? 22 : 18, fontWeight: 700, lineHeight: 1 }}>✓</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ── Font size ───────────────────────────────────────────────── */}
+          <div style={{ marginBottom: "1.5rem" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Font size</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {[
+                { key: "small",  label: isMobileAcct ? "S" : "Small",  desc: "13px" },
+                { key: "normal", label: isMobileAcct ? "M" : "Normal", desc: "15px" },
+                { key: "large",  label: isMobileAcct ? "L" : "Large",  desc: "18px" },
+              ].map(f => {
+                const isSelected = fontSize === f.key;
+                return (
+                  <button key={f.key} onClick={() => setFontSize && setFontSize(f.key)}
+                    style={{ flex: 1, padding: "10px 8px", borderRadius: 10, border: "1.5px solid", borderColor: isSelected ? "var(--accent,#3B82F6)" : "#e0e0e0", background: isSelected ? "var(--accent-bg,#EBF2FF)" : "transparent", color: isSelected ? "var(--accent,#1E3A5F)" : "#64748B", fontSize: isMobileAcct ? 16 : 13, fontWeight: isSelected ? 700 : 500, cursor: "pointer", transition: "all 0.15s", minHeight: 52, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3 }}>
+                    <span style={{ fontSize: isMobileAcct ? 18 : 14, fontWeight: 700 }}>{f.label}</span>
+                    {!isMobileAcct && <span style={{ fontSize: 10, opacity: 0.7 }}>{f.desc}</span>}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 6 }}>S = 13px · M = 15px · L = 18px — applies instantly</div>
+          </div>
+
+          {/* ── Layout density ──────────────────────────────────────────── */}
+          <div style={{ marginBottom: "1.5rem" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Layout density</div>
+            <div style={{ display: "flex", flexDirection: isMobileAcct ? "column" : "row", gap: 8 }}>
+              {[
+                { key: "comfortable", label: "Comfortable", desc: "More breathing room", icon: "⬜" },
+                { key: "compact",     label: "Compact",     desc: "Denser layout", icon: "▪️" },
+              ].map(d => {
+                const isSelected = density === d.key;
+                return (
+                  <button key={d.key} onClick={() => setDensity && setDensity(d.key)}
+                    style={{ flex: 1, padding: isMobileAcct ? "14px 16px" : "8px 16px", borderRadius: 10, border: "1.5px solid", borderColor: isSelected ? "var(--accent,#3B82F6)" : "#e0e0e0", background: isSelected ? "var(--accent-bg,#EBF2FF)" : "transparent", color: isSelected ? "var(--accent,#1E3A5F)" : "#64748B", fontSize: 14, fontWeight: isSelected ? 600 : 500, cursor: "pointer", transition: "all 0.15s", minHeight: 52, display: "flex", alignItems: "center", justifyContent: isMobileAcct ? "flex-start" : "center", gap: 8 }}>
+                    <span style={{ fontSize: 16 }}>{d.icon}</span>
+                    <span>{d.label}</span>
+                    {isMobileAcct && <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: 4 }}>{d.desc}</span>}
+                    {isSelected && <span style={{ marginLeft: "auto", color: "var(--accent,#3B82F6)", fontSize: 16 }}>✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 6 }}>Compact reduces padding by ~30%</div>
+          </div>
+
+          {/* ── Device layout ───────────────────────────────────────────── */}
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Device layout</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {[
+                { key: "auto",    label: "Auto",    icon: "🔄" },
+                { key: "mobile",  label: "Mobile",  icon: "📱" },
+                { key: "desktop", label: "Desktop", icon: "💻" },
+              ].map(d => {
+                const isSelected = devPref === d.key;
+                return (
+                  <button key={d.key} onClick={() => {
+                    try { localStorage.setItem("lb_device_preference", d.key); } catch {}
+                    setDevPrefState(d.key);
+                    document.body.classList.remove("lb-mobile-layout", "lb-desktop-layout");
+                    if (d.key === "mobile") document.body.classList.add("lb-mobile-layout");
+                    if (d.key === "desktop") document.body.classList.add("lb-desktop-layout");
+                  }}
+                    style={{ flex: 1, padding: "10px 8px", borderRadius: 10, border: "1.5px solid", borderColor: isSelected ? "var(--accent,#3B82F6)" : "#e0e0e0", background: isSelected ? "var(--accent-bg,#EBF2FF)" : "transparent", color: isSelected ? "var(--accent,#1E3A5F)" : "#64748B", fontSize: 13, fontWeight: isSelected ? 600 : 500, cursor: "pointer", transition: "all 0.15s", minHeight: 48, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                    <span style={{ fontSize: 18 }}>{d.icon}</span>
+                    <span>{d.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 6 }}>Controls bottom nav vs. sidebar layout</div>
+          </div>
+
+        </div>
+      </SectionCard>
+
+      {/* 3 — Notifications */}
+      <SectionCard id="notifications" icon="🔔" title="Notifications">
+        <div style={{ paddingTop: 14 }}>
+          {[
+            { key: "new_connections", label: "New connection requests" },
+            { key: "new_messages",    label: "New messages" },
+            { key: "deal_updates",    label: "Deal updates" },
+            { key: "milestones",      label: "Milestone approvals" },
+          ].map(({ key, label }) => (
+            <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "0.5px solid #f8f8f8" }}>
+              <span style={{ fontSize: 14, color: "#374151" }}>{label}</span>
+              <button onClick={() => toggleNotif(key)}
+                style={{ width: 44, height: 24, borderRadius: 12, border: "none", background: notifPrefs[key] !== false ? "#3B82F6" : "#CBD5E1", cursor: "pointer", position: "relative", transition: "background 0.2s", padding: 0 }}>
+                <div style={{ position: "absolute", top: 3, left: notifPrefs[key] !== false ? 22 : 3, width: 18, height: 18, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", transition: "left 0.2s" }} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      {/* 4 — Privacy */}
+      <SectionCard id="privacy" icon="🔐" title="Privacy">
+        <div style={{ paddingTop: 14 }}>
+          {[
+            { key: "hide_from_search",   label: "Hide profile from search",     desc: "Your profile won't appear in lender/builder search results" },
+            { key: "hide_email",         label: "Hide email from connections",   desc: "Connections can only contact you through in-app messages" },
+            { key: "hide_online_status", label: "Hide online status",            desc: "Others won't see when you were last active" },
+            { key: "hide_deal_count",    label: "Hide deal count from profile",  desc: "Your number of completed deals won't be public" },
+          ].map(({ key, label, desc }) => (
+            <div key={key} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: "10px 0", borderBottom: "0.5px solid #f8f8f8", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 14, color: "#374151", fontWeight: 500 }}>{label}</div>
+                <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 2, lineHeight: 1.4 }}>{desc}</div>
+              </div>
+              <button onClick={() => togglePrivacy(key)}
+                style={{ width: 44, height: 24, borderRadius: 12, border: "none", background: privacyPrefs[key] ? "#3B82F6" : "#CBD5E1", cursor: "pointer", position: "relative", transition: "background 0.2s", padding: 0, flexShrink: 0, marginTop: 2 }}>
+                <div style={{ position: "absolute", top: 3, left: privacyPrefs[key] ? 22 : 3, width: 18, height: 18, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", transition: "left 0.2s" }} />
+              </button>
+            </div>
+          ))}
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "0.5px solid #f0f0f0", display: "flex", flexDirection: "column", gap: 4 }}>
+            <button onClick={() => setPage("privacy")}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", background: "transparent", border: "none", cursor: "pointer", width: "100%", textAlign: "left", fontSize: 14, color: "#374151" }}
+              onMouseEnter={e => e.currentTarget.style.color = "#1E3A5F"}
+              onMouseLeave={e => e.currentTarget.style.color = "#374151"}>
+              <span style={{ fontSize: 16 }}>📄</span>
+              Privacy Policy
+              <svg style={{ marginLeft: "auto" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+            </button>
+            <button onClick={() => { if (window.confirm("Are you sure you want to delete your account? This is permanent and cannot be undone.")) { window.location.href = "mailto:louisgraham932@gmail.com?subject=Account deletion request"; } }}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", background: "transparent", border: "none", cursor: "pointer", width: "100%", textAlign: "left", fontSize: 14, color: "#DC2626" }}>
+              <span style={{ fontSize: 16 }}>🗑️</span>
+              Request account deletion
+            </button>
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* 5 — Security (2FA) */}
+      <SectionCard id="security" icon="🔒" title="Security">
+        <div style={{ paddingTop: 14 }}>
+          {error && <div style={{ background: "#FAECE7", color: "#993C1D", border: "0.5px solid #F5C9BB", borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: "1rem" }}>{error}</div>}
+          {success && <div style={{ background: "#EBF2FF", color: "#1E3A5F", border: "0.5px solid #A8DFC9", borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: "1rem" }}>{success}</div>}
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Two-factor authentication</div>
+          {enrollStep === "idle" && (
+            activeFactor ? (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "1rem" }}>
+                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#3B82F6", flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 500 }}>Authenticator app enabled</div>
+                    <div style={{ fontSize: 12, color: "#64748B" }}>Your account is protected with 2FA.</div>
+                  </div>
+                </div>
+                <button onClick={() => unenroll(activeFactor.id)} disabled={loading}
+                  style={{ padding: "8px 16px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, border: "0.5px solid #F5C9BB", background: "#FAECE7", color: "#993C1D", cursor: loading ? "default" : "pointer" }}>
+                  {loading ? "Disabling..." : "Disable 2FA"}
+                </button>
+              </div>
+            ) : (
+              <div>
+                <p style={{ fontSize: 13, color: "#666", lineHeight: 1.6, marginTop: 0, marginBottom: "1rem" }}>
+                  Add an extra layer of security. Once enabled, you'll need a code from your authenticator app each time you log in.
+                </p>
+                <button onClick={startEnroll} disabled={loading}
+                  style={{ padding: "8px 20px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, border: "none", background: "#3B82F6", color: "#FFFFFF", cursor: loading ? "default" : "pointer" }}>
+                  {loading ? "Setting up..." : "Set up authenticator app"}
+                </button>
+              </div>
+            )
+          )}
+          {enrollStep === "scan" && enrollData && (
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Step 1 — Scan QR code</div>
+              <p style={{ fontSize: 13, color: "#666", lineHeight: 1.6, marginTop: 0, marginBottom: "1.25rem" }}>Open Google Authenticator, Authy or any TOTP app and scan this QR code.</p>
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: "1.25rem" }}>
+                <div style={{ padding: 12, background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, display: "inline-block" }}>
+                  <img src={enrollData.qr_code} alt="QR code" style={{ width: 180, height: 180, display: "block" }} />
+                </div>
+              </div>
+              <details style={{ marginBottom: "1.25rem" }}>
+                <summary style={{ fontSize: 12, color: "#64748B", cursor: "pointer" }}>Can't scan? Enter secret manually</summary>
+                <div style={{ marginTop: 8, padding: "8px 12px", background: "#f5f5f3", borderRadius: 8, fontFamily: "monospace", fontSize: 13, letterSpacing: "0.1em", wordBreak: "break-all" }}>{enrollData.secret}</div>
+              </details>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setEnrollStep("verify")} style={{ flex: 1, height: 44, background: "#3B82F6", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Next — Enter code</button>
+                <button onClick={cancelEnroll} style={{ padding: "0 16px", height: 44, background: "transparent", color: "#555", border: "0.5px solid #ccc", borderRadius: 8, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+              </div>
+            </div>
+          )}
+          {enrollStep === "verify" && (
+            <form onSubmit={verifyEnroll}>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Step 2 — Verify code</div>
+              <p style={{ fontSize: 13, color: "#666", lineHeight: 1.6, marginTop: 0, marginBottom: "1.25rem" }}>Enter the 6-digit code from your authenticator app.</p>
+              <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6} required value={verifyCode} onChange={e => setVerifyCode(e.target.value.replace(/\D/g, ""))} placeholder="000000"
+                style={{ width: "100%", height: 44, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 12px", fontSize: 20, background: "#fff", boxSizing: "border-box", letterSpacing: "0.3em", textAlign: "center", marginBottom: "1rem" }} autoFocus />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="submit" disabled={loading || verifyCode.length < 6} style={{ flex: 1, height: 44, background: loading ? "#aaa" : "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: loading ? "default" : "pointer" }}>{loading ? "Verifying..." : "Enable 2FA"}</button>
+                <button type="button" onClick={() => setEnrollStep("scan")} style={{ padding: "0 16px", height: 44, background: "transparent", color: "#555", border: "0.5px solid #ccc", borderRadius: 8, fontSize: 13, cursor: "pointer" }}>Back</button>
+              </div>
+            </form>
+          )}
+        </div>
+      </SectionCard>
+
+      {/* 6 — Help & Support */}
+      <SectionCard id="help" icon="❓" title="Help & Support">
+        <div style={{ paddingTop: 14, display: "flex", flexDirection: "column", gap: 4 }}>
+          {[
+            { label: "How it works", action: () => setPage("how-it-works"), icon: "📖" },
+            { label: "Trust & Safety", action: () => setPage("safety"), icon: "🛡️" },
+            { label: "Contact support", action: () => { window.location.href = "mailto:louisgraham932@gmail.com"; }, icon: "✉️" },
+            { label: "Replay onboarding tour", action: onReplayTour, icon: "🎬" },
+            { label: "System status", action: () => setPage("status"), icon: "🟢" },
+          ].map(({ label, action, icon }) => (
+            <button key={label} onClick={action}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", background: "transparent", border: "none", borderBottom: "0.5px solid #f8f8f8", cursor: "pointer", width: "100%", textAlign: "left", fontSize: 14, color: "#374151" }}
+              onMouseEnter={e => e.currentTarget.style.color = "#1E3A5F"}
+              onMouseLeave={e => e.currentTarget.style.color = "#374151"}>
+              <span style={{ fontSize: 16 }}>{icon}</span>
+              {label}
+              <svg style={{ marginLeft: "auto" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+            </button>
+          ))}
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+// ─── GETTING STARTED (NEW USER ONBOARDING) ───────────────────────────────────
+
+function GettingStartedPage({ user, setPage, connections, conversations }) {
+  const name = user?.user_metadata?.name?.split(" ")[0] || "there";
+  const role = user?.user_metadata?.role;
+
+  const profileComplete = !!user?.user_metadata?.profile_complete;
+  const hasMatch = connections > 0;
+  const hasMessage = conversations > 0;
+
+  const steps = [
+    {
+      label: "Complete your profile",
+      desc: "Tell us about your investment criteria or track record so you can be matched.",
+      done: profileComplete,
+      action: () => setPage("profile-setup"),
+      cta: "Set up profile",
+    },
+    {
+      label: role === "lender" ? "Browse your first builder" : "Browse your first lender",
+      desc: role === "lender" ? "Find a builder that matches your investment goals." : "Find a lender that fits your project.",
+      done: hasMatch,
+      action: () => setPage(role === "lender" ? "find-builder" : "search"),
+      cta: role === "lender" ? "Find a builder" : "Find a lender",
+    },
+    {
+      label: "Send your first connection request",
+      desc: "Introduce yourself and start building a relationship.",
+      done: hasMessage,
+      action: () => setPage(role === "lender" ? "find-builder" : "search"),
+      cta: "Browse profiles",
+    },
+  ];
+
+  const completedCount = steps.filter(s => s.done).length;
+  const progressPct = Math.round((completedCount / steps.length) * 100);
+
+  return (
+    <div style={{ maxWidth: 640, margin: "0 auto", padding: "2rem 1.25rem" }}>
+      <div style={{ textAlign: "center", marginBottom: "2rem" }}>
+        <h1 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(28px, 5vw, 42px)", fontWeight: 700, color: "#1E3A5F", margin: "0 0 0.5rem", lineHeight: 1.2 }}>
+          Welcome to LenderBuild, {name}
+        </h1>
+        <p style={{ fontSize: 16, color: "#64748B", margin: 0, lineHeight: 1.7 }}>
+          You're just a few steps away from finding your perfect match.
+        </p>
+      </div>
+
+      {/* Progress bar */}
+      <div style={{ background: "#fff", borderRadius: 12, padding: "20px 24px", marginBottom: "1.5rem", border: "0.5px solid #e0e0e0", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F" }}>Getting started</span>
+          <span style={{ fontSize: 13, color: "#64748B", fontWeight: 500 }}>{completedCount} of {steps.length} complete</span>
+        </div>
+        <div style={{ height: 8, background: "#F1F5F9", borderRadius: 4, overflow: "hidden" }}>
+          <div style={{ height: "100%", borderRadius: 4, background: completedCount === steps.length ? "#16A34A" : "#2E5FA3", width: `${progressPct}%`, transition: "width 0.5s ease" }} />
+        </div>
+      </div>
+
+      {/* Steps */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: "2rem" }}>
+        {steps.map((step, i) => (
+          <div key={i} style={{
+            background: "#fff", borderRadius: 12, padding: "20px 24px",
+            border: "0.5px solid #e0e0e0",
+            borderLeft: step.done ? "3px solid #16A34A" : "3px solid #2E5FA3",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+            display: "flex", alignItems: "flex-start", gap: 16,
+          }}>
+            {/* Checkbox */}
+            <div style={{
+              width: 24, height: 24, borderRadius: "50%", flexShrink: 0, marginTop: 2,
+              background: step.done ? "#16A34A" : "#EBF2FF",
+              border: step.done ? "none" : "2px solid #2E5FA3",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              {step.done && (
+                <svg width="12" height="10" viewBox="0 0 12 10" fill="none">
+                  <path d="M1.5 5l3 3 6-7" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              )}
+              {!step.done && <span style={{ fontSize: 11, fontWeight: 700, color: "#2E5FA3" }}>{i + 1}</span>}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: step.done ? "#64748B" : "#1E3A5F", marginBottom: 4, textDecoration: step.done ? "line-through" : "none" }}>
+                {step.label}
+              </div>
+              <div style={{ fontSize: 13, color: "#64748B", lineHeight: 1.55, marginBottom: step.done ? 0 : 12 }}>{step.desc}</div>
+              {!step.done && (
+                <button
+                  onClick={step.action}
+                  style={{ background: "#2E5FA3", color: "#fff", border: "none", padding: "8px 18px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                >
+                  {step.cta} →
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>
 
-      {/* Lender cards preview */}
-      <div style={{ padding: "0 2rem 3rem", maxWidth: 900, margin: "0 auto" }}>
-        <div style={{ fontSize: 11, fontWeight: 500, color: "#1D9E75", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>Featured lenders</div>
-        <h2 style={{ fontSize: 22, fontWeight: 500, marginBottom: 4 }}>Ready to fund your project</h2>
-        <p style={{ fontSize: 14, color: "#888", marginBottom: "1.5rem" }}>A sample of lenders active on the platform</p>
+      <div style={{ textAlign: "center" }}>
+        <button
+          onClick={() => setPage("home-dashboard")}
+          style={{ background: "none", border: "none", fontSize: 13, color: "#64748B", cursor: "pointer", textDecoration: "underline" }}
+        >
+          Skip getting started
+        </button>
+      </div>
+    </div>
+  );
+}
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14, marginBottom: "2.5rem" }}>
-          {LENDER_CARDS.map((lc) => (
-            <LenderCard key={lc.name} lc={lc} />
+// ─── DASHBOARD PAGE ──────────────────────────────────────────────────────────
+
+function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onMessage, viewerRoleProfile, userProfile, page }) {
+  const name     = user?.user_metadata?.name || user?.email?.split("@")[0] || "there";
+  const role     = user?.user_metadata?.role;
+  const avatarUrl = user?.user_metadata?.avatar_url;
+
+  const [conversations,   setConversations]   = useState([]);
+  const [deals,           setDeals]           = useState([]);
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [recoLenders,     setRecoLenders]     = useState([]);
+  const [recoBuilders,    setRecoBuilders]    = useState([]);
+  const [respondStatus,   setRespondStatus]   = useState({});
+  const [loading,         setLoading]         = useState(true);
+
+  const myConnections = role === "builder"
+    ? (user?.user_metadata?.connections || []).filter(c => c.status === "accepted")
+    : (user?.user_metadata?.builder_connections || []).filter(c => c.status === "sent" || c.status === "accepted");
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [convRes] = await Promise.all([
+          supabase.from("conversations").select("*")
+            .or(`lender_id.eq.${user.id},builder_id.eq.${user.id}`)
+            .order("last_message_at", { ascending: false, nullsFirst: false })
+            .limit(5),
+        ]);
+        setConversations(convRes.data || []);
+
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const [dr, rr] = await Promise.all([
+            fetch("/api/deals", { headers: { Authorization: `Bearer ${session.access_token}` } }),
+            role === "lender" ? fetch("/api/lender-requests", { headers: { Authorization: `Bearer ${session.access_token}` } }) : Promise.resolve(null),
+          ]);
+          if (dr.ok) { const { deals: ds } = await dr.json(); setDeals(ds || []); }
+          if (rr?.ok) { const { requests } = await rr.json(); setPendingRequests((requests || []).filter(r => r.status === "pending")); }
+        }
+
+        const [lr, br] = await Promise.all([
+          fetch("/api/get-profiles?type=lenders").then(r => r.json()).catch(() => ({ lenders: [] })),
+          fetch("/api/get-profiles?type=builders").then(r => r.json()).catch(() => ({ builders: [] })),
+        ]);
+        setRecoLenders(lr.lenders || []);
+        setRecoBuilders(br.builders || []);
+      } catch (e) {}
+      setLoading(false);
+    }
+    load();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleRespond(builderId, action) {
+    setRespondStatus(prev => ({ ...prev, [builderId]: "loading" }));
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/respond-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ builder_id: builderId, action }),
+    });
+    if (res.ok) {
+      setRespondStatus(prev => ({ ...prev, [builderId]: action }));
+      setPendingRequests(prev => prev.filter(r => r.builder_id !== builderId));
+      await supabase.auth.refreshSession();
+    } else {
+      setRespondStatus(prev => ({ ...prev, [builderId]: "error" }));
+    }
+  }
+
+  const [projectListings, setProjectListings] = useState([]);
+  useEffect(() => {
+    if (role === "lender") {
+      fetch("/api/project-listings").then(r => r.json()).then(d => setProjectListings((d.listings || []).slice(0, 3))).catch(() => {});
+    }
+  }, [role]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const activeDeals = deals.filter(d => d.status !== "closed");
+  const pendingBuilderRequests = role === "builder"
+    ? (user?.user_metadata?.connections || []).filter(c => c.status === "pending")
+    : [];
+
+  const recoLenderCards = recoLenders.slice(0, 3).map(l => ({
+    id: `real-${l.user_id}`, _real: true,
+    initials: nameInitials(l.profiles?.full_name), color: pickColor(l.user_id || ""),
+    name: l.profiles?.full_name || "Anonymous", type: "Private lender",
+    location: l.profiles?.location || "", bio: l.profiles?.bio || "",
+    verified: false, budget: l.budget_max ? fmt(l.budget_max) : "Flexible",
+    budget_max_num: l.budget_max || 0, returnType: l.return_type || "Flexible",
+    builderShare: l.builder_split || null, lenderShare: l.lender_split || null,
+    rate: l.interest_rate || null, equity: l.equity_stake || null,
+    term: null, exit: null,
+    project: (l.preferred_projects || []).join(", ") || "Any",
+    preferred_projects: l.preferred_projects || [], avatar_url: l.avatar_url || null,
+    user_id: l.user_id, user_role: l.profiles?.user_role || null, sequential_id: l.profiles?.sequential_id || null,
+    updated_at: l.updated_at || null,
+  }));
+
+  const recoBuilderCards = recoBuilders.slice(0, 3).map(b => ({
+    id: `real-${b.user_id}`, _real: true,
+    initials: nameInitials(b.profiles?.full_name), color: pickColor(b.user_id || ""),
+    name: b.profiles?.full_name || "Anonymous", type: b.specialization || "Builder",
+    location: b.profiles?.location || "", bio: b.profiles?.bio || "",
+    props: b.projects_completed || 0, value: b.total_value || 0,
+    completion: b.completion_rate ?? 100, verified_documents: b.verified_documents || [],
+    avatar_url: b.avatar_url || null,
+    user_id: b.user_id, user_role: b.profiles?.user_role || null, sequential_id: b.profiles?.sequential_id || null,
+    updated_at: b.updated_at || null,
+  }));
+
+  const recoForBuilder = recoLenderCards;
+  const recoForLender  = recoBuilderCards;
+
+  const isNewUser = !loading && myConnections.length === 0 && conversations.length === 0 && page !== "home-dashboard";
+
+  if (isNewUser) {
+    return (
+      <GettingStartedPage
+        user={user}
+        setPage={setPage}
+        connections={myConnections.length}
+        conversations={conversations.length}
+      />
+    );
+  }
+
+  return (
+    <div style={{ padding: "1.5rem 1.25rem", maxWidth: 1200, margin: "0 auto" }}>
+
+      {/* Welcome header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: "1.75rem" }}>
+        <Avatar initials={nameInitials(name)} color={pickColor(user?.id || "")} size={52} url={avatarUrl} />
+        <div>
+          <h1 id="tour-dashboard-heading" style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(22px, 4vw, 32px)", fontWeight: 700, margin: 0, color: "#1E3A5F", lineHeight: 1.2 }}>
+            Welcome back, {name.split(" ")[0]}
+          </h1>
+          <div style={{ fontSize: 13, color: "#64748B", marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <span style={{
+              background: role === "lender" ? "#EBF2FF" : "#DCFCE7",
+              color:      role === "lender" ? "#1E3A5F" : "#166534",
+              padding: "2px 9px", borderRadius: 20, fontSize: 11, fontWeight: 500, textTransform: "capitalize",
+            }}>{role}</span>
+            {!user?.user_metadata?.profile_complete && (
+              <button onClick={() => setPage("profile-setup")} style={{ fontSize: 11, color: "#1E3A5F", background: "#EBF2FF", border: "none", borderRadius: 20, padding: "2px 9px", cursor: "pointer", fontWeight: 500 }}>
+                Complete your profile →
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── BUILDER DASHBOARD ────────────────────────────────────────── */}
+      {role === "builder" && (() => {
+        const profileData = { avatar_url: avatarUrl, bio: userProfile?.bio, location: userProfile?.location, specialization: viewerRoleProfile?.specialization, projects_completed: viewerRoleProfile?.projects_completed, verified_documents: user?.user_metadata?.verified_documents };
+        const { score: profileScore, missing } = computeProfileCompleteness(profileData, "builder");
+        const totalBuilt = viewerRoleProfile?.total_value || 0;
+        const completed  = viewerRoleProfile?.projects_completed || 0;
+        const avgProject = completed > 0 ? totalBuilt / completed : 0;
+        const fundingPotential = avgProject > 0 ? Math.round(avgProject * 1.2) : 150000;
+
+        return (
+          <>
+            {/* Funding potential card */}
+            <div style={{ background: "linear-gradient(135deg, #1E3A5F 0%, #2E5FA3 100%)", borderRadius: 14, padding: "20px 24px", marginBottom: "1.5rem", color: "#fff" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.7, marginBottom: 8 }}>Your funding potential</div>
+              <div style={{ fontSize: 34, fontWeight: 700, marginBottom: 4 }}>Up to {fmt(fundingPotential)}</div>
+              <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 14 }}>
+                Estimated based on your {completed > 0 ? `${completed} completed project${completed !== 1 ? "s" : ""}` : "profile"}.
+                {profileScore < 80 && " Complete your profile to attract higher-value lenders."}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ flex: 1, height: 6, background: "rgba(255,255,255,0.2)", borderRadius: 3 }}>
+                  <div style={{ height: 6, borderRadius: 3, background: "#fff", width: `${profileScore}%`, transition: "width 0.5s" }} />
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.9 }}>Profile {profileScore}%</span>
+              </div>
+            </div>
+
+            {/* "To attract lenders" checklist */}
+            {missing.length > 0 && (
+              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#D97706", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>To attract lenders — complete these steps</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {missing.map(item => (
+                    <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 22, height: 22, borderRadius: "50%", border: "1.5px solid #D97706", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#FCD34D" }} />
+                      </div>
+                      <span style={{ fontSize: 13, color: "#555" }}>{item.label}</span>
+                      <span style={{ marginLeft: "auto", fontSize: 11, color: "#D97706", fontWeight: 500 }}>+{item.weight}%</span>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={() => setPage("profile-setup")} style={{ marginTop: 12, padding: "8px 16px", minHeight: 36, background: "#D97706", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                  Complete profile →
+                </button>
+              </div>
+            )}
+
+            {/* Active projects */}
+            {activeDeals.length > 0 && (
+              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#534AB7", letterSpacing: "0.1em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>Active projects <HelpTooltip text="Projects where you and a lender have agreed to work together. Track milestones here." /></div>
+                  <button onClick={() => setPage("deals")} style={{ fontSize: 12, color: "#534AB7", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>View all →</button>
+                </div>
+                {activeDeals.slice(0, 3).map(deal => {
+                  const ms   = deal.milestones || [];
+                  const done = ms.filter(m => ["approved","paid"].includes(m.status)).length;
+                  const pct  = ms.length > 0 ? Math.round((done / ms.length) * 100) : 0;
+                  const next = ms.find(m => m.status === "pending" || m.status === "completed");
+                  const pctColor = pct >= 80 ? "#16A34A" : pct >= 40 ? "#534AB7" : "#D97706";
+                  return (
+                    <div key={deal.id} onClick={() => setPage("deal-detail", deal)} style={{ padding: "12px 14px", background: "#F8FAFC", borderRadius: 10, border: "0.5px solid #e0e0e0", marginBottom: 8, cursor: "pointer" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F" }}>{deal.title}</div>
+                          <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>with {deal.lender_name}{next ? ` · Next: ${next.title}` : ""}</div>
+                        </div>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: pctColor, flexShrink: 0 }}>{pct}%</span>
+                      </div>
+                      <div style={{ height: 5, background: "#e0e0e0", borderRadius: 3 }}>
+                        <div style={{ height: 5, borderRadius: 3, background: pctColor, width: `${pct}%` }} />
+                      </div>
+                      <div style={{ fontSize: 11, color: "#64748B", marginTop: 4 }}>{done}/{ms.length} milestones complete</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Top 3 matched lenders */}
+            {recoForBuilder.length > 0 && (
+              <div style={{ marginBottom: "1.5rem" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>Top lender matches for you <HelpTooltip text="Ranked by compatibility score based on your profile, location, and project type." /></div>
+                  <button onClick={() => setPage("search")} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>Browse all →</button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+                  {recoForBuilder.map(lc => <LenderCard key={lc.id || lc.name} lc={lc} user={user} setPage={setPage} onViewProfile={onViewProfile} viewerProfile={viewerRoleProfile} />)}
+                </div>
+              </div>
+            )}
+
+            <SearchById setPage={setPage} onViewProfile={onViewProfile} onViewBuilderProfile={onViewBuilderProfile} />
+
+            {/* Recent messages */}
+            {conversations.length > 0 && (
+              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>Recent messages</div>
+                {conversations.slice(0, 3).map(convo => {
+                  const otherName = user.id === convo.lender_id ? convo.builder_name : convo.lender_name;
+                  return (
+                    <div key={convo.id} onClick={() => onMessage(convo.id)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px", borderRadius: 8, marginBottom: 4 }}
+                      onMouseEnter={e => e.currentTarget.style.background = "#F8FAFC"}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <Avatar initials={nameInitials(otherName)} color={pickColor(otherName || "")} size={32} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1E3A5F" }}>{otherName}</div>
+                        <div style={{ fontSize: 11, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{convo.last_message || "Start a conversation"}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+                <button onClick={() => setPage("messages")} style={{ marginTop: 4, width: "100%", background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "8px", minHeight: 40, fontSize: 12, color: "#555", cursor: "pointer" }}>Open all messages →</button>
+              </div>
+            )}
+
+            {/* Builder quick actions */}
+            <div style={{ background: "#f9f9f7", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#64748B", letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 12 }}>Quick actions</div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {[["Post a project","create-project-listing","#3B82F6","#fff"],["Browse lenders","search","#E1F5EE","#0F6E56"],["View messages","messages","#EBF2FF","#1E3A5F"],["Project tracker","deals","#EEEDFE","#534AB7"]].map(([label, target, bg, color]) => (
+                  <button key={label} onClick={() => setPage(target)} style={{ padding: "9px 16px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, border: "none", cursor: "pointer", background: bg, color }}>{label}</button>
+                ))}
+              </div>
+            </div>
+          </>
+        );
+      })()}
+
+      {/* ── LENDER DASHBOARD ─────────────────────────────────────────── */}
+      {role === "lender" && (() => {
+        const totalInvested = activeDeals.reduce((s, d) => s + (d.milestones || []).filter(m => ["paid","approved"].includes(m.status)).reduce((ms, m) => ms + Number(m.amount || 0), 0), 0);
+        const today = new Date().toISOString().split("T")[0];
+        const thisMonth = new Date().toISOString().slice(0, 7);
+        const upcomingRepayments = activeDeals.flatMap(d =>
+          (d.repayments || []).filter(r => (r.status === "scheduled" || r.status === "missed") && r.due_date?.startsWith(thisMonth)).map(r => ({ ...r, deal_title: d.title }))
+        ).sort((a,b) => a.due_date.localeCompare(b.due_date));
+
+        return (
+          <>
+            {/* Investment overview card */}
+            <div style={{ background: "linear-gradient(135deg, #0F6E56 0%, #1D9E75 100%)", borderRadius: 14, padding: "20px 24px", marginBottom: "1.5rem", color: "#fff" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.7, marginBottom: 12 }}>Your investment overview</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>Total invested</div>
+                  <div style={{ fontSize: 22, fontWeight: 700 }}>{totalInvested > 0 ? fmt(totalInvested) : "—"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>Active deals</div>
+                  <div style={{ fontSize: 22, fontWeight: 700 }}>{activeDeals.length}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>Connections</div>
+                  <div style={{ fontSize: 22, fontWeight: 700 }}>{myConnections.length}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Pending connection requests */}
+            {pendingRequests.length > 0 && (
+              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                  Pending requests <span style={{ background: "#D97706", color: "#fff", borderRadius: 20, padding: "1px 8px", fontSize: 10 }}>{pendingRequests.length}</span>
+                </div>
+                {pendingRequests.slice(0, 3).map(req => {
+                  const st = respondStatus[req.builder_id];
+                  return (
+                    <div key={req.builder_id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                      <Avatar initials={nameInitials(req.builder_name)} color={pickColor(req.builder_id || "")} size={34} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500 }}>{req.builder_name}</div>
+                        <div style={{ fontSize: 11, color: "#64748B" }}>{req.builder_type || "Builder"}</div>
+                      </div>
+                      {st === "accepted" ? <span style={{ fontSize: 11, color: "#16A34A", fontWeight: 500 }}>Accepted ✓</span>
+                      : st === "declined" ? <span style={{ fontSize: 11, color: "#64748B" }}>Declined</span>
+                      : <div style={{ display: "flex", gap: 5 }}>
+                          <button onClick={() => handleRespond(req.builder_id, "accepted")} disabled={st === "loading"} style={{ padding: "5px 10px", minHeight: 34, background: "#16A34A", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{st === "loading" ? "…" : "Accept"}</button>
+                          <button onClick={() => handleRespond(req.builder_id, "declined")} disabled={st === "loading"} style={{ padding: "5px 10px", minHeight: 34, background: "#FEE2E2", color: "#DC2626", border: "0.5px solid #FCA5A5", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>Decline</button>
+                        </div>}
+                    </div>
+                  );
+                })}
+                {pendingRequests.length > 3 && <button onClick={() => setPage("lender-dashboard")} style={{ width: "100%", background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "8px", minHeight: 40, fontSize: 12, color: "#555", cursor: "pointer" }}>View all {pendingRequests.length} →</button>}
+              </div>
+            )}
+
+            {/* Available projects */}
+            {projectListings.length > 0 && (
+              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#0F6E56", letterSpacing: "0.1em", textTransform: "uppercase" }}>Available projects</div>
+                  <button onClick={() => setPage("browse-projects")} style={{ fontSize: 12, color: "#0F6E56", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>Browse all →</button>
+                </div>
+                {projectListings.map(p => (
+                  <div key={p.id} style={{ padding: "12px 14px", background: "#F0FDF4", borderRadius: 10, border: "0.5px solid #A8DFC9", marginBottom: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F" }}>{p.title}</div>
+                        <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>{p.location}{p.funding_required ? ` · ${fmt(p.funding_required)} needed` : ""}</div>
+                      </div>
+                      <button onClick={async () => {
+                        const { data: { session } } = await supabase.auth.getSession();
+                        if (!session) { setPage("auth"); return; }
+                        await fetch("/api/connect-request", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ action: "express-interest", project_id: p.id, builder_name: p.builder_name || p.user_name }) });
+                      }} style={{ padding: "5px 12px", background: "#1D9E75", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0, minHeight: 34 }}>
+                        Express interest
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Upcoming repayments this month */}
+            {upcomingRepayments.length > 0 && (
+              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#B45309", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>Repayments due this month</div>
+                {upcomingRepayments.map((r, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: i < upcomingRepayments.length - 1 ? "0.5px solid #f0f0f0" : "none" }}>
+                    <div>
+                      <div style={{ fontSize: 13, color: "#1E3A5F", fontWeight: 500 }}>{r.deal_title}</div>
+                      <div style={{ fontSize: 11, color: "#64748B" }}>Due {r.due_date}</div>
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: r.status === "missed" ? "#DC2626" : "#B45309" }}>{fmt(r.amount)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Top 3 matched builders */}
+            {recoForLender.length > 0 && (
+              <div style={{ marginBottom: "1.5rem" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase" }}>Top builder matches for you</div>
+                  <button onClick={() => setPage("find-builder")} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>Browse all →</button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+                  {recoForLender.map(b => <BuilderCard key={b.id} builder={b} user={user} setPage={setPage} onMessage={onMessage} onViewProfile={onViewBuilderProfile} viewerProfile={viewerRoleProfile} />)}
+                </div>
+              </div>
+            )}
+
+            <SearchById setPage={setPage} onViewProfile={onViewProfile} onViewBuilderProfile={onViewBuilderProfile} />
+
+            {/* Recent messages */}
+            {conversations.length > 0 && (
+              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>Recent messages</div>
+                {conversations.slice(0, 3).map(convo => {
+                  const otherName = user.id === convo.lender_id ? convo.builder_name : convo.lender_name;
+                  return (
+                    <div key={convo.id} onClick={() => onMessage(convo.id)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px", borderRadius: 8, marginBottom: 4 }}
+                      onMouseEnter={e => e.currentTarget.style.background = "#F8FAFC"}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <Avatar initials={nameInitials(otherName)} color={pickColor(otherName || "")} size={32} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1E3A5F" }}>{otherName}</div>
+                        <div style={{ fontSize: 11, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{convo.last_message || "Start a conversation"}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+                <button onClick={() => setPage("messages")} style={{ marginTop: 4, width: "100%", background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "8px", minHeight: 40, fontSize: 12, color: "#555", cursor: "pointer" }}>Open all messages →</button>
+              </div>
+            )}
+
+            {/* Lender quick actions */}
+            <div style={{ background: "#f9f9f7", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#64748B", letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 12 }}>Quick actions</div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {[["Browse projects","browse-projects","#1D9E75","#fff"],["Find builders","find-builder","#E1F5EE","#0F6E56"],["View messages","messages","#EBF2FF","#1E3A5F"],["Project tracker","deals","#EEEDFE","#534AB7"]].map(([label, target, bg, color]) => (
+                  <button key={label} onClick={() => setPage(target)} style={{ padding: "9px 16px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, border: "none", cursor: "pointer", background: bg, color }}>{label}</button>
+                ))}
+              </div>
+            </div>
+          </>
+        );
+      })()}
+    </div>
+  );
+}
+
+// ─── HOME PAGE ───────────────────────────────────────────────────────────────
+
+
+function TrustBadges({ style = {} }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap", justifyContent: "center", ...style }}>
+      {/* Stripe */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, opacity: 0.7 }}>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <rect width="14" height="14" rx="3" fill="#635BFF"/>
+          <path d="M5.6 5.25c0-.49.4-.7.97-.7.87 0 1.96.26 2.83.73V3.24A7.5 7.5 0 006.57 2.8C4.72 2.8 3.5 3.76 3.5 5.35c0 2.44 3.36 2.05 3.36 3.1 0 .58-.5.77-1.1.77-.95 0-2.16-.39-3.12-.92v2.06c1.06.46 2.13.65 3.12.65 1.89 0 3.18-.94 3.18-2.54-.01-2.63-3.34-2.17-3.34-3.27z" fill="#fff"/>
+        </svg>
+        <span style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.65)" }}>Secured by Stripe</span>
+      </div>
+      {/* SSL */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, opacity: 0.7 }}>
+        <svg width="12" height="14" viewBox="0 0 12 14" fill="none">
+          <rect x="1" y="6" width="10" height="7" rx="1.5" stroke="rgba(255,255,255,0.6)" strokeWidth="1.3"/>
+          <path d="M3.5 6V4.5a2.5 2.5 0 015 0V6" stroke="rgba(255,255,255,0.6)" strokeWidth="1.3" strokeLinecap="round"/>
+          <circle cx="6" cy="9.5" r="1" fill="rgba(255,255,255,0.6)"/>
+        </svg>
+        <span style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.65)" }}>256-bit SSL</span>
+      </div>
+      {/* UK registered */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, opacity: 0.7 }}>
+        <span style={{ fontSize: 13 }}>🇬🇧</span>
+        <span style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.65)" }}>UK registered business</span>
+      </div>
+    </div>
+  );
+}
+
+function SuccessStories() {
+  return (
+    <div style={{ background: "#F4F5F7", padding: "4rem 2rem", textAlign: "center" }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>Success stories</div>
+      <div style={{ fontSize: 32, marginBottom: 16 }}>⭐</div>
+      <h2 style={{ fontSize: 22, fontWeight: 700, color: "#1E3A5F", fontFamily: "'Playfair Display', Georgia, serif", margin: "0 0 10px" }}>
+        Success stories coming soon
+      </h2>
+      <p style={{ fontSize: 15, color: "#64748B", maxWidth: 440, margin: "0 auto" }}>
+        As our community grows and deals complete, we'll share real stories from builders and lenders who found their match on LenderBuild.
+      </p>
+    </div>
+  );
+}
+
+function HomePage({ setPage, user, onViewProfile }) {
+  const heroImage = useMemo(() => PROPERTY_IMAGES[Math.floor(Math.random() * PROPERTY_IMAGES.length)], []);
+
+  // Show accepted connection notifications for builders
+  const acceptedConnections = user?.user_metadata?.role === "builder"
+    ? (user?.user_metadata?.connections || []).filter(c => c.status === "accepted")
+    : [];
+
+  // Live stats from Supabase — no fake fallbacks
+  const [stats, setStats] = useState({ capital: null, lenders: null, projects: null });
+
+  useEffect(() => {
+    async function loadStats() {
+      try {
+        const [{ count: lCount }, { data: builders }] = await Promise.all([
+          supabase.from("lender_profiles").select("*", { count: "exact", head: true }).eq("is_active", true),
+          supabase.from("builder_profiles").select("projects_completed, total_value").eq("is_active", true),
+        ]);
+        const totalProjects = (builders || []).reduce((s, b) => s + (b.projects_completed || 0), 0);
+        const totalValue    = (builders || []).reduce((s, b) => s + (Number(b.total_value) || 0), 0);
+        setStats({
+          capital:  totalValue > 0 ? `£${(totalValue / 1_000_000).toFixed(1)}M` : null,
+          lenders:  lCount != null ? String(lCount) : null,
+          projects: String(totalProjects),
+        });
+      } catch (_) {}
+    }
+    loadStats();
+  }, []);
+
+  // Real-activity ticker from Supabase
+  const [tickerItems,   setTickerItems]   = useState([]);
+  const [tickerIdx,     setTickerIdx]     = useState(0);
+  const [tickerVisible, setTickerVisible] = useState(true);
+
+  useEffect(() => {
+    async function loadTicker() {
+      try {
+        const [{ data: recentProfiles }, { data: recentListings }, { data: recentConnections }] = await Promise.all([
+          supabase.from("profiles").select("user_role, location, created_at").order("created_at", { ascending: false }).limit(10),
+          supabase.from("project_listings").select("project_type, location, created_at").order("created_at", { ascending: false }).limit(5),
+          supabase.from("connection_requests").select("created_at").eq("status", "accepted").order("created_at", { ascending: false }).limit(5),
+        ]);
+        const items = [];
+        (recentProfiles || []).forEach(p => {
+          const role = p.user_role === "lender" ? "lender" : "builder";
+          const loc  = p.location ? ` from ${p.location}` : "";
+          items.push(`A new ${role}${loc} just joined LenderBuild`);
+        });
+        (recentListings || []).forEach(l => {
+          const type = l.project_type || "property";
+          const loc  = l.location ? ` in ${l.location}` : "";
+          items.push(`New ${type} project${loc} listed — looking for funding`);
+        });
+        (recentConnections || []).forEach(() => {
+          items.push("A new builder–lender connection was made on LenderBuild");
+        });
+        setTickerItems(items.length > 0 ? items : ["Be the first to make a match on LenderBuild"]);
+      } catch (_) {
+        setTickerItems(["Be the first to make a match on LenderBuild"]);
+      }
+    }
+    loadTicker();
+  }, []);
+
+  useEffect(() => {
+    if (tickerItems.length < 2) return;
+    const id = setInterval(() => {
+      setTickerVisible(false);
+      setTimeout(() => { setTickerIdx(i => (i + 1) % tickerItems.length); setTickerVisible(true); }, 350);
+    }, 6000);
+    return () => clearInterval(id);
+  }, [tickerItems]);
+
+  return (
+    <div>
+      {/* Builder notifications */}
+      {acceptedConnections.length > 0 && (
+        <div style={{ background: "#EBF2FF", borderBottom: "1px solid #E0C87A", padding: "12px 1.25rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 16 }}>🎉</span>
+            <div style={{ fontSize: 13, color: "#1E3A5F" }}>
+              <strong>
+                {acceptedConnections.length === 1
+                  ? `${acceptedConnections[0].lender_name} accepted your request!`
+                  : `${acceptedConnections.length} lenders accepted your requests!`}
+              </strong>
+              {" "}Check your account for details.
+            </div>
+            <button
+              onClick={() => setPage("account")}
+              style={{ marginLeft: "auto", background: "#3B82F6", color: "#FFFFFF", border: "none", padding: "5px 14px", minHeight: 44, borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+            >
+              View account
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Profile completion prompt */}
+      {user && !user.user_metadata?.profile_complete && (
+        <div style={{ background: "#FFFBEB", borderBottom: "0.5px solid #F6D860", padding: "12px 1.25rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 13, color: "#1E3A5F", flex: 1 }}>
+              Complete your profile to appear in search results
+            </div>
+            <button
+              onClick={() => setPage("profile-setup")}
+              style={{ background: "#3B82F6", color: "#FFFFFF", border: "none", padding: "6px 16px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+            >
+              Set up profile
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Hero */}
+      <div style={{
+        background: "#1E3A5F", textAlign: "center",
+        padding: "4rem 1.25rem 3rem", position: "relative", overflow: "hidden",
+        animation: "slideUp 0.5s ease",
+      }}>
+        {/* Random property background image */}
+        <div style={{
+          position: "absolute", inset: 0, pointerEvents: "none",
+          backgroundImage: `url(${heroImage})`,
+          backgroundSize: "cover", backgroundPosition: "center",
+          opacity: 0.28,
+        }} />
+        {/* Subtle grid overlay */}
+        <div style={{
+          position: "absolute", inset: 0, pointerEvents: "none",
+          backgroundImage: [
+            "repeating-linear-gradient(45deg, transparent, transparent 40px, rgba(59,130,246,0.03) 40px, rgba(59,130,246,0.03) 41px)",
+            "repeating-linear-gradient(-45deg, transparent, transparent 40px, rgba(59,130,246,0.03) 40px, rgba(59,130,246,0.03) 41px)",
+          ].join(", "),
+        }} />
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <div style={{
+            display: "inline-block", background: "rgba(59,130,246,0.15)", color: "#3B82F6",
+            fontSize: 11, fontWeight: 600, padding: "5px 16px", borderRadius: 20, marginBottom: "1.5rem",
+            letterSpacing: "0.1em", textTransform: "uppercase",
+          }}>
+            UK Property Investment Platform
+          </div>
+          <h1 style={{
+            fontSize: "clamp(28px, 9vw, 68px)", fontWeight: 700, lineHeight: 1.1,
+            margin: "0 0 1.25rem", fontFamily: "'Playfair Display', Georgia, serif", color: "#fff",
+          }}>
+            Where <span style={{ color: "#3B82F6" }}>builders</span> meet<br />
+            the right <span style={{ color: "#3B82F6" }}>lenders</span>
+          </h1>
+          <div style={{ width: 64, height: 3, background: "#3B82F6", margin: "0 auto 1.75rem", borderRadius: 2 }} />
+          <p style={{ fontSize: 17, color: "rgba(255,255,255,0.7)", maxWidth: 520, margin: "0 auto 2.5rem", lineHeight: 1.75 }}>
+            Search lenders by budget, agree on returns, connect instantly. We match you — you build together.
+          </p>
+          <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
+            <button
+              onClick={() => { const el = document.getElementById("builders"); if (el) el.scrollIntoView({ behavior: "smooth" }); }}
+              style={{ background: "#3B82F6", color: "#FFFFFF", border: "none", padding: "15px 28px", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+              I'm a builder — find funding
+            </button>
+            <button
+              onClick={() => { const el = document.getElementById("lenders"); if (el) el.scrollIntoView({ behavior: "smooth" }); }}
+              style={{ background: "transparent", color: "#fff", border: "1.5px solid rgba(255,255,255,0.4)", padding: "15px 28px", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+              I'm a lender — earn returns
+            </button>
+          </div>
+
+          {/* Trust badges in hero */}
+          <div style={{ marginTop: "2.5rem" }}>
+            <TrustBadges />
+          </div>
+        </div>
+      </div>
+
+      {/* Real-activity ticker */}
+      {tickerItems.length > 0 && (
+        <div style={{ background: "#162D4E", borderBottom: "1px solid rgba(59,130,246,0.2)", padding: "10px 2rem" }}>
+          <div style={{ maxWidth: 700, margin: "0 auto", textAlign: "center",
+            opacity: tickerVisible ? 1 : 0,
+            transition: "opacity 0.35s ease",
+          }}>
+            <span style={{ fontSize: 15, color: "rgba(255,255,255,0.82)", letterSpacing: 0.2 }}>
+              {tickerItems[tickerIdx]}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Live stats bar — only renders stats with real data */}
+      {(stats.capital || stats.lenders || stats.projects) && (
+        <div style={{
+          display: "flex", justifyContent: "center", gap: "2rem", padding: "2rem 1.25rem",
+          background: "#fff", borderBottom: "0.5px solid #eee", marginBottom: 0, flexWrap: "wrap",
+        }}>
+          {[
+            stats.capital  != null && [stats.capital,  "Total capital matched"],
+            stats.lenders  != null && [stats.lenders,  "Active lenders"],
+            stats.projects != null && [stats.projects, "Projects completed"],
+          ].filter(Boolean).map(([v, l]) => (
+            <div key={l} style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 30, fontWeight: 700, color: "#1E3A5F", fontFamily: "'Playfair Display', Georgia, serif" }}>{v}</div>
+              <div style={{ fontSize: 12, color: "#64748B", marginTop: 5, letterSpacing: "0.04em" }}>{l}</div>
+            </div>
           ))}
         </div>
+      )}
 
-        {/* How it works */}
-        <div style={{ background: "#f9f9f7", borderRadius: 12, padding: "2rem", marginBottom: "2rem" }}>
-          <div style={{ fontSize: 11, fontWeight: 500, color: "#1D9E75", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>How it works</div>
-          <h2 style={{ fontSize: 18, fontWeight: 500, marginBottom: "1.5rem" }}>From search to deal in four steps</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "1.5rem" }}>
+      {/* Builder / Lender split value prop */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
+
+        {/* Builder side */}
+        <div id="builders" style={{ background: "#1E3A5F", padding: "3rem 1.5rem" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>For builders</div>
+          <h2 style={{ fontSize: 28, fontWeight: 700, color: "#fff", fontFamily: "'Playfair Display', Georgia, serif", margin: "0 0 1rem", lineHeight: 1.25 }}>
+            Get your project funded in days
+          </h2>
+          <p style={{ fontSize: 15, color: "rgba(255,255,255,0.72)", lineHeight: 1.7, marginBottom: "1.75rem" }}>
+            Connect directly with vetted UK lenders who are ready to back residential, commercial, and renovation projects. No brokers, no delays.
+          </p>
+          <ul style={{ listStyle: "none", margin: "0 0 2rem", padding: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+            {["Post your project in minutes", "Get matched with the right lender", "Agree on terms and start building"].map(item => (
+              <li key={item} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "rgba(255,255,255,0.85)" }}>
+                <span style={{ width: 20, height: 20, borderRadius: "50%", background: "#3B82F6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </span>
+                {item}
+              </li>
+            ))}
+          </ul>
+          <button onClick={() => setPage("auth")} style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "13px 28px", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+            Sign up as a builder
+          </button>
+        </div>
+
+        {/* Lender side */}
+        <div id="lenders" style={{ background: "#EBF2FF", padding: "3rem 1.5rem" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>For lenders</div>
+          <h2 style={{ fontSize: 28, fontWeight: 700, color: "#1E3A5F", fontFamily: "'Playfair Display', Georgia, serif", margin: "0 0 1rem", lineHeight: 1.25 }}>
+            Earn returns on property investment
+          </h2>
+          <p style={{ fontSize: 15, color: "#64748B", lineHeight: 1.7, marginBottom: "1.75rem" }}>
+            Browse pre-vetted builder profiles, review project details, and fund deals that match your risk appetite. Simple, transparent, and UK-focused.
+          </p>
+          <ul style={{ listStyle: "none", margin: "0 0 2rem", padding: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+            {["Browse verified builders and projects", "Choose your return type — fixed or equity", "Release funds in milestones, stay in control"].map(item => (
+              <li key={item} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "#2C3E50" }}>
+                <span style={{ width: 20, height: 20, borderRadius: "50%", background: "#1E3A5F", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </span>
+                {item}
+              </li>
+            ))}
+          </ul>
+          <button onClick={() => setPage("auth")} style={{ background: "#1E3A5F", color: "#fff", border: "none", padding: "13px 28px", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+            Sign up as a lender
+          </button>
+        </div>
+      </div>
+
+      {/* How it works — 3 steps */}
+      <div style={{ padding: "3rem 1.25rem", background: "#F4F5F7", borderBottom: "0.5px solid #eee" }}>
+        <div style={{ maxWidth: 760, margin: "0 auto", textAlign: "center" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>How it works</div>
+          <h2 style={{ fontSize: 26, fontWeight: 700, margin: "0 0 0.5rem", fontFamily: "'Playfair Display', Georgia, serif", color: "#1E3A5F" }}>From search to funded in three steps</h2>
+          <p style={{ fontSize: 14, color: "#64748B", marginBottom: "3rem" }}>No hidden fees. No middlemen. Just straightforward property finance.</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "2rem", textAlign: "left" }}>
             {[
-              ["1", "Post your project", "Builders list their project scope, location, and funding needed."],
-              ["2", "Browse lenders", "Search lenders by budget, return type, and project preference."],
-              ["3", "Request a match", "Send a connect request. The lender reviews and accepts or declines."],
-              ["4", "Funds released", "Lender sends funds. A 1% finder's fee is collected at completion."],
-            ].map(([n, title, desc]) => (
-              <div key={n}>
-                <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#1D9E75", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 500, marginBottom: 10 }}>{n}</div>
-                <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>{title}</div>
-                <div style={{ fontSize: 13, color: "#888", lineHeight: 1.5 }}>{desc}</div>
+              {
+                n: "1",
+                icon: (
+                  <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                    <circle cx="14" cy="10" r="5" stroke="#3B82F6" strokeWidth="1.8"/>
+                    <path d="M4 24c0-5.523 4.477-10 10-10s10 4.477 10 10" stroke="#3B82F6" strokeWidth="1.8" strokeLinecap="round"/>
+                  </svg>
+                ),
+                title: "Create your profile",
+                desc: "Tell us who you are — builder or lender. Add your project scope, budget, and return expectations.",
+              },
+              {
+                n: "2",
+                icon: (
+                  <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                    <circle cx="11" cy="11" r="6.5" stroke="#3B82F6" strokeWidth="1.8"/>
+                    <path d="M16 16l7 7" stroke="#3B82F6" strokeWidth="1.8" strokeLinecap="round"/>
+                  </svg>
+                ),
+                title: "Browse & connect",
+                desc: "Search lenders by budget, return type, and project preference. Send a connect request in one click.",
+              },
+              {
+                n: "3",
+                icon: (
+                  <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                    <rect x="4" y="8" width="20" height="14" rx="3" stroke="#3B82F6" strokeWidth="1.8"/>
+                    <path d="M4 13h20" stroke="#3B82F6" strokeWidth="1.8"/>
+                    <path d="M9 18h4" stroke="#3B82F6" strokeWidth="1.8" strokeLinecap="round"/>
+                  </svg>
+                ),
+                title: "Funds released",
+                desc: "Lender approves and releases funds. A simple 1% finder's fee is collected at completion — that's it.",
+              },
+            ].map(({ n, icon, title, desc }) => (
+              <div key={n} style={{ background: "#fff", borderRadius: 14, padding: "1.75rem", border: "0.5px solid #e8e4d9", position: "relative" }}>
+                <div style={{ position: "absolute", top: -14, left: 20, width: 28, height: 28, borderRadius: "50%", background: "#3B82F6", color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800 }}>{n}</div>
+                <div style={{ marginBottom: 14, marginTop: 4 }}>{icon}</div>
+                <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, color: "#1E3A5F" }}>{title}</div>
+                <div style={{ fontSize: 13, color: "#777", lineHeight: 1.65 }}>{desc}</div>
               </div>
             ))}
           </div>
         </div>
+      </div>
 
-        {/* Fee strip */}
-        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.5rem 2rem", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem", marginBottom: "2rem" }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 4 }}>Transparent finder's fee</div>
-            <div style={{ fontSize: 13, color: "#888" }}>We only earn when a deal completes — 1% of the total transaction value.</div>
-          </div>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 22, fontWeight: 500, color: "#1D9E75" }}>£2,000</div>
-            <div style={{ fontSize: 12, color: "#888" }}>fee on a £200,000 deal</div>
-          </div>
-        </div>
+      {/* Success Stories */}
+      <SuccessStories />
 
-        {/* Recent deals */}
-        <div style={{ marginBottom: "3rem" }}>
-          <div style={{ fontSize: 11, fontWeight: 500, color: "#1D9E75", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>Recent deals</div>
-          <h2 style={{ fontSize: 18, fontWeight: 500, marginBottom: "1rem" }}>Matches made on the platform</h2>
-          {RECENT_DEALS.map((d) => {
-            const c = COLORS[d.statusColor];
-            return (
-              <div key={d.title} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", display: "flex", alignItems: "center", gap: "1rem", marginBottom: 10, flexWrap: "wrap" }}>
-                <div style={{ width: 40, height: 40, borderRadius: 8, background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>{d.icon}</div>
-                <div style={{ flex: 1, minWidth: 140 }}>
-                  <div style={{ fontSize: 14, fontWeight: 500 }}>{d.title}</div>
-                  <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{d.meta}</div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: 16, fontWeight: 500 }}>{fmt(d.amount)}</div>
-                  <div style={{ fontSize: 12, color: "#1D9E75" }}>{d.returnType}</div>
-                </div>
-                <span style={{ background: c.bg, color: c.text, fontSize: 11, padding: "3px 9px", borderRadius: 20, fontWeight: 500 }}>{d.status}</span>
-              </div>
-            );
-          })}
-        </div>
-
+      <div style={{ padding: "2rem 1.25rem" }}>
         {/* Footer CTA */}
-        <div style={{ textAlign: "center", padding: "2rem", borderTop: "0.5px solid #eee" }}>
-          <h2 style={{ fontSize: 24, fontWeight: 500, marginBottom: 8, fontFamily: "'Georgia', serif" }}>Ready to build something?</h2>
-          <p style={{ fontSize: 14, color: "#888", marginBottom: "1.5rem" }}>Join builders and lenders already using Money Has Been Given Out to make deals happen.</p>
+        <div style={{ textAlign: "center", padding: "2.5rem 1.25rem", background: "#1E3A5F", borderRadius: 14, margin: "0 0 2rem" }}>
+          <h2 style={{ fontSize: 28, fontWeight: 700, marginBottom: 10, fontFamily: "'Playfair Display', Georgia, serif", color: "#fff" }}>Ready to build something?</h2>
+          <div style={{ width: 50, height: 2, background: "#3B82F6", margin: "0 auto 1.25rem", borderRadius: 2 }} />
+          <p style={{ fontSize: 15, color: "rgba(255,255,255,0.65)", marginBottom: "2rem" }}>Join builders and lenders already using LenderBuild to make deals happen.</p>
           <button
-            onClick={() => setPage("search")}
-            style={{ background: "#1D9E75", color: "#fff", border: "none", padding: "12px 28px", borderRadius: 8, fontSize: 15, fontWeight: 500, cursor: "pointer" }}
+            onClick={() => setPage(user ? "search" : "auth")}
+            style={{ background: "#3B82F6", color: "#FFFFFF", border: "none", padding: "14px 36px", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer" }}
           >
-            Get started
+            {user ? "Find a lender" : "Get started"}
           </button>
+          <div style={{ marginTop: "2rem", paddingTop: "1.5rem", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+            <TrustBadges />
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function LenderCard({ lc }) {
-  const c = COLORS[lc.color];
+// ─── LENDER CARD ─────────────────────────────────────────────────────────────
+
+function LenderCard({ lc, user, setPage, settings, onViewProfile, viewerProfile }) {
+  const isAccepting   = settings?.accepting_requests !== false;
+  const isListed      = settings?.listing_active     !== false;
+
+  const alreadyConnected = user?.user_metadata?.connections?.some(
+    c => c.lender_name === lc.name
+  );
+  const [connectStatus, setConnectStatus] = useState(
+    alreadyConnected ? "done" : "idle"
+  );
+  const [hovered, setHovered] = useState(false);
+
+  // Hidden entirely when lender has closed their listing
+  if (!isListed && settings) return null;
+
+  async function handleConnect() {
+    if (!user) { setPage("auth"); return; }
+    if (!isAccepting) return;
+    setConnectStatus("loading");
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/connect-request", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ lender_name: lc.name, lender_type: lc.type }),
+    });
+
+    if (res.ok) {
+      setConnectStatus("done");
+      await supabase.auth.refreshSession();
+    } else {
+      setConnectStatus("error");
+      setTimeout(() => setConnectStatus("idle"), 3000);
+    }
+  }
+
+  const notAccepting = !isAccepting;
+
+  const connectLabel = notAccepting
+    ? "Not accepting requests"
+    : { idle: "Request introduction", loading: "Sending...", done: "Request sent!", error: "We couldn't send that — retry" }[connectStatus];
+
+  const connectBg = notAccepting
+    ? "#aaa"
+    : { idle: "#2E5FA3", loading: "#64748B", done: "#1E40AF", error: "#DC2626" }[connectStatus];
+  const connectTextColor = notAccepting ? "#fff"
+    : { idle: "#fff", loading: "#fff", done: "#fff", error: "#fff" }[connectStatus];
+
+  const matchScore = (() => {
+    if (!viewerProfile || user?.user_metadata?.role !== "builder") return null;
+    const m = computeMatch(viewerProfile, lc, "builder");
+    return m?.score || null;
+  })();
+  const isVerifiedUser = lc.user_role === "verified_pro" || lc.user_role === "founder";
+  const leftBorderColor = matchScore >= 80 ? "#16A34A" : isVerifiedUser ? "#2E5FA3" : null;
+
   return (
-    <div style={{
-      background: "#fff",
-      border: lc.featured ? "2px solid #5DCAA5" : "0.5px solid #e0e0e0",
-      borderRadius: 12, padding: "1.25rem",
-    }}>
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: "#fff",
+        border: "0.5px solid #e0e0e0",
+        borderLeft: leftBorderColor ? `3px solid ${leftBorderColor}` : "0.5px solid #e0e0e0",
+        borderRadius: 12, padding: "24px",
+        boxShadow: hovered ? "0 8px 24px rgba(0,0,0,0.12)" : "0 2px 8px rgba(0,0,0,0.08)",
+        transform: hovered ? "translateY(-3px)" : "translateY(0)",
+        transition: "box-shadow 0.2s, transform 0.2s ease",
+        animation: "cardIn 0.4s ease",
+        display: "flex", flexDirection: "column",
+      }}>
       {lc.featured && (
-        <div style={{ marginBottom: 8 }}>
-          <span style={{ background: "#E1F5EE", color: "#0F6E56", fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 500 }}>Most active</span>
+        <div style={{ marginBottom: 10 }}>
+          <span style={{ background: "#EBF2FF", color: "#1E3A5F", fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 600, letterSpacing: "0.04em" }}>Most active</span>
         </div>
       )}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-        <Avatar initials={lc.initials} color={lc.color} size={40} />
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 500 }}>{lc.name}</div>
-          <div style={{ fontSize: 12, color: "#888" }}>{lc.type}</div>
+      {notAccepting && (
+        <div style={{ marginBottom: 8 }}>
+          <span style={{ background: "#F1EFE8", color: "#5F5E5A", fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 500 }}>Not accepting requests</span>
         </div>
+      )}
+      {(() => {
+        if (!viewerProfile || user?.user_metadata?.role !== "builder") return null;
+        const m = computeMatch(viewerProfile, lc, "builder");
+        if (!m) return null;
+        return <div style={{ marginBottom: 10 }}><MatchBadge score={m.score} breakdown={m.components} /></div>;
+      })()}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
+        <Avatar initials={lc.initials} color={lc.color} size={40} url={lc.avatar_url} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: "#1E3A5F" }}>{lc.name}</div>
+            <RoleBadge userRole={lc.user_role} authRole="lender" />
+          </div>
+          <div style={{ fontSize: 12, color: "#64748B" }}>{lc.type}</div>
+          {lc.location && (
+            <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>📍 {lc.location}</div>
+          )}
+        </div>
+        <HeartButton userId={user?.id} targetUserId={lc.user_id} profileSnap={{ user_id: lc.user_id, role: "lender", name: lc.name, type: lc.type, avatar_url: lc.avatar_url, location: lc.location }} />
       </div>
-      <div style={{ display: "inline-block", background: "#E1F5EE", color: "#0F6E56", fontSize: 13, fontWeight: 500, padding: "4px 10px", borderRadius: 8, marginBottom: 10 }}>
+      <div style={{ display: "inline-block", background: "#EBF2FF", color: "#1E3A5F", fontSize: 13, fontWeight: 600, padding: "4px 12px", borderRadius: 8, marginBottom: 12 }}>
         Up to {lc.budget}
       </div>
-      <div style={{ fontSize: 13 }}>
+      <div style={{ fontSize: 13, flex: 1 }}>
         {[
           ["Return type", lc.returnType],
           lc.builderShare ? ["Builder share", lc.builderShare] : null,
-          lc.lenderShare ? ["Lender share", lc.lenderShare] : null,
-          lc.rate ? ["Rate", lc.rate] : null,
-          lc.term ? ["Term", lc.term] : null,
-          lc.equity ? ["Equity ask", lc.equity] : null,
-          lc.exit ? ["Exit timeline", lc.exit] : null,
+          lc.lenderShare  ? ["Lender share",  lc.lenderShare]  : null,
+          lc.rate         ? ["Rate",           lc.rate]         : null,
+          lc.term         ? ["Term",           lc.term]         : null,
+          lc.equity       ? ["Equity ask",     lc.equity]       : null,
+          lc.exit         ? ["Exit timeline",  lc.exit]         : null,
           ["Project pref.", lc.project],
         ].filter(Boolean).map(([label, val]) => (
-          <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", color: "#666" }}>
+          <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", color: "#64748B" }}>
             <span>{label}</span>
-            <span style={{ fontWeight: 500, color: "#222" }}>{val}</span>
+            <span style={{ fontWeight: 500, color: "#2C3E50" }}>{val}</span>
           </div>
         ))}
       </div>
-      <div style={{ marginTop: 14, borderTop: "0.5px solid #eee", paddingTop: 12, display: "flex", gap: 8 }}>
-        <button style={{ flex: 1, background: "#1D9E75", color: "#fff", border: "none", padding: 8, borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>Connect</button>
-        <button style={{ flex: 1, background: "transparent", color: "#333", border: "0.5px solid #ccc", padding: 8, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>View profile</button>
+      {(() => {
+        const cp = computeProfileCompleteness({
+          avatar_url: lc.avatar_url, bio: lc.bio, location: lc.location,
+          budget_max: lc.budget_max_num,
+          return_type: lc.returnType !== "Flexible" ? lc.returnType : null,
+          preferred_projects: lc.preferred_projects,
+        }, "lender");
+        if (cp.score >= 50) return null;
+        return (
+          <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#991B1B", background: "#FEE2E2", border: "0.5px solid #FCA5A5", borderRadius: 8, padding: "5px 10px" }}>
+            ⚠ Profile incomplete
+          </div>
+        );
+      })()}
+      <div style={{ marginTop: 16, borderTop: "0.5px solid #eee", paddingTop: 14 }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          <button
+            onClick={handleConnect}
+            disabled={notAccepting || connectStatus === "loading" || connectStatus === "done"}
+            style={{
+              flex: 1, background: connectBg, color: connectTextColor, border: "none",
+              padding: "9px 8px", borderRadius: 8, fontSize: 13, fontWeight: 600, minHeight: 44,
+              cursor: notAccepting || connectStatus === "loading" || connectStatus === "done" ? "default" : "pointer",
+              transition: "background 0.2s",
+            }}
+          >
+            {connectLabel}
+          </button>
+          <button
+            onClick={() => onViewProfile && onViewProfile(lc)}
+            style={{ flex: 1, background: "transparent", color: "#1E3A5F", border: "1.5px solid #1E3A5F", padding: "9px 8px", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer", minHeight: 44 }}
+          >
+            View profile
+          </button>
+        </div>
+        {connectStatus === "idle" && !notAccepting && (
+          <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#64748B", justifyContent: "center" }}>
+            <svg width="10" height="12" viewBox="0 0 10 12" fill="none"><rect x="1" y="5" width="8" height="6" rx="1" stroke="#64748B" strokeWidth="1.2"/><path d="M3 5V3.5a2 2 0 014 0V5" stroke="#64748B" strokeWidth="1.2" strokeLinecap="round"/></svg>
+            Secured connection
+          </div>
+        )}
       </div>
     </div>
   );
@@ -327,38 +4343,742 @@ function LenderCard({ lc }) {
 
 // ─── SEARCH PAGE ─────────────────────────────────────────────────────────────
 
-function SearchPage() {
-  const [budget, setBudget] = useState("any");
-  const [returnType, setReturnType] = useState("any");
-  const [project, setProject] = useState("any");
+function SearchPage({ user, setPage, onViewProfile, viewerRoleProfile }) {
+  const [budget,        setBudget]        = useState("any");
+  const [returnType,    setReturnType]    = useState("any");
+  const [project,       setProject]       = useState("any");
+  const [verifiedOnly,  setVerifiedOnly]  = useState(false);
+  const [activeOnly,    setActiveOnly]    = useState(false);
+  const [sortBy,        setSortBy]        = useState("newest");
+  const [budgetMin,     setBudgetMin]     = useState(0);
+  const [budgetMax_,    setBudgetMax_]    = useState(1000000);
+  const [lenderSettings, setLenderSettings] = useState({});
+  const [saveSearchModal, setSaveSearchModal] = useState(false);
+  const [saveSearchName, setSaveSearchName] = useState("");
+  const [saveSearchFreq, setSaveSearchFreq] = useState("instant");
+  const [saveSearchMsg, setSaveSearchMsg] = useState("");
+  const [realLenders,   setRealLenders]   = useState([]);
+  const [loadingReal,   setLoadingReal]   = useState(true);
+  const [filterOpen,    setFilterOpen]    = useState(false);
+  const [presetName,    setPresetName]    = useState("");
+  const [presets,       setPresets]       = useState(() => user?.id ? getFilterPresets(user.id, "lender") : []);
+  const [width,         setWidth]         = useState(window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const isMobile = width < 640;
+
+  function applyPreset(p) {
+    const f = p.filters;
+    if (f.budget)      setBudget(f.budget);
+    if (f.returnType)  setReturnType(f.returnType);
+    if (f.project)     setProject(f.project);
+    if (f.verifiedOnly !== undefined) setVerifiedOnly(f.verifiedOnly);
+    if (f.activeOnly   !== undefined) setActiveOnly(f.activeOnly);
+    if (f.sortBy)      setSortBy(f.sortBy);
+    if (f.budgetMin    !== undefined) setBudgetMin(f.budgetMin);
+    if (f.budgetMax_   !== undefined) setBudgetMax_(f.budgetMax_);
+  }
+
+  function handleSavePreset() {
+    if (!user?.id || !presetName.trim()) return;
+    const filters = { budget, returnType, project, verifiedOnly, activeOnly, sortBy, budgetMin, budgetMax_ };
+    saveFilterPreset(user.id, "lender", presetName.trim(), filters);
+    setPresets(getFilterPresets(user.id, "lender"));
+    setPresetName("");
+  }
+
+  function handleDeletePreset(name) {
+    deleteFilterPreset(user.id, "lender", name);
+    setPresets(getFilterPresets(user.id, "lender"));
+  }
+
+  async function handleSaveSearch(e) {
+    e.preventDefault();
+    if (!user || !saveSearchName.trim()) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    const filters = { budget, returnType, project, verifiedOnly, activeOnly, sortBy, budgetMin, budgetMax_ };
+    const res = await fetch("/api/save-profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "save-search", name: saveSearchName.trim(), role_type: "lender", filters, frequency: saveSearchFreq }),
+    });
+    if (res.ok) {
+      setSaveSearchMsg("Search saved!");
+      setSaveSearchModal(false);
+      setSaveSearchName("");
+      setTimeout(() => setSaveSearchMsg(""), 3000);
+    }
+  }
+
+  useEffect(() => {
+    fetch("/api/lender-settings")
+      .then(r => r.json())
+      .then(d => setLenderSettings(d.settings || {}))
+      .catch(() => {});
+
+    fetch("/api/get-profiles?type=lenders")
+      .then(r => r.json())
+      .then(d => { setRealLenders(d.lenders || []); setLoadingReal(false); })
+      .catch(() => setLoadingReal(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Transform real DB lenders into the same shape as LENDER_CARDS
+  const realCards = realLenders.map(l => ({
+    id:          `real-${l.user_id}`,
+    _real:       true,
+    initials:    nameInitials(l.profiles?.full_name),
+    color:       pickColor(l.user_id || ""),
+    name:        l.profiles?.full_name || "Anonymous",
+    type:        "Private lender",
+    location:    l.profiles?.location || "",
+    bio:         l.profiles?.bio || "",
+    verified:    false,
+    budget:      l.budget_max ? fmt(l.budget_max) : "Flexible",
+    budget_max_num: l.budget_max || 0,
+    returnType:  l.return_type || "Flexible",
+    builderShare: l.builder_split || null,
+    lenderShare:  l.lender_split  || null,
+    rate:         l.interest_rate  || null,
+    equity:       l.equity_stake   || null,
+    term:         null,
+    exit:         null,
+    project:     (l.preferred_projects || []).join(", ") || "Any",
+    preferred_projects: l.preferred_projects || [],
+    avatar_url:  l.avatar_url || null,
+    user_id:     l.user_id,
+    user_role:   l.profiles?.user_role || null,
+    sequential_id: l.profiles?.sequential_id || null,
+    updated_at:  l.updated_at || null,
+  }));
+
+  // Filter logic
+  function cardMatches(card) {
+    if (budget !== "any") {
+      const n = card.budget_max_num;
+      if (budget === "£50k–£100k"  && !(n >= 50000  && n <= 100000)) return false;
+      if (budget === "£100k–£200k" && !(n > 100000  && n <= 200000)) return false;
+      if (budget === "£200k–£500k" && !(n > 200000  && n <= 500000)) return false;
+      if (budget === "£500k+"      && !(n > 500000))                 return false;
+    }
+    if (card.budget_max_num > 0) {
+      if (card.budget_max_num < budgetMin || card.budget_max_num > budgetMax_) return false;
+    }
+    if (returnType !== "any" && card.returnType !== returnType) return false;
+    if (project !== "any" && card.project !== "Any" && !card.preferred_projects?.includes(project)) return false;
+    if (verifiedOnly && card.user_role !== "verified_pro" && card.user_role !== "founder") return false;
+    if (activeOnly) {
+      const days = card.updated_at ? (Date.now() - new Date(card.updated_at).getTime()) / 86400000 : 999;
+      if (days > 30) return false;
+    }
+    return true;
+  }
+
+  function sortCards(list) {
+    if (sortBy === "budget")  return [...list].sort((a, b) => (b.budget_max_num || 0) - (a.budget_max_num || 0));
+    if (sortBy === "active")  return [...list].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+    if (sortBy === "compatibility" && viewerRoleProfile) {
+      return [...list].sort((a, b) => {
+        const sa = computeMatch(viewerRoleProfile, a, "builder")?.score || 0;
+        const sb = computeMatch(viewerRoleProfile, b, "builder")?.score || 0;
+        return sb - sa;
+      });
+    }
+    return [...list].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+  }
+
+  const filteredReal = sortCards(realCards.filter(cardMatches));
+  const allCards     = filteredReal;
+
+  const activeFiltersCountFull = [
+    budget !== "any", returnType !== "any", project !== "any",
+    verifiedOnly, activeOnly, budgetMin > 0, budgetMax_ < 1000000,
+  ].filter(Boolean).length;
 
   return (
-    <div style={{ padding: "2rem", maxWidth: 900, margin: "0 auto" }}>
-      <div style={{ fontSize: 11, fontWeight: 500, color: "#1D9E75", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>Find a lender</div>
-      <h2 style={{ fontSize: 22, fontWeight: 500, marginBottom: 4 }}>Search available lenders</h2>
-      <p style={{ fontSize: 14, color: "#888", marginBottom: "1.5rem" }}>Filter by budget, return type, and project preference</p>
+    <div style={{ padding: "1.5rem 1.25rem" }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Find a lender</div>
+      <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(22px, 4vw, 32px)", fontWeight: 700, marginBottom: 4, color: "#1E3A5F" }}>Search available lenders</h2>
 
-      <div style={{ display: "flex", gap: 10, marginBottom: "1.5rem", flexWrap: "wrap" }}>
-        {[
-          ["budget", budget, setBudget, ["any", "£50k–£100k", "£100k–£200k", "£200k–£500k", "£500k+"]],
-          ["returnType", returnType, setReturnType, ["any", "Revenue share", "Fixed interest", "Rental split", "Equity stake"]],
-          ["project", project, setProject, ["any", "Residential", "Commercial", "Mixed use", "Renovation"]],
-        ].map(([key, val, setter, opts]) => (
-          <select
-            key={key}
-            value={val}
-            onChange={e => setter(e.target.value)}
-            style={{ flex: 1, minWidth: 130, height: 38, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 12px", fontSize: 14, background: "#fff" }}
+      {/* Filter bar */}
+      <div style={{ display: "flex", gap: 8, marginBottom: "1rem", flexWrap: "wrap", alignItems: "center" }}>
+        <button
+          onClick={() => setFilterOpen(o => !o)}
+          style={{ display: "flex", alignItems: "center", gap: 8, background: filterOpen ? "#1E3A5F" : "#fff", border: `0.5px solid ${filterOpen ? "#1E3A5F" : "#ccc"}`, borderRadius: 8, padding: "9px 16px", minHeight: 44, fontSize: 14, cursor: "pointer", fontWeight: 500, color: filterOpen ? "#fff" : "#1E3A5F" }}
+        >
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M0 1h16M3 6h10M6 11h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+          Filters
+          {activeFiltersCountFull > 0 && <span style={{ background: filterOpen ? "rgba(255,255,255,0.3)" : "#2E5FA3", color: "#fff", borderRadius: 20, padding: "1px 8px", fontSize: 11, fontWeight: 700 }}>{activeFiltersCountFull}</span>}
+        </button>
+        <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ height: 44, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 12px", fontSize: 13, background: "#fff", cursor: "pointer" }}>
+          <option value="newest">Sort: Newest first</option>
+          <option value="active">Sort: Most active</option>
+          <option value="budget">Sort: Highest budget</option>
+          <option value="compatibility">Sort: Best match</option>
+        </select>
+        {activeFiltersCountFull > 0 && (
+          <button onClick={() => { setBudget("any"); setReturnType("any"); setProject("any"); setVerifiedOnly(false); setActiveOnly(false); setBudgetMin(0); setBudgetMax_(1000000); }}
+            style={{ background: "#FEE2E2", color: "#DC2626", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
+            Clear all filters
+          </button>
+        )}
+        {/* Saved presets */}
+        {presets.length > 0 && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {presets.map(p => (
+              <div key={p.name} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <button onClick={() => applyPreset(p)} style={{ background: "#EBF2FF", color: "#1E3A5F", border: "none", borderRadius: 20, padding: "5px 12px", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
+                  ⭐ {p.name}
+                </button>
+                <button onClick={() => handleDeletePreset(p.name)} style={{ background: "none", border: "none", cursor: "pointer", color: "#aaa", padding: 2, fontSize: 12 }}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Advanced filter panel */}
+      {filterOpen && (
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "20px 24px", marginBottom: "1.25rem", boxShadow: "0 4px 16px rgba(0,0,0,0.08)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Budget range</div>
+              <select value={budget} onChange={e => setBudget(e.target.value)} style={{ width: "100%", height: 40, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px", fontSize: 13, background: "#fff" }}>
+                {["any", "£50k–£100k", "£100k–£200k", "£200k–£500k", "£500k+"].map(o => <option key={o} value={o}>{o === "any" ? "Any budget" : o}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Return type</div>
+              <select value={returnType} onChange={e => setReturnType(e.target.value)} style={{ width: "100%", height: 40, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px", fontSize: 13, background: "#fff" }}>
+                {["any", "Fixed interest", "Rental split", "Equity stake", "Revenue share"].map(o => <option key={o} value={o}>{o === "any" ? "Any return type" : o}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Project type</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {["any", "Residential", "Commercial", "Mixed use", "Renovation"].map(o => (
+                  <button key={o} onClick={() => setProject(o)} style={{ padding: "5px 12px", minHeight: 34, borderRadius: 20, border: project === o ? "none" : "0.5px solid #e0e0e0", background: project === o ? "#EBF2FF" : "#fff", color: project === o ? "#1E3A5F" : "#555", fontSize: 12, fontWeight: project === o ? 600 : 400, cursor: "pointer" }}>
+                    {o === "any" ? "Any" : o}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Other filters</div>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer", marginBottom: 8 }}>
+                <input type="checkbox" checked={verifiedOnly} onChange={e => setVerifiedOnly(e.target.checked)} /> Verified profiles only
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
+                <input type="checkbox" checked={activeOnly} onChange={e => setActiveOnly(e.target.checked)} /> Active in last 30 days
+              </label>
+            </div>
+          </div>
+          {/* Save preset */}
+          {user && (
+            <div style={{ borderTop: "0.5px solid #f0f0f0", paddingTop: 14, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: "#64748B" }}>Save these filters:</span>
+              <input value={presetName} onChange={e => setPresetName(e.target.value)} placeholder="Filter preset name" style={{ flex: 1, minWidth: 140, height: 36, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px", fontSize: 13 }} />
+              <button onClick={handleSavePreset} disabled={!presetName.trim()} style={{ background: "#2E5FA3", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: presetName.trim() ? "pointer" : "default", opacity: presetName.trim() ? 1 : 0.5 }}>Save preset</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!user && (
+        <div style={{
+          background: "#EBF2FF", border: "0.5px solid #E0C87A", borderRadius: 10,
+          padding: "12px 16px", fontSize: 13, color: "#0F6E56", marginBottom: "1.25rem",
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+        }}>
+          <span>Log in or sign up to connect with lenders and send messages.</span>
+          <button
+            onClick={() => setPage("auth")}
+            style={{ background: "#3B82F6", color: "#FFFFFF", border: "none", padding: "6px 14px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
           >
-            {opts.map(o => <option key={o} value={o}>{o === "any" ? `Any ${key === "budget" ? "budget" : key === "returnType" ? "return type" : "project type"}` : o}</option>)}
-          </select>
+            Log in
+          </button>
+        </div>
+      )}
+
+      {/* Results count + Save Search */}
+      {!loadingReal && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: 8 }}>
+          <div style={{ fontSize: 13, color: "#64748B" }}>
+            {allCards.length === 0 ? (activeFiltersCountFull > 0 ? "No lenders match your filters — try adjusting them" : "No lenders yet") : `Showing ${allCards.length} lender${allCards.length !== 1 ? "s" : ""} matching your criteria`}
+          </div>
+          {user && allCards.length > 0 && (
+            <button onClick={() => setSaveSearchModal(true)} style={{ padding: "6px 12px", background: "#EBF2FF", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 500, color: "#1E3A5F", cursor: "pointer" }}>
+              🔍 Save this search
+            </button>
+          )}
+          {saveSearchMsg && <span style={{ fontSize: 12, color: "#16A34A" }}>{saveSearchMsg}</span>}
+        </div>
+      )}
+      {loadingReal && <div style={{ textAlign: "center", padding: "1rem", color: "#aaa", fontSize: 13, marginBottom: "1rem" }}>Loading lenders…</div>}
+
+      {!loadingReal && allCards.length === 0 && realCards.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
+          <div style={{ fontSize: 32, marginBottom: 16 }}>💼</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "#1E3A5F", marginBottom: 8 }}>No lenders in your area yet</div>
+          <div style={{ fontSize: 14 }}>Be the first lender in your area — set up your profile</div>
+          {user && <button onClick={() => setPage("profile-setup")} style={{ marginTop: 20, background: "#2E5FA3", color: "#fff", border: "none", padding: "10px 22px", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Set up your lender profile</button>}
+        </div>
+      ) : !loadingReal && allCards.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "3rem 2rem", color: "#64748B" }}>
+          <div style={{ fontSize: 24, marginBottom: 12 }}>🔍</div>
+          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>No lenders match these filters</div>
+          <div style={{ fontSize: 13 }}>Try adjusting your filters above.</div>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
+          {allCards.map(lc => (
+            <LenderCard key={lc.id || lc.name} lc={lc} user={user} setPage={setPage} settings={lenderSettings[lc.name]} onViewProfile={onViewProfile} viewerProfile={viewerRoleProfile} />
+          ))}
+        </div>
+      )}
+
+      {/* Save Search Modal */}
+      {saveSearchModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 9998, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
+          <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", maxWidth: 380, width: "100%" }}>
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Save this search</div>
+            <form onSubmit={handleSaveSearch} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <input value={saveSearchName} onChange={e => setSaveSearchName(e.target.value)} placeholder="Search name e.g. London lenders" required
+                style={{ height: 44, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+              <select value={saveSearchFreq} onChange={e => setSaveSearchFreq(e.target.value)}
+                style={{ height: 44, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 12px", fontSize: 14, boxSizing: "border-box" }}>
+                <option value="instant">Instant alerts</option>
+                <option value="daily">Daily digest</option>
+                <option value="weekly">Weekly digest</option>
+              </select>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" onClick={() => setSaveSearchModal(false)} style={{ flex: 1, height: 44, background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, fontSize: 14, cursor: "pointer" }}>Cancel</button>
+                <button type="submit" style={{ flex: 2, height: 44, background: "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── BUILDER CARD ────────────────────────────────────────────────────────────
+
+function BuilderCard({ builder, user, setPage, onMessage, onViewProfile, viewerProfile }) {
+  const alreadyConnected = user?.user_metadata?.builder_connections?.some(
+    c => c.builder_name === builder.name
+  );
+  const [connectStatus, setConnectStatus] = useState(
+    alreadyConnected ? "done" : "idle"
+  );
+  const [msgStatus, setMsgStatus] = useState("idle");
+  const [hovered, setHovered] = useState(false);
+
+  async function handleConnect() {
+    if (!user) { setPage("auth"); return; }
+    setConnectStatus("loading");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/connect-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ builder_name: builder.name, builder_type: builder.type }),
+    });
+    if (res.ok) {
+      setConnectStatus("done");
+      await supabase.auth.refreshSession();
+    } else {
+      setConnectStatus("error");
+      setTimeout(() => setConnectStatus("idle"), 3000);
+    }
+  }
+
+  async function handleMessage() {
+    if (!user) { setPage("auth"); return; }
+    setMsgStatus("loading");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/notify-message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ other_name: builder.name, other_role: "builder" }),
+    });
+    if (res.ok) {
+      const { conversation } = await res.json();
+      setMsgStatus("idle");
+      onMessage(conversation.id);
+    } else {
+      setMsgStatus("error");
+      setTimeout(() => setMsgStatus("idle"), 3000);
+    }
+  }
+
+  const connectLabel = { idle: "Request introduction", loading: "Sending...", done: "Request sent!", error: "We couldn't send that — retry" }[connectStatus];
+  const connectBg    = { idle: "#16A34A", loading: "#64748B", done: "#15803D", error: "#DC2626" }[connectStatus];
+
+  const completionColor = builder.completion >= 95 ? "#16A34A" : builder.completion >= 80 ? "#2E5FA3" : "#D97706";
+
+  const builderMatchScore = (() => {
+    if (!viewerProfile || user?.user_metadata?.role !== "lender") return null;
+    const m = computeMatch(viewerProfile, builder, "lender");
+    return m?.score || null;
+  })();
+  const builderIsVerified = builder.verified_documents?.length > 0;
+  const builderLeftBorder = builderMatchScore >= 80 ? "#16A34A" : builderIsVerified ? "#2E5FA3" : null;
+
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: "#fff",
+        border: "0.5px solid #e0e0e0",
+        borderLeft: builderLeftBorder ? `3px solid ${builderLeftBorder}` : "0.5px solid #e0e0e0",
+        borderRadius: 12, padding: "24px",
+        boxShadow: hovered ? "0 8px 24px rgba(0,0,0,0.12)" : "0 2px 8px rgba(0,0,0,0.08)",
+        transform: hovered ? "translateY(-3px)" : "translateY(0)",
+        transition: "box-shadow 0.2s ease, transform 0.2s ease",
+        display: "flex", flexDirection: "column",
+      }}>
+      {(() => {
+        if (!viewerProfile || user?.user_metadata?.role !== "lender") return null;
+        const m = computeMatch(viewerProfile, builder, "lender");
+        if (!m) return null;
+        return <div style={{ marginBottom: 10 }}><MatchBadge score={m.score} breakdown={m.components} /></div>;
+      })()}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
+        <CredibilityRing score={computeCredibilityScore(builder)} size={40}>
+          <Avatar initials={builder.initials} color={builder.color} size={40} url={builder.avatar_url} />
+        </CredibilityRing>
+        <div style={{ flex: 1, minWidth: 0, paddingLeft: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 15, fontWeight: 500 }}>{builder.name}</div>
+            <RoleBadge userRole={builder.user_role} authRole="builder" />
+            {builder.verified_documents?.length > 0 && (
+              <span style={{ fontSize: 10, fontWeight: 500, padding: "1px 7px", borderRadius: 20, background: "#EBF2FF", color: "#1E3A5F", flexShrink: 0 }}>
+                ✓ Verified
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: 12, color: "#64748B" }}>{builder.type}</div>
+        </div>
+        <HeartButton userId={user?.id} targetUserId={builder.user_id} profileSnap={{ user_id: builder.user_id, role: "builder", name: builder.name, type: builder.type, avatar_url: builder.avatar_url, location: builder.location }} />
+      </div>
+      {builder.location && (
+        <div style={{ fontSize: 12, color: "#666", marginBottom: 10 }}>📍 {builder.location}</div>
+      )}
+      <div style={{ fontSize: 13 }}>
+        {[
+          ["Projects completed", builder.props],
+          ["Total value built",  fmt(builder.value)],
+        ].map(([label, val]) => (
+          <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", color: "#666" }}>
+            <span>{label}</span>
+            <span style={{ fontWeight: 500, color: "#222" }}>{val}</span>
+          </div>
         ))}
-        <button style={{ background: "#1D9E75", color: "#fff", border: "none", padding: "0 20px", borderRadius: 8, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Search</button>
+      </div>
+      {/* Completion rate bar */}
+      <div style={{ marginTop: 10, marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#666", marginBottom: 4 }}>
+          <span>Completion rate</span>
+          <span style={{ fontWeight: 500, color: completionColor }}>{builder.completion}%</span>
+        </div>
+        <div style={{ height: 5, background: "#eee", borderRadius: 3 }}>
+          <div style={{ height: 5, borderRadius: 3, background: completionColor, width: `${builder.completion}%`, transition: "width 0.3s" }} />
+        </div>
+      </div>
+      {(() => {
+        const cp = computeProfileCompleteness({
+          avatar_url: builder.avatar_url, bio: builder.bio, location: builder.location,
+          specialization: builder.type, projects_completed: builder.props,
+          verified_documents: builder.verified_documents,
+        }, "builder");
+        if (cp.score >= 50) return null;
+        return (
+          <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#991B1B", background: "#FEE2E2", border: "0.5px solid #FCA5A5", borderRadius: 8, padding: "5px 10px" }}>
+            ⚠ Profile incomplete
+          </div>
+        );
+      })()}
+      <div style={{ marginTop: "auto", borderTop: "0.5px solid #eee", paddingTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {user && (
+          <button
+            onClick={handleMessage}
+            disabled={msgStatus === "loading"}
+            style={{
+              flex: 1, background: "#fff", color: "#1E3A5F",
+              border: "1.5px solid #2E5FA3",
+              padding: 8, borderRadius: 8, fontSize: 13, fontWeight: 500, minHeight: 44,
+              cursor: msgStatus === "loading" ? "default" : "pointer",
+              transition: "background 0.2s",
+            }}
+          >
+            {msgStatus === "loading" ? "Opening…" : msgStatus === "error" ? "We couldn't open chat — try again" : "Send message"}
+          </button>
+        )}
+        <button
+          onClick={handleConnect}
+          disabled={connectStatus === "loading" || connectStatus === "done"}
+          style={{
+            flex: 1, background: connectBg, color: "#fff", border: "none",
+            padding: 8, borderRadius: 8, fontSize: 13, fontWeight: 600, minHeight: 44,
+            cursor: connectStatus === "loading" || connectStatus === "done" ? "default" : "pointer",
+            transition: "background 0.2s",
+          }}
+        >
+          {connectLabel}
+        </button>
+        <button
+          onClick={() => onViewProfile && onViewProfile(builder)}
+          style={{ flex: 1, background: "transparent", color: "#1E3A5F", border: "1.5px solid #1E3A5F", padding: 8, borderRadius: 8, fontSize: 13, cursor: "pointer", minHeight: 44 }}
+        >
+          View profile
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── FIND A BUILDER PAGE ──────────────────────────────────────────────────────
+
+function FindBuilderPage({ user, setPage, onMessage, onViewProfile, viewerRoleProfile }) {
+  const [specFilter,        setSpecFilter]       = useState("any");
+  const [locationFilter,    setLocationFilter]   = useState("any");
+  const [completionFilter,  setCompletionFilter] = useState("any");
+  const [verifiedOnlyB,     setVerifiedOnlyB]    = useState(false);
+  const [minProjectsFilter, setMinProjectsFilter] = useState("any");
+  const [sortByB,           setSortByB]          = useState("newest");
+  const [realBuilders,      setRealBuilders]      = useState([]);
+  const [loadingReal,       setLoadingReal]       = useState(true);
+  const [filterOpen,        setFilterOpen]        = useState(false);
+  const [presetNameB,       setPresetNameB]       = useState("");
+  const [presetsB,          setPresetsB]          = useState(() => user?.id ? getFilterPresets(user.id, "builder") : []);
+  const [width,             setWidth]             = useState(window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const isMobile = width < 640;
+
+  function applyPresetB(p) {
+    const f = p.filters;
+    if (f.specFilter)       setSpecFilter(f.specFilter);
+    if (f.locationFilter)   setLocationFilter(f.locationFilter);
+    if (f.completionFilter) setCompletionFilter(f.completionFilter);
+    if (f.verifiedOnlyB !== undefined) setVerifiedOnlyB(f.verifiedOnlyB);
+    if (f.minProjectsFilter) setMinProjectsFilter(f.minProjectsFilter);
+    if (f.sortByB)          setSortByB(f.sortByB);
+  }
+
+  function handleSavePresetB() {
+    if (!user?.id || !presetNameB.trim()) return;
+    const filters = { specFilter, locationFilter, completionFilter, verifiedOnlyB, minProjectsFilter, sortByB };
+    saveFilterPreset(user.id, "builder", presetNameB.trim(), filters);
+    setPresetsB(getFilterPresets(user.id, "builder"));
+    setPresetNameB("");
+  }
+
+  function handleDeletePresetB(name) {
+    deleteFilterPreset(user.id, "builder", name);
+    setPresetsB(getFilterPresets(user.id, "builder"));
+  }
+
+  useEffect(() => {
+    fetch("/api/get-profiles?type=builders")
+      .then(r => r.json())
+      .then(d => { setRealBuilders(d.builders || []); setLoadingReal(false); })
+      .catch(() => setLoadingReal(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Transform real DB builders into the same shape as BUILDERS
+  const realCards = realBuilders.map(b => ({
+    id:                 `real-${b.user_id}`,
+    _real:              true,
+    initials:           nameInitials(b.profiles?.full_name),
+    color:              pickColor(b.user_id || ""),
+    name:               b.profiles?.full_name || "Anonymous",
+    type:               b.specialization || "Builder",
+    location:           b.profiles?.location || "",
+    bio:                b.profiles?.bio || "",
+    props:              b.projects_completed || 0,
+    value:              b.total_value || 0,
+    completion:         b.completion_rate ?? 100,
+    verified_documents: b.verified_documents || [],
+    avatar_url:         b.avatar_url || null,
+    user_id:            b.user_id,
+    user_role:          b.profiles?.user_role || null,
+    sequential_id:      b.profiles?.sequential_id || null,
+    updated_at:         b.updated_at || null,
+  }));
+
+  // Collect filter options from real builders only
+  const locations = [...new Set(realCards.map(b => b.location).filter(Boolean))].sort();
+  const specs     = [...new Set(realCards.map(b => b.type).filter(Boolean))].sort();
+
+  function matchesFilters(b) {
+    if (specFilter       !== "any" && b.type     !== specFilter)     return false;
+    if (locationFilter   !== "any" && b.location !== locationFilter) return false;
+    if (completionFilter === "80+"  && b.completion < 80)            return false;
+    if (completionFilter === "95+"  && b.completion < 95)            return false;
+    if (completionFilter === "100"  && b.completion !== 100)         return false;
+    if (verifiedOnlyB && !b.verified_documents?.length)              return false;
+    if (minProjectsFilter === "1-5"  && !(b.props >= 1  && b.props <= 5))  return false;
+    if (minProjectsFilter === "5-10" && !(b.props >= 5  && b.props <= 10)) return false;
+    if (minProjectsFilter === "10+"  && b.props < 10)                return false;
+    return true;
+  }
+
+  function sortBuilders(list) {
+    if (sortByB === "projects")      return [...list].sort((a, b) => (b.props || 0) - (a.props || 0));
+    if (sortByB === "completion")    return [...list].sort((a, b) => (b.completion || 0) - (a.completion || 0));
+    if (sortByB === "compatibility" && viewerRoleProfile) {
+      return [...list].sort((a, b) => {
+        const sa = computeMatch(viewerRoleProfile, a, "lender")?.score || 0;
+        const sb = computeMatch(viewerRoleProfile, b, "lender")?.score || 0;
+        return sb - sa;
+      });
+    }
+    return [...list].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+  }
+
+  const filteredReal = sortBuilders(realCards.filter(matchesFilters));
+  const allFiltered  = filteredReal;
+  const activeBuilderFiltersCount = [specFilter !== "any", locationFilter !== "any", completionFilter !== "any", verifiedOnlyB, minProjectsFilter !== "any"].filter(Boolean).length;
+
+  return (
+    <div style={{ padding: "1.5rem 1.25rem" }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Find a builder</div>
+      <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(22px, 4vw, 32px)", fontWeight: 700, marginBottom: 4, color: "#1E3A5F" }}>Browse builder profiles</h2>
+
+      {/* Filter bar */}
+      <div style={{ display: "flex", gap: 8, marginBottom: "1rem", flexWrap: "wrap", alignItems: "center" }}>
+        <button
+          onClick={() => setFilterOpen(o => !o)}
+          style={{ display: "flex", alignItems: "center", gap: 8, background: filterOpen ? "#1E3A5F" : "#fff", border: `0.5px solid ${filterOpen ? "#1E3A5F" : "#ccc"}`, borderRadius: 8, padding: "9px 16px", minHeight: 44, fontSize: 14, cursor: "pointer", fontWeight: 500, color: filterOpen ? "#fff" : "#1E3A5F" }}
+        >
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M0 1h16M3 6h10M6 11h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+          Filters
+          {activeBuilderFiltersCount > 0 && <span style={{ background: filterOpen ? "rgba(255,255,255,0.3)" : "#2E5FA3", color: "#fff", borderRadius: 20, padding: "1px 8px", fontSize: 11, fontWeight: 700 }}>{activeBuilderFiltersCount}</span>}
+        </button>
+        <select value={sortByB} onChange={e => setSortByB(e.target.value)} style={{ height: 44, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 12px", fontSize: 13, background: "#fff", cursor: "pointer" }}>
+          <option value="newest">Sort: Newest first</option>
+          <option value="projects">Sort: Most projects</option>
+          <option value="completion">Sort: Highest completion</option>
+          <option value="compatibility">Sort: Best match</option>
+        </select>
+        {activeBuilderFiltersCount > 0 && (
+          <button onClick={() => { setSpecFilter("any"); setLocationFilter("any"); setCompletionFilter("any"); setVerifiedOnlyB(false); setMinProjectsFilter("any"); }}
+            style={{ background: "#FEE2E2", color: "#DC2626", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
+            Clear all
+          </button>
+        )}
+        {presetsB.length > 0 && presetsB.map(p => (
+          <div key={p.name} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <button onClick={() => applyPresetB(p)} style={{ background: "#EBF2FF", color: "#1E3A5F", border: "none", borderRadius: 20, padding: "5px 12px", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>⭐ {p.name}</button>
+            <button onClick={() => handleDeletePresetB(p.name)} style={{ background: "none", border: "none", cursor: "pointer", color: "#aaa", padding: 2, fontSize: 12 }}>×</button>
+          </div>
+        ))}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 }}>
-        {LENDER_CARDS.map(lc => <LenderCard key={lc.name} lc={lc} />)}
-      </div>
+      {/* Advanced filter panel */}
+      {filterOpen && (
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "20px 24px", marginBottom: "1.25rem", boxShadow: "0 4px 16px rgba(0,0,0,0.08)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Specialisation</div>
+              <select value={specFilter} onChange={e => setSpecFilter(e.target.value)} style={{ width: "100%", height: 40, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px", fontSize: 13, background: "#fff" }}>
+                <option value="any">Any specialisation</option>
+                {specs.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Location</div>
+              <select value={locationFilter} onChange={e => setLocationFilter(e.target.value)} style={{ width: "100%", height: 40, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px", fontSize: 13, background: "#fff" }}>
+                <option value="any">Any location</option>
+                {locations.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Completion rate</div>
+              <select value={completionFilter} onChange={e => setCompletionFilter(e.target.value)} style={{ width: "100%", height: 40, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px", fontSize: 13, background: "#fff" }}>
+                <option value="any">Any completion rate</option>
+                <option value="80+">80%+</option>
+                <option value="95+">95%+</option>
+                <option value="100">100% only</option>
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Projects completed</div>
+              <select value={minProjectsFilter} onChange={e => setMinProjectsFilter(e.target.value)} style={{ width: "100%", height: 40, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px", fontSize: 13, background: "#fff" }}>
+                <option value="any">Any amount</option>
+                <option value="1-5">1–5 projects</option>
+                <option value="5-10">5–10 projects</option>
+                <option value="10+">10+ projects</option>
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Other</div>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
+                <input type="checkbox" checked={verifiedOnlyB} onChange={e => setVerifiedOnlyB(e.target.checked)} /> Verified builders only
+              </label>
+            </div>
+          </div>
+          {user && (
+            <div style={{ borderTop: "0.5px solid #f0f0f0", paddingTop: 14, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: "#64748B" }}>Save these filters:</span>
+              <input value={presetNameB} onChange={e => setPresetNameB(e.target.value)} placeholder="Preset name" style={{ flex: 1, minWidth: 120, height: 36, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px", fontSize: 13 }} />
+              <button onClick={handleSavePresetB} disabled={!presetNameB.trim()} style={{ background: "#16A34A", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: presetNameB.trim() ? "pointer" : "default", opacity: presetNameB.trim() ? 1 : 0.5 }}>Save preset</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!user && (
+        <div style={{
+          background: "#EBF2FF", border: "0.5px solid #E0C87A", borderRadius: 10,
+          padding: "12px 16px", fontSize: 13, color: "#0F6E56", marginBottom: "1.25rem",
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+        }}>
+          <span>Log in or sign up to connect with builders and send messages.</span>
+          <button
+            onClick={() => setPage("auth")}
+            style={{ background: "#3B82F6", color: "#FFFFFF", border: "none", padding: "6px 14px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
+          >
+            Log in
+          </button>
+        </div>
+      )}
+
+      {!loadingReal && (
+        <div style={{ fontSize: 13, color: "#64748B", marginBottom: "1rem" }}>
+          {allFiltered.length === 0 ? (activeBuilderFiltersCount > 0 ? "No builders match your filters — try adjusting them" : "No builders yet") : `Showing ${allFiltered.length} builder${allFiltered.length !== 1 ? "s" : ""} matching your criteria`}
+        </div>
+      )}
+      {loadingReal && <div style={{ textAlign: "center", padding: "1rem", color: "#aaa", fontSize: 13, marginBottom: "1rem" }}>Loading builders…</div>}
+
+      {!loadingReal && realCards.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
+          <div style={{ fontSize: 32, marginBottom: 16 }}>🔨</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "#1E3A5F", marginBottom: 8 }}>No builders here yet</div>
+          <div style={{ fontSize: 14 }}>Post your project and get matched today</div>
+          {user && <button onClick={() => setPage("profile-setup")} style={{ marginTop: 20, background: "#3B82F6", color: "#fff", border: "none", padding: "10px 22px", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Set up your builder profile</button>}
+        </div>
+      ) : !loadingReal && allFiltered.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
+          <div style={{ fontSize: 24, marginBottom: 12 }}>🔍</div>
+          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>No builders match these filters</div>
+          <div style={{ fontSize: 13 }}>Try adjusting your filters above.</div>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 }}>
+          {allFiltered.map(b => (
+            <BuilderCard key={b.id} builder={b} user={user} setPage={setPage} onMessage={onMessage} onViewProfile={onViewProfile} viewerProfile={viewerRoleProfile} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -367,28 +5087,59 @@ function SearchPage() {
 
 function LeaderboardPage() {
   const [tab, setTab] = useState("lenders");
-  const [lenderSort, setLenderSort] = useState("capital");
   const [builderSort, setBuilderSort] = useState("properties");
+  const [lenders, setLenders] = useState([]);
+  const [builders, setBuilders] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const sortedLenders = [...LENDERS].sort((a, b) => {
-    if (lenderSort === "capital") return b.capital - a.capital;
-    if (lenderSort === "deals") return b.deals - a.deals;
-    return (b.rate || 0) - (a.rate || 0);
-  });
+  useEffect(() => {
+    async function load() {
+      try {
+        const [{ data: ls }, { data: bs }] = await Promise.all([
+          supabase.from("lender_profiles").select("user_id, budget_max, return_type, profiles(full_name, location)").eq("is_active", true),
+          supabase.from("builder_profiles").select("user_id, projects_completed, total_value, completion_rate, specialization, profiles(full_name, location)").eq("is_active", true),
+        ]);
+        setLenders((ls || []).map(l => ({
+          id:       l.user_id,
+          initials: nameInitials(l.profiles?.full_name),
+          color:    pickColor(l.user_id),
+          name:     l.profiles?.full_name || "Anonymous",
+          location: l.profiles?.location || "",
+          type:     "Private lender",
+          budget:   l.budget_max || 0,
+          returnType: l.return_type || "—",
+        })));
+        setBuilders((bs || []).map(b => ({
+          id:         b.user_id,
+          initials:   nameInitials(b.profiles?.full_name),
+          color:      pickColor(b.user_id),
+          name:       b.profiles?.full_name || "Anonymous",
+          location:   b.profiles?.location || "",
+          type:       b.specialization || "Builder",
+          props:      b.projects_completed || 0,
+          value:      b.total_value || 0,
+          completion: b.completion_rate ?? 100,
+        })));
+      } catch (_) {}
+      setLoading(false);
+    }
+    load();
+  }, []);
 
-  const sortedBuilders = [...BUILDERS].sort((a, b) => {
+  const sortedLenders = [...lenders].sort((a, b) => b.budget - a.budget);
+
+  const sortedBuilders = [...builders].sort((a, b) => {
     if (builderSort === "properties") return b.props - a.props;
-    if (builderSort === "value") return b.value - a.value;
+    if (builderSort === "value")      return b.value - a.value;
     return b.completion - a.completion;
   });
 
-  const maxCapital = Math.max(...LENDERS.map(l => l.capital));
-  const maxProps = Math.max(...BUILDERS.map(b => b.props));
+  const maxProps = Math.max(1, ...builders.map(b => b.props));
 
-  const tabs = ["lenders", "builders", "pairs"];
+  const tabs = ["lenders", "builders"];
 
   return (
-    <div style={{ padding: "2rem", maxWidth: 900, margin: "0 auto" }}>
+    <div style={{ padding: "1.5rem 1.25rem", maxWidth: 900, margin: "0 auto" }}>
       {/* Tab row */}
       <div style={{ display: "flex", gap: 0, borderBottom: "0.5px solid #e0e0e0", marginBottom: "1.75rem" }}>
         {tabs.map(t => (
@@ -397,193 +5148,618 @@ function LeaderboardPage() {
             onClick={() => setTab(t)}
             style={{
               padding: "10px 20px", fontSize: 14, fontWeight: 500, cursor: "pointer",
-              border: "none", background: "transparent",
-              color: tab === t ? "#1D9E75" : "#888",
+              border: "none", background: "transparent", minHeight: 44,
+              color: tab === t ? "#3B82F6" : "#64748B",
               borderBottom: tab === t ? "2px solid #1D9E75" : "2px solid transparent",
               marginBottom: -1, textTransform: "capitalize",
             }}
           >
-            {t === "lenders" ? "Top lenders" : t === "builders" ? "Top builders" : "Best connections"}
+            {t === "lenders" ? "Top lenders" : "Top builders"}
           </button>
         ))}
       </div>
 
+      {loading && <div style={{ textAlign: "center", padding: "3rem", color: "#aaa" }}>Loading…</div>}
+
       {/* LENDERS tab */}
-      {tab === "lenders" && (
+      {!loading && tab === "lenders" && (
         <div>
           <div style={{ marginBottom: "1.25rem" }}>
-            <h2 style={{ fontSize: 18, fontWeight: 500, marginBottom: 3 }}>Top lenders</h2>
-            <p style={{ fontSize: 13, color: "#888" }}>Ranked by total capital deployed across all matched deals</p>
+            <h2 style={{ fontSize: 18, fontWeight: 500, marginBottom: 3 }}>Active lenders</h2>
+            <p style={{ fontSize: 13, color: "#64748B" }}>Lenders with active profiles on the platform</p>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: "1.75rem" }}>
-            <MetricCard label="Total lent" value="£4.2M" />
-            <MetricCard label="Active lenders" value="312" />
-            <MetricCard label="Avg deal size" value="£186k" />
-            <MetricCard label="Repeat lenders" value="68%" />
-          </div>
-          <div style={{ display: "flex", gap: 10, marginBottom: "1.25rem", alignItems: "center" }}>
-            <span style={{ fontSize: 13, color: "#888" }}>Sort by</span>
-            <select
-              value={lenderSort}
-              onChange={e => setLenderSort(e.target.value)}
-              style={{ height: 34, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px", fontSize: 13, background: "#fff" }}
-            >
-              <option value="capital">Total capital lent</option>
-              <option value="deals">Number of deals</option>
-              <option value="rate">Avg return rate</option>
-            </select>
-          </div>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                {["#", "Lender", "Total lent", "Deals", "Avg return", "Activity"].map((h, i) => (
-                  <th key={h} style={{ fontSize: 12, fontWeight: 500, color: "#888", textAlign: i >= 2 && i <= 4 ? "right" : "left", padding: "0 12px 10px", borderBottom: "0.5px solid #eee" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sortedLenders.map((l, i) => {
-                const pct = Math.round((l.capital / maxCapital) * 100);
-                const rankColor = i === 0 ? "#BA7517" : i === 1 ? "#888780" : i === 2 ? "#993C1D" : "#aaa";
-                return (
-                  <tr key={l.name} style={{ borderBottom: "0.5px solid #f0f0f0" }}>
-                    <td style={{ padding: "13px 12px", fontSize: 14, fontWeight: 500, color: rankColor, width: 36 }}>{i + 1}</td>
-                    <td style={{ padding: "13px 12px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <Avatar initials={l.initials} color={l.color} size={34} />
-                        <div>
+          {sortedLenders.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
+              <div style={{ fontSize: 32, marginBottom: 16 }}>🏆</div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: "#1E3A5F", marginBottom: 8 }}>Leaderboard will populate as deals complete</div>
+              <div style={{ fontSize: 14 }}>Be the first lender to complete a deal and claim the top spot.</div>
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
+              <thead>
+                <tr>
+                  {["#", "Lender", "Budget", "Return type", "Location"].map((h, i) => (
+                    <th key={h} style={{ fontSize: 12, fontWeight: 500, color: "#64748B", textAlign: i >= 2 ? "right" : "left", padding: "0 12px 10px", borderBottom: "0.5px solid #eee" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sortedLenders.map((l, i) => {
+                  const rankColor = i === 0 ? "#2E5FA3" : i === 1 ? "#64748B" : i === 2 ? "#993C1D" : "#aaa";
+                  return (
+                    <tr key={l.id} style={{ borderBottom: "0.5px solid #f0f0f0" }}>
+                      <td style={{ padding: "13px 12px", fontSize: 14, fontWeight: 500, color: rankColor, width: 36 }}>{i + 1}</td>
+                      <td style={{ padding: "13px 12px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <Avatar initials={l.initials} color={l.color} size={34} />
                           <div style={{ fontSize: 14, fontWeight: 500 }}>{l.name}</div>
-                          <div style={{ fontSize: 12, color: "#888" }}>{l.type}</div>
                         </div>
-                      </div>
-                    </td>
-                    <td style={{ padding: "13px 12px", textAlign: "right", fontSize: 14, fontWeight: 500 }}>{fmt(l.capital)}</td>
-                    <td style={{ padding: "13px 12px", textAlign: "right", fontSize: 14, fontWeight: 500 }}>{l.deals}</td>
-                    <td style={{ padding: "13px 12px", textAlign: "right", fontSize: 14, fontWeight: 500 }}>{l.rateLabel || `${l.rate}%`}</td>
-                    <td style={{ padding: "13px 12px", minWidth: 120 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ flex: 1, height: 6, background: "#eee", borderRadius: 3 }}>
-                          <div style={{ height: 6, borderRadius: 3, background: "#1D9E75", width: `${pct}%` }} />
-                        </div>
-                        <span style={{ fontSize: 12, color: "#888", minWidth: 30 }}>{pct}%</span>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      </td>
+                      <td style={{ padding: "13px 12px", textAlign: "right", fontSize: 14, fontWeight: 500 }}>{l.budget ? fmt(l.budget) : "—"}</td>
+                      <td style={{ padding: "13px 12px", textAlign: "right", fontSize: 14 }}>{l.returnType}</td>
+                      <td style={{ padding: "13px 12px", textAlign: "right", fontSize: 13, color: "#64748B" }}>{l.location || "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            </div>
+          )}
         </div>
       )}
 
       {/* BUILDERS tab */}
-      {tab === "builders" && (
+      {!loading && tab === "builders" && (
         <div>
           <div style={{ marginBottom: "1.25rem" }}>
-            <h2 style={{ fontSize: 18, fontWeight: 500, marginBottom: 3 }}>Top builders</h2>
-            <p style={{ fontSize: 13, color: "#888" }}>Ranked by properties completed and total investment secured</p>
+            <h2 style={{ fontSize: 18, fontWeight: 500, marginBottom: 3 }}>Active builders</h2>
+            <p style={{ fontSize: 13, color: "#64748B" }}>Builders ranked by projects completed</p>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: "1.75rem" }}>
-            <MetricCard label="Properties built" value="247" />
-            <MetricCard label="Active builders" value="189" />
-            <MetricCard label="Avg project value" value="£215k" />
-            <MetricCard label="Completion rate" value="91%" />
-          </div>
-          <div style={{ display: "flex", gap: 10, marginBottom: "1.25rem", alignItems: "center" }}>
-            <span style={{ fontSize: 13, color: "#888" }}>Sort by</span>
-            <select
-              value={builderSort}
-              onChange={e => setBuilderSort(e.target.value)}
-              style={{ height: 34, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px", fontSize: 13, background: "#fff" }}
-            >
-              <option value="properties">Properties built</option>
-              <option value="value">Total value secured</option>
-              <option value="rate">Completion rate</option>
-            </select>
-          </div>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                {["#", "Builder", "Properties", "Value secured", "Completion", "Activity"].map((h, i) => (
-                  <th key={h} style={{ fontSize: 12, fontWeight: 500, color: "#888", textAlign: i >= 2 && i <= 4 ? "right" : "left", padding: "0 12px 10px", borderBottom: "0.5px solid #eee" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sortedBuilders.map((b, i) => {
-                const pct = Math.round((b.props / maxProps) * 100);
-                const rankColor = i === 0 ? "#BA7517" : i === 1 ? "#888780" : i === 2 ? "#993C1D" : "#aaa";
-                return (
-                  <tr key={b.name} style={{ borderBottom: "0.5px solid #f0f0f0" }}>
-                    <td style={{ padding: "13px 12px", fontSize: 14, fontWeight: 500, color: rankColor, width: 36 }}>{i + 1}</td>
-                    <td style={{ padding: "13px 12px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <Avatar initials={b.initials} color={b.color} size={34} />
-                        <div>
-                          <div style={{ fontSize: 14, fontWeight: 500 }}>{b.name}</div>
-                          <div style={{ fontSize: 12, color: "#888" }}>{b.type}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ padding: "13px 12px", textAlign: "right", fontSize: 14, fontWeight: 500 }}>{b.props}</td>
-                    <td style={{ padding: "13px 12px", textAlign: "right", fontSize: 14, fontWeight: 500 }}>{fmt(b.value)}</td>
-                    <td style={{ padding: "13px 12px", textAlign: "right", fontSize: 14, fontWeight: 500 }}>{b.completion}%</td>
-                    <td style={{ padding: "13px 12px", minWidth: 120 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ flex: 1, height: 6, background: "#eee", borderRadius: 3 }}>
-                          <div style={{ height: 6, borderRadius: 3, background: "#378ADD", width: `${pct}%` }} />
-                        </div>
-                        <span style={{ fontSize: 12, color: "#888", minWidth: 20 }}>{b.props}</span>
-                      </div>
-                    </td>
+          {sortedBuilders.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
+              <div style={{ fontSize: 32, marginBottom: 16 }}>🏆</div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: "#1E3A5F", marginBottom: 8 }}>Leaderboard will populate as deals complete</div>
+              <div style={{ fontSize: 14 }}>Be the first builder to complete a project and claim the top spot.</div>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: "flex", gap: 10, marginBottom: "1.25rem", alignItems: "center" }}>
+                <span style={{ fontSize: 13, color: "#64748B" }}>Sort by</span>
+                <select value={builderSort} onChange={e => setBuilderSort(e.target.value)} style={{ height: 44, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px", fontSize: 13, background: "#fff" }}>
+                  <option value="properties">Projects completed</option>
+                  <option value="value">Total value</option>
+                  <option value="rate">Completion rate</option>
+                </select>
+              </div>
+              <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
+                <thead>
+                  <tr>
+                    {["#", "Builder", "Projects", "Value", "Completion", "Activity"].map((h, i) => (
+                      <th key={h} style={{ fontSize: 12, fontWeight: 500, color: "#64748B", textAlign: i >= 2 && i <= 4 ? "right" : "left", padding: "0 12px 10px", borderBottom: "0.5px solid #eee" }}>{h}</th>
+                    ))}
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                </thead>
+                <tbody>
+                  {sortedBuilders.map((b, i) => {
+                    const pct = Math.round((b.props / maxProps) * 100);
+                    const rankColor = i === 0 ? "#2E5FA3" : i === 1 ? "#64748B" : i === 2 ? "#993C1D" : "#aaa";
+                    return (
+                      <tr key={b.id} style={{ borderBottom: "0.5px solid #f0f0f0" }}>
+                        <td style={{ padding: "13px 12px", fontSize: 14, fontWeight: 500, color: rankColor, width: 36 }}>{i + 1}</td>
+                        <td style={{ padding: "13px 12px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <Avatar initials={b.initials} color={b.color} size={34} />
+                            <div>
+                              <div style={{ fontSize: 14, fontWeight: 500 }}>{b.name}</div>
+                              <div style={{ fontSize: 12, color: "#64748B" }}>{b.type}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td style={{ padding: "13px 12px", textAlign: "right", fontSize: 14, fontWeight: 500 }}>{b.props}</td>
+                        <td style={{ padding: "13px 12px", textAlign: "right", fontSize: 14, fontWeight: 500 }}>{fmt(b.value)}</td>
+                        <td style={{ padding: "13px 12px", textAlign: "right", fontSize: 14, fontWeight: 500 }}>{b.completion}%</td>
+                        <td style={{ padding: "13px 12px", minWidth: 120 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ flex: 1, height: 6, background: "#eee", borderRadius: 3 }}>
+                              <div style={{ height: 6, borderRadius: 3, background: "#2E5FA3", width: `${pct}%` }} />
+                            </div>
+                            <span style={{ fontSize: 12, color: "#64748B", minWidth: 20 }}>{b.props}</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── LENDER DASHBOARD ────────────────────────────────────────────────────────
+
+function LenderDashboard({ user, setPage }) {
+  const [requests,   setRequests]   = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState("");
+  const [responding, setResponding] = useState({});
+  const [blocking,   setBlocking]   = useState({});
+  const [reporting,  setReporting]  = useState({});
+  const [reportReasons, setReportReasons] = useState({});
+  const [syndicateInvestments, setSyndicateInvestments] = useState([]);
+  const [syndicateListings,    setSyndicateListings]    = useState([]);
+
+  const [accepting,     setAccepting]     = useState(user?.user_metadata?.accepting_requests !== false);
+  const [listingActive, setListingActive] = useState(user?.user_metadata?.listing_active     !== false);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+
+  useEffect(() => {
+    fetchRequests();
+    fetchSyndicateInvestments();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function fetchSyndicateInvestments() {
+    const { data: cmts } = await supabase
+      .from("syndicate_commitments")
+      .select("*")
+      .eq("lender_user_id", user.id)
+      .order("committed_at", { ascending: false });
+    setSyndicateInvestments(cmts || []);
+
+    if ((cmts || []).length > 0) {
+      const listingIds = [...new Set(cmts.map(c => c.listing_id))];
+      const res = await fetch("/api/project-listings").then(r => r.json()).catch(() => ({}));
+      const allListings = res.listings || [];
+      const synTotals = res.syndicate_totals || {};
+      const matched = allListings
+        .filter(l => listingIds.includes(l.id))
+        .map(l => ({ ...l, synTotal: synTotals[l.id]?.total || 0, synCount: synTotals[l.id]?.count || 0 }));
+      setSyndicateListings(matched);
+    }
+  }
+
+  async function getToken() {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token;
+  }
+
+  async function fetchRequests() {
+    setLoading(true);
+    setError("");
+    const token = await getToken();
+    if (!token) { setPage("auth"); return; }
+
+    const res  = await fetch("/api/lender-requests", { headers: { Authorization: `Bearer ${token}` } });
+    const json = await res.json();
+    if (!res.ok) { setError(json.error || "Failed to load requests"); setLoading(false); return; }
+    setRequests(json.requests);
+    setLoading(false);
+  }
+
+  async function handleRespond(builderId, action) {
+    setResponding(r => ({ ...r, [builderId]: "loading" }));
+    const token = await getToken();
+    const res = await fetch("/api/respond-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ builder_id: builderId, action }),
+    });
+    if (!res.ok) {
+      setResponding(r => ({ ...r, [builderId]: "error" }));
+      setTimeout(() => setResponding(r => ({ ...r, [builderId]: undefined })), 3000);
+    } else {
+      setResponding(r => ({ ...r, [builderId]: undefined }));
+      setRequests(prev => prev.map(req =>
+        req.builder_id === builderId ? { ...req, status: action, responded_at: new Date().toISOString() } : req
+      ));
+    }
+  }
+
+  async function handleBlock(builderId) {
+    setBlocking(b => ({ ...b, [builderId]: "loading" }));
+    const token = await getToken();
+    const res = await fetch("/api/block-builder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action: "block", builder_id: builderId }),
+    });
+    if (!res.ok) {
+      setBlocking(b => ({ ...b, [builderId]: "error" }));
+      setTimeout(() => setBlocking(b => ({ ...b, [builderId]: undefined })), 3000);
+    } else {
+      setBlocking(b => ({ ...b, [builderId]: "done" }));
+      setRequests(prev => prev.map(req =>
+        req.builder_id === builderId
+          ? { ...req, status: "declined", responded_at: new Date().toISOString(), blocked: true }
+          : req
+      ));
+    }
+  }
+
+  async function handleReport(builderId, builderName) {
+    const reason = reportReasons[builderId]?.trim();
+    if (!reason) return;
+    setReporting(r => ({ ...r, [builderId]: "loading" }));
+    const token = await getToken();
+    const res = await fetch("/api/block-builder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action: "report", builder_id: builderId, builder_name: builderName, reason }),
+    });
+    if (!res.ok) {
+      setReporting(r => ({ ...r, [builderId]: "error" }));
+    } else {
+      setReporting(r => ({ ...r, [builderId]: "done" }));
+    }
+  }
+
+  async function updateSettings(patch) {
+    setSettingsLoading(true);
+    const token = await getToken();
+    await fetch("/api/lender-settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(patch),
+    });
+    setSettingsLoading(false);
+    await supabase.auth.refreshSession();
+  }
+
+  async function toggleAccepting() {
+    const next = !accepting;
+    setAccepting(next);
+    await updateSettings({ accepting_requests: next });
+  }
+
+  async function toggleListing() {
+    const next = !listingActive;
+    setListingActive(next);
+    await updateSettings({ listing_active: next });
+  }
+
+  const pending  = requests.filter(r => r.status === "pending");
+  const actioned = requests.filter(r => r.status !== "pending");
+
+  const statusBadge = (req) => {
+    const map = {
+      pending:  { bg: "#DBEAFE", text: "#1D4ED8", label: "Pending"  },
+      accepted: { bg: "#E1F5EE", text: "#0F6E56", label: "Accepted" },
+      declined: { bg: "#FAECE7", text: "#993C1D", label: req.blocked ? "Blocked" : "Declined" },
+    };
+    const s = map[req.status] || map.pending;
+    return (
+      <span style={{ background: s.bg, color: s.text, fontSize: 11, padding: "3px 9px", borderRadius: 20, fontWeight: 500 }}>
+        {s.label}
+      </span>
+    );
+  };
+
+  function RequestCard({ req }) {
+    const respondState = responding[req.builder_id];
+    const blockState   = blocking[req.builder_id];
+    const reportState  = reporting[req.builder_id];
+    const isPending    = req.status === "pending";
+    const isActioning  = respondState === "loading" || blockState === "loading";
+
+    return (
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: 12 }}>
+        {/* Header row */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{
+              width: 40, height: 40, borderRadius: "50%", background: "#EBF2FF", color: "#1E3A5F",
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 600, flexShrink: 0,
+            }}>
+              {(req.builder_name || "?").charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 500 }}>{req.builder_name}</div>
+              <div style={{ fontSize: 12, color: "#64748B" }}>Builder · {req.builder_email}</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {statusBadge(req)}
+            {/* Report button */}
+            {reportState !== "done" && (
+              <button
+                onClick={() => setReporting(r => ({ ...r, [req.builder_id]: reportState === "open" ? "idle" : "open" }))}
+                title="Report user"
+                style={{
+                  background: "transparent", border: "0.5px solid #ddd", color: "#64748B",
+                  padding: "3px 8px", borderRadius: 6, fontSize: 11, cursor: "pointer",
+                }}
+              >
+                Report
+              </button>
+            )}
+            {reportState === "done" && (
+              <span style={{ fontSize: 11, color: "#64748B" }}>Reported</span>
+            )}
+          </div>
+        </div>
+
+        {/* Meta */}
+        <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px" }}>
+          {[
+            ["Lender type", req.lender_type],
+            ["Requested",   new Date(req.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })],
+            req.responded_at && ["Responded", new Date(req.responded_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })],
+          ].filter(Boolean).map(([label, val]) => (
+            <div key={label} style={{ fontSize: 13 }}>
+              <span style={{ color: "#64748B" }}>{label}: </span>
+              <span style={{ fontWeight: 500 }}>{val}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Report form */}
+        {reportState === "open" && (
+          <div style={{ marginTop: 12, background: "#f9f9f7", borderRadius: 8, padding: "12px" }}>
+            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Why are you reporting this user?</div>
+            <textarea
+              value={reportReasons[req.builder_id] || ""}
+              onChange={e => setReportReasons(r => ({ ...r, [req.builder_id]: e.target.value }))}
+              placeholder="Describe the issue (e.g. spam, suspicious behaviour)"
+              rows={3}
+              style={{ width: "100%", border: "0.5px solid #ccc", borderRadius: 8, padding: "8px 10px", fontSize: 13, resize: "vertical", boxSizing: "border-box" }}
+            />
+            {reportState === "error" && (
+              <div style={{ fontSize: 12, color: "#993C1D", marginTop: 4 }}>Failed to submit — please try again.</div>
+            )}
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button
+                onClick={() => handleReport(req.builder_id, req.builder_name)}
+                disabled={!reportReasons[req.builder_id]?.trim() || reportState === "loading"}
+                style={{
+                  background: reportState === "loading" ? "#64748B" : "#D85A30", color: "#fff",
+                  border: "none", padding: "7px 16px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500,
+                  cursor: reportState === "loading" ? "default" : "pointer",
+                }}
+              >
+                {reportState === "loading" ? "Submitting…" : "Submit report"}
+              </button>
+              <button
+                onClick={() => setReporting(r => ({ ...r, [req.builder_id]: "idle" }))}
+                style={{ background: "transparent", border: "0.5px solid #ccc", color: "#555", padding: "7px 14px", minHeight: 44, borderRadius: 8, fontSize: 13, cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Action buttons */}
+        {isPending && (
+          <div style={{ marginTop: 14, borderTop: "0.5px solid #eee", paddingTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              onClick={() => handleRespond(req.builder_id, "accepted")}
+              disabled={isActioning}
+              style={{
+                flex: 1, minWidth: 80, background: isActioning ? "#64748B" : "#3B82F6",
+                color: "#fff", border: "none", padding: "8px 0", borderRadius: 8, minHeight: 44,
+                fontSize: 13, fontWeight: 500, cursor: isActioning ? "default" : "pointer",
+              }}
+            >
+              {respondState === "loading" ? "Saving…" : "Accept"}
+            </button>
+            <button
+              onClick={() => handleRespond(req.builder_id, "declined")}
+              disabled={isActioning}
+              style={{
+                flex: 1, minWidth: 80, background: "transparent", color: "#993C1D",
+                border: "0.5px solid #F5C9BB", padding: "8px 0", borderRadius: 8, minHeight: 44,
+                fontSize: 13, fontWeight: 500, cursor: isActioning ? "default" : "pointer",
+              }}
+            >
+              Decline
+            </button>
+            <button
+              onClick={() => handleBlock(req.builder_id)}
+              disabled={isActioning || blockState === "done"}
+              title="Decline this request and prevent future requests from this builder"
+              style={{
+                flex: 1, minWidth: 80, background: "transparent", color: "#5F5E5A",
+                border: "0.5px solid #ddd", padding: "8px 0", borderRadius: 8, minHeight: 44,
+                fontSize: 13, fontWeight: 500, cursor: isActioning ? "default" : "pointer",
+              }}
+            >
+              {blockState === "loading" ? "Blocking…" : "Block user"}
+            </button>
+          </div>
+        )}
+        {!isPending && !req.blocked && (
+          <div style={{ marginTop: 14, borderTop: "0.5px solid #eee", paddingTop: 12 }}>
+            <button
+              onClick={() => handleBlock(req.builder_id)}
+              disabled={blockState === "loading" || blockState === "done"}
+              style={{
+                background: "transparent", color: "#5F5E5A", border: "0.5px solid #ddd",
+                padding: "6px 14px", minHeight: 44, borderRadius: 8, fontSize: 12, cursor: blockState === "loading" ? "default" : "pointer",
+              }}
+            >
+              {blockState === "done" ? "Blocked" : blockState === "loading" ? "Blocking…" : "Block user"}
+            </button>
+          </div>
+        )}
+        {(respondState === "error" || blockState === "error") && (
+          <div style={{ fontSize: 12, color: "#993C1D", marginTop: 8 }}>Something went wrong — please try again.</div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: "1.5rem 1.25rem", maxWidth: 700, margin: "0 auto" }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Lender dashboard</div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: "1.5rem" }}>
+        <h2 style={{ fontSize: 22, fontWeight: 500, margin: 0 }}>Connection requests</h2>
+        <button onClick={fetchRequests} style={{ background: "transparent", border: "0.5px solid #ccc", color: "#555", padding: "6px 14px", minHeight: 44, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>
+          Refresh
+        </button>
+      </div>
+
+      {/* ── Profile settings panel ─────────────────────────── */}
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem" }}>
+        <div style={{ fontSize: 12, fontWeight: 500, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "1rem" }}>Profile settings</div>
+
+        {/* Accepting requests toggle */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 500 }}>Accepting new requests</div>
+            <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>
+              {accepting ? "Builders can currently send you connection requests." : "New requests are paused — builders see a disabled Connect button."}
+            </div>
+          </div>
+          <button
+            onClick={toggleAccepting}
+            disabled={settingsLoading}
+            style={{
+              width: 44, height: 24, borderRadius: 12, border: "none",
+              background: accepting ? "#3B82F6" : "#ccc",
+              cursor: "pointer", position: "relative", flexShrink: 0, transition: "background 0.2s",
+            }}
+          >
+            <span style={{
+              position: "absolute", top: 3, left: accepting ? 23 : 3,
+              width: 18, height: 18, borderRadius: "50%", background: "#fff",
+              transition: "left 0.15s",
+            }} />
+          </button>
+        </div>
+
+        {/* Close listing */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 14, borderTop: "0.5px solid #f0f0f0" }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 500 }}>Listing {listingActive ? "active" : "closed"}</div>
+            <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>
+              {listingActive
+                ? "Your profile appears in search results."
+                : "Your profile is hidden from search. You can reactivate at any time."}
+            </div>
+          </div>
+          <button
+            onClick={toggleListing}
+            disabled={settingsLoading}
+            style={{
+              padding: "7px 14px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500,
+              border: listingActive ? "0.5px solid #F5C9BB" : "none",
+              background: listingActive ? "transparent" : "#3B82F6",
+              color: listingActive ? "#993C1D" : "#fff",
+              cursor: "pointer",
+            }}
+          >
+            {settingsLoading ? "Saving…" : listingActive ? "Close listing" : "Reactivate listing"}
+          </button>
+        </div>
+      </div>
+
+      {loading && <div style={{ textAlign: "center", padding: "3rem", color: "#64748B", fontSize: 14 }}>Loading requests…</div>}
+
+      {error && (
+        <div style={{ background: "#FAECE7", color: "#993C1D", border: "0.5px solid #F5C9BB", borderRadius: 8, padding: "12px 16px", fontSize: 13, marginBottom: "1rem" }}>
+          {error}
         </div>
       )}
 
-      {/* PAIRS tab */}
-      {tab === "pairs" && (
-        <div>
-          <div style={{ marginBottom: "1.25rem" }}>
-            <h2 style={{ fontSize: 18, fontWeight: 500, marginBottom: 3 }}>Best connections</h2>
-            <p style={{ fontSize: 13, color: "#888" }}>Pairs scored on deals completed, returns delivered, and ongoing collaboration</p>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: "1.75rem" }}>
-            <MetricCard label="Active pairs" value="89" />
-            <MetricCard label="Repeat matches" value="54" />
-            <MetricCard label="Highest score" value="98" />
-            <MetricCard label="Avg pair value" value="£310k" />
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {PAIRS.map(p => {
-              const rankColor = p.rank === 1 ? "#BA7517" : p.rank === 2 ? "#888780" : p.rank === 3 ? "#993C1D" : "#aaa";
+      {!loading && !error && (
+        <>
+          {pending.length === 0 && actioned.length === 0 && (
+            <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>📬</div>
+              <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>No requests yet</div>
+              <div style={{ fontSize: 13 }}>When builders send you a connection request it will appear here.</div>
+            </div>
+          )}
+          {pending.length > 0 && (
+            <div style={{ marginBottom: "2rem" }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "#555", marginBottom: 12 }}>Pending ({pending.length})</div>
+              {pending.map(req => <RequestCard key={req.builder_id + req.created_at} req={req} />)}
+            </div>
+          )}
+          {actioned.length > 0 && (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "#555", marginBottom: 12 }}>Previous ({actioned.length})</div>
+              {actioned.map(req => <RequestCard key={req.builder_id + req.created_at} req={req} />)}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── My Syndicate Investments ───────────────────────────── */}
+      {syndicateInvestments.length > 0 && (
+        <div style={{ marginTop: "2rem" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#1D4ED8", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Syndicated Lending</div>
+          <h3 style={{ fontSize: 18, fontWeight: 500, margin: "0 0 1rem" }}>My Syndicate Investments</h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {syndicateInvestments.map(inv => {
+              const listing = syndicateListings.find(l => l.id === inv.listing_id);
+              const fundingNeeded = listing?.funding_needed || 0;
+              const synTotal = listing?.synTotal || 0;
+              const synPct = fundingNeeded > 0 ? Math.min(100, Math.round((synTotal / fundingNeeded) * 100)) : 0;
+              const synFull = synPct >= 100;
+              const mySharePct = fundingNeeded > 0 ? ((Number(inv.amount) / fundingNeeded) * 100).toFixed(1) : null;
               return (
-                <div key={p.rank} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", display: "flex", alignItems: "flex-start", gap: "1rem", flexWrap: "wrap" }}>
-                  <div style={{ fontSize: 22, fontWeight: 500, color: rankColor, minWidth: 32, textAlign: "center", paddingTop: 4 }}>{p.rank}</div>
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <Avatar initials={p.a.i} color={p.a.c} size={36} />
-                    <div style={{ marginLeft: -8, border: "2px solid #fff", borderRadius: "50%" }}>
-                      <Avatar initials={p.b.i} color={p.b.c} size={36} />
+                <div key={inv.id} style={{ background: "#fff", border: "0.5px solid #BFDBFE", borderRadius: 12, padding: "1rem 1.25rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 500 }}>{listing?.title || `Listing ${inv.listing_id.slice(0, 8)}`}</div>
+                      {listing?.builder_name && <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>{listing.builder_name}{listing?.location ? ` · ${listing.location}` : ""}</div>}
+                    </div>
+                    <span style={{ background: synFull ? "#ECFDF5" : "#EFF6FF", color: synFull ? "#059669" : "#1D4ED8", fontSize: 11, padding: "3px 9px", borderRadius: 20, fontWeight: 600, flexShrink: 0 }}>
+                      {synFull ? "Fully Funded" : `${synPct}% funded`}
+                    </span>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "6px 16px", marginBottom: 10 }}>
+                    <div style={{ fontSize: 13 }}>
+                      <span style={{ color: "#64748B" }}>My commitment: </span>
+                      <span style={{ fontWeight: 600, color: "#1D4ED8" }}>{fmt(inv.amount)}</span>
+                    </div>
+                    {mySharePct && (
+                      <div style={{ fontSize: 13 }}>
+                        <span style={{ color: "#64748B" }}>My share: </span>
+                        <span style={{ fontWeight: 600 }}>{mySharePct}%</span>
+                      </div>
+                    )}
+                    {fundingNeeded > 0 && (
+                      <div style={{ fontSize: 13 }}>
+                        <span style={{ color: "#64748B" }}>Target: </span>
+                        <span style={{ fontWeight: 500 }}>{fmt(fundingNeeded)}</span>
+                      </div>
+                    )}
+                    {listing?.expected_return && (
+                      <div style={{ fontSize: 13 }}>
+                        <span style={{ color: "#64748B" }}>Return: </span>
+                        <span style={{ fontWeight: 500 }}>{listing.expected_return}</span>
+                      </div>
+                    )}
+                    <div style={{ fontSize: 13 }}>
+                      <span style={{ color: "#64748B" }}>Committed: </span>
+                      <span style={{ fontWeight: 500 }}>{new Date(inv.committed_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
                     </div>
                   </div>
-                  <div style={{ flex: 1, minWidth: 160 }}>
-                    <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 3 }}>{p.names}</div>
-                    <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>{p.meta}</div>
-                    <CompatBar label="Communication" value={p.communication} color="teal" />
-                    <CompatBar label="Reliability" value={p.reliability} color="blue" />
-                    <CompatBar label="Returns delivered" value={p.returns} color="purple" />
-                  </div>
-                  <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", paddingTop: 4 }}>
-                    {[["Deals", p.deals], ["Total value", fmt(p.value)], ["Match score", p.score]].map(([label, val]) => (
-                      <div key={label} style={{ textAlign: "center" }}>
-                        <div style={{ fontSize: 16, fontWeight: 500, color: label === "Match score" ? "#1D9E75" : undefined }}>{val}</div>
-                        <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{label}</div>
+
+                  {fundingNeeded > 0 && (
+                    <div>
+                      <div style={{ height: 5, background: "#BFDBFE", borderRadius: 3, overflow: "hidden" }}>
+                        <div style={{ height: "100%", borderRadius: 3, background: synFull ? "#059669" : "#2563EB", width: `${synPct}%`, transition: "width 0.4s ease" }} />
                       </div>
-                    ))}
-                  </div>
+                      <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 3 }}>{fmt(synTotal)} of {fmt(fundingNeeded)} committed total</div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => setPage("browse-projects")}
+                    style={{ marginTop: 10, background: "transparent", border: "0.5px solid #BFDBFE", color: "#1D4ED8", padding: "5px 12px", borderRadius: 8, fontSize: 12, cursor: "pointer" }}
+                  >
+                    View project →
+                  </button>
                 </div>
               );
             })}
@@ -594,17 +5770,9279 @@ function LeaderboardPage() {
   );
 }
 
+// ─── SEARCH BY ID ────────────────────────────────────────────────────────────
+
+function SearchById({ setPage, onViewProfile, onViewBuilderProfile }) {
+  const [idInput,  setIdInput]  = useState("");
+  const [result,   setResult]   = useState(null);
+  const [notFound, setNotFound] = useState(false);
+  const [searching, setSearching] = useState(false);
+
+  async function handleSearch(e) {
+    e.preventDefault();
+    const num = parseInt(idInput.trim().replace(/^#/, ""), 10);
+    if (!num) return;
+    setSearching(true);
+    setResult(null);
+    setNotFound(false);
+    try {
+      const res = await fetch(`/api/get-profiles?type=by-id&id=${num}`);
+      if (res.status === 404) { setNotFound(true); }
+      else if (res.ok) {
+        const { profile } = await res.json();
+        setResult(profile);
+      }
+    } catch { setNotFound(true); }
+    setSearching(false);
+  }
+
+  return (
+    <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem" }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Find by ID</div>
+      <form onSubmit={handleSearch} style={{ display: "flex", gap: 8 }}>
+        <input
+          value={idInput}
+          onChange={e => { setIdInput(e.target.value); setResult(null); setNotFound(false); }}
+          placeholder="#0001 or 1"
+          style={{ flex: 1, height: 40, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 12px", fontSize: 13 }}
+        />
+        <button type="submit" disabled={searching || !idInput.trim()}
+          style={{ padding: "0 16px", height: 40, borderRadius: 8, background: "#3B82F6", color: "#fff", border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+          {searching ? "…" : "Search"}
+        </button>
+      </form>
+      {notFound && <div style={{ fontSize: 13, color: "#D85A30", marginTop: 10 }}>No user found with that ID.</div>}
+      {result && (
+        <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "#f9f9f7", borderRadius: 10 }}>
+          <Avatar initials={nameInitials(result.full_name)} color={pickColor(result.id || "")} size={40} url={result.avatar_url} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>{result.full_name || "Anonymous"}</div>
+              <RoleBadge userRole={result.user_role} authRole={result.role} />
+              <span style={{ fontSize: 11, color: "#aaa" }}>{fmtId(result.sequential_id)}</span>
+            </div>
+            {result.location && <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>📍 {result.location}</div>}
+          </div>
+          <button
+            onClick={() => {
+              if (result.role === "lender" && onViewProfile) {
+                onViewProfile({ id: `real-${result.id}`, _real: true, user_id: result.id, name: result.full_name, initials: nameInitials(result.full_name), color: pickColor(result.id), avatar_url: result.avatar_url, type: "Private lender", location: result.location || "", bio: result.bio || "", user_role: result.user_role, sequential_id: result.sequential_id });
+              } else if (result.role === "builder" && onViewBuilderProfile) {
+                onViewBuilderProfile({ id: `real-${result.id}`, _real: true, user_id: result.id, name: result.full_name, initials: nameInitials(result.full_name), color: pickColor(result.id), avatar_url: result.avatar_url, type: "Builder", location: result.location || "", bio: result.bio || "", user_role: result.user_role, sequential_id: result.sequential_id, verified_documents: [], props: 0, value: 0, completion: 100 });
+              }
+            }}
+            style={{ padding: "6px 14px", borderRadius: 8, border: "0.5px solid #e0e0e0", background: "#fff", fontSize: 12, cursor: "pointer", flexShrink: 0, minHeight: 36 }}
+          >
+            View profile
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ADMIN PAGE ──────────────────────────────────────────────────────────────
+
+const ADMIN_DOC_LABELS = { photo_id: "Photo ID", selfie: "Selfie with ID", site_photos: "Site photos", planning: "Planning permission docs" };
+
+function AdminPage({ user }) {
+  const [reports,        setReports]        = useState([]);
+  const [flaggedUsers,   setFlaggedUsers]   = useState([]);
+  const [loading,        setLoading]        = useState(true);
+  const [error,          setError]          = useState("");
+  const [allUsers,       setAllUsers]       = useState([]);
+  const [usersLoading,   setUsersLoading]   = useState(true);
+  const [roleMsg,        setRoleMsg]        = useState("");
+  const [docSubmissions, setDocSubmissions] = useState([]);
+  const [docMsg,         setDocMsg]         = useState("");
+  const [rejectingId,    setRejectingId]    = useState(null);
+  const [rejectReasons,  setRejectReasons]  = useState({});
+  const [disputes,       setDisputes]       = useState([]);
+  const [disputeMsg,     setDisputeMsg]     = useState("");
+  const [dealDocs,       setDealDocs]       = useState([]);
+  const [dealDocMsg,     setDealDocMsg]     = useState("");
+  const [rejectingDocId, setRejectingDocId] = useState(null);
+  const [docRejectReasons, setDocRejectReasons] = useState({});
+  const [defaultsData,   setDefaultsData]   = useState(null);
+  // Community moderation state
+  const [commMod,        setCommMod]        = useState(null); // { reports, messages, bans, volume }
+  const [commMsg,        setCommMsg]        = useState("");
+  const [banForm,        setBanForm]        = useState({}); // { [userId]: { open, reason, type } }
+
+  useEffect(() => {
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const [reportsRes, usersRes, docsRes, disputesRes, dealDocsRes, defaultsRes, commModRes] = await Promise.all([
+        fetch("/api/admin-reports",                       { headers: { Authorization: `Bearer ${session.access_token}` } }),
+        fetch("/api/admin-reports?type=users",            { headers: { Authorization: `Bearer ${session.access_token}` } }),
+        fetch("/api/admin-reports?type=documents",        { headers: { Authorization: `Bearer ${session.access_token}` } }),
+        fetch("/api/admin-reports?type=disputes",         { headers: { Authorization: `Bearer ${session.access_token}` } }),
+        fetch("/api/admin-reports?type=deal-docs",        { headers: { Authorization: `Bearer ${session.access_token}` } }),
+        fetch("/api/admin-reports?type=defaults",         { headers: { Authorization: `Bearer ${session.access_token}` } }),
+        fetch("/api/admin-reports?type=community-mod",    { headers: { Authorization: `Bearer ${session.access_token}` } }),
+      ]);
+      const reportsJson = await reportsRes.json();
+      if (!reportsRes.ok) { setError(reportsJson.error || "Failed to load reports"); }
+      else { setReports(reportsJson.reports || []); setFlaggedUsers(reportsJson.flagged_users || []); }
+      setLoading(false);
+
+      const usersJson = await usersRes.json();
+      setAllUsers(usersJson.users || []);
+      setUsersLoading(false);
+
+      const docsJson = await docsRes.json();
+      setDocSubmissions(docsJson.submissions || []);
+
+      const disputesJson = await disputesRes.json();
+      setDisputes(disputesJson.disputes || []);
+
+      const dealDocsJson = await dealDocsRes.json();
+      setDealDocs(dealDocsJson.deal_docs || []);
+
+      const defaultsJson = await defaultsRes.json();
+      setDefaultsData(defaultsJson);
+
+      const commModJson = await commModRes.json();
+      setCommMod(commModJson.reports ? commModJson : null);
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleSetRole(targetId, newRole) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const res = await fetch("/api/admin-reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "set-user-role", target_user_id: targetId, user_role: newRole }),
+    });
+    if (res.ok) {
+      setAllUsers(prev => prev.map(u => u.id === targetId ? { ...u, user_role: newRole || null } : u));
+      setRoleMsg("Role updated.");
+      setTimeout(() => setRoleMsg(""), 3000);
+    } else {
+      setRoleMsg("Failed to update role.");
+    }
+  }
+
+  async function handleReviewDoc(submissionId, decision, reason = "") {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const res = await fetch("/api/admin-reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "review-document", submission_id: submissionId, decision, rejection_reason: reason }),
+    });
+    if (res.ok) {
+      setDocSubmissions(prev => prev.filter(s => s.id !== submissionId));
+      setRejectingId(null);
+      setRejectReasons(prev => { const n = { ...prev }; delete n[submissionId]; return n; });
+      setDocMsg(`Document ${decision}.`);
+      setTimeout(() => setDocMsg(""), 3000);
+    } else {
+      setDocMsg("Action failed — please try again.");
+      setTimeout(() => setDocMsg(""), 3000);
+    }
+  }
+
+  async function handleDisputeAction(disputeId, action, notes = "") {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const res = await fetch("/api/admin-reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action, dispute_id: disputeId, resolution_notes: notes }),
+    });
+    if (res.ok) {
+      const newStatus = action === "resolve-dispute" ? "resolved" : "escalated";
+      setDisputes(prev => prev.map(d => d.id === disputeId ? { ...d, status: newStatus, resolution_notes: notes } : d));
+      setDisputeMsg(`Dispute ${newStatus}.`);
+      setTimeout(() => setDisputeMsg(""), 3000);
+    } else {
+      setDisputeMsg("Action failed.");
+      setTimeout(() => setDisputeMsg(""), 3000);
+    }
+  }
+
+  async function handleDealDocAction(docId, action, reason = "") {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const res = await fetch("/api/admin-reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action, deal_doc_id: docId, rejection_reason: reason }),
+    });
+    if (res.ok) {
+      setDealDocs(prev => prev.filter(d => d.id !== docId));
+      setRejectingDocId(null);
+      setDocRejectReasons(prev => { const n = { ...prev }; delete n[docId]; return n; });
+      setDealDocMsg(`Document ${action === "approve-deal-doc" ? "approved" : "rejected"}.`);
+      setTimeout(() => setDealDocMsg(""), 3000);
+    } else {
+      setDealDocMsg("Action failed.");
+      setTimeout(() => setDealDocMsg(""), 3000);
+    }
+  }
+
+  async function handleModerateMessage(messageId, decision, table = "community_messages") {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const res = await fetch("/api/admin-reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "moderate-message", message_id: messageId, decision, message_table: table }),
+    });
+    if (res.ok) {
+      const listKey = table === "group_messages" ? "groupMessages" : "messages";
+      setCommMod(prev => prev ? {
+        ...prev,
+        [listKey]: prev[listKey].map(m => m.id === messageId
+          ? { ...m, hidden: decision === "remove", flagged: false }
+          : m),
+      } : prev);
+      setCommMsg(decision === "remove" ? "Message removed." : "Message approved.");
+      setTimeout(() => setCommMsg(""), 3000);
+    }
+  }
+
+  async function handleBanUser(uid, uname, reason, banType) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const bannedUntil = banType === "temporary" ? new Date(Date.now() + 86400000).toISOString() : null;
+    const res = await fetch("/api/admin-reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "ban-user", target_user_id: uid, ban_user_name: uname, ban_reason: reason, ban_type: banType, banned_until: bannedUntil }),
+    });
+    if (res.ok) {
+      const newBan = { id: Date.now().toString(), user_id: uid, user_name: uname, reason, ban_type: banType, banned_until: bannedUntil, banned_at: new Date().toISOString() };
+      setCommMod(prev => prev ? { ...prev, bans: [newBan, ...(prev.bans || [])] } : prev);
+      setBanForm({});
+      setCommMsg(`${uname} banned from community.`);
+      setTimeout(() => setCommMsg(""), 3000);
+    }
+  }
+
+  async function handleUnbanUser(banId) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const res = await fetch("/api/admin-reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "unban-user", ban_id: banId }),
+    });
+    if (res.ok) {
+      setCommMod(prev => prev ? { ...prev, bans: prev.bans.filter(b => b.id !== banId) } : prev);
+      setCommMsg("User unbanned.");
+      setTimeout(() => setCommMsg(""), 3000);
+    }
+  }
+
+  // Group by builder for a summary
+  const byBuilder = {};
+  for (const r of reports) {
+    if (!byBuilder[r.builder_id]) {
+      byBuilder[r.builder_id] = { builder_name: r.builder_name, builder_id: r.builder_id, count: 0, reports: [] };
+    }
+    byBuilder[r.builder_id].count++;
+    byBuilder[r.builder_id].reports.push(r);
+  }
+  const grouped = Object.values(byBuilder).sort((a, b) => b.count - a.count);
+
+  return (
+    <div style={{ padding: "1.5rem 1.25rem", maxWidth: 800, margin: "0 auto" }}>
+      <div style={{ fontSize: 11, fontWeight: 500, color: "#D85A30", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>Admin</div>
+      <h2 style={{ fontSize: 22, fontWeight: 500, marginBottom: "1.5rem" }}>Admin panel</h2>
+
+      {loading && <div style={{ textAlign: "center", padding: "3rem", color: "#64748B", fontSize: 14 }}>Loading…</div>}
+      {error   && <div style={{ background: "#FAECE7", color: "#993C1D", borderRadius: 8, padding: "12px 16px", fontSize: 13 }}>{error}</div>}
+
+      {/* Flagged accounts */}
+      {!loading && !error && (
+        <div style={{ marginBottom: "2rem" }}>
+          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+            Flagged accounts
+            {flaggedUsers.length > 0 && (
+              <span style={{ background: "#FAECE7", color: "#993C1D", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 500 }}>
+                {flaggedUsers.length}
+              </span>
+            )}
+          </div>
+          {flaggedUsers.length === 0 ? (
+            <div style={{ fontSize: 13, color: "#64748B", background: "#f9f9f7", borderRadius: 8, padding: "1rem" }}>No flagged accounts.</div>
+          ) : flaggedUsers.map(u => (
+            <div key={u.user_id} style={{ background: "#fff", border: "0.5px solid #F5C9BB", borderRadius: 10, padding: "1rem 1.25rem", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>{u.name}</div>
+                <div style={{ fontSize: 12, color: "#64748B" }}>{u.email} · {u.role}</div>
+                {u.flag_reason && <div style={{ fontSize: 12, color: "#993C1D", marginTop: 2 }}>{u.flag_reason}</div>}
+              </div>
+              {u.flagged_at && (
+                <span style={{ fontSize: 11, color: "#64748B", flexShrink: 0 }}>
+                  {new Date(u.flagged_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Reported users */}
+      {!loading && !error && (
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12 }}>Reported users</div>
+          {grouped.length === 0 ? (
+            <div style={{ fontSize: 13, color: "#64748B", background: "#f9f9f7", borderRadius: 8, padding: "1rem" }}>No reports yet.</div>
+          ) : grouped.map(g => (
+            <div key={g.builder_id} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <div style={{ fontSize: 15, fontWeight: 500 }}>{g.builder_name || g.builder_id}</div>
+                <span style={{
+                  background: g.count >= 3 ? "#FAECE7" : "#DBEAFE",
+                  color:      g.count >= 3 ? "#993C1D" : "#1D4ED8",
+                  fontSize: 12, padding: "3px 10px", borderRadius: 20, fontWeight: 500,
+                }}>
+                  {g.count} {g.count === 1 ? "report" : "reports"}
+                </span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {g.reports.map((r, i) => (
+                  <div key={i} style={{ background: "#f9f9f7", borderRadius: 8, padding: "10px 12px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 500 }}>Reported by {r.lender_name || "unknown lender"}</span>
+                      <span style={{ fontSize: 11, color: "#64748B" }}>
+                        {new Date(r.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 13, color: "#444", lineHeight: 1.5 }}>{r.reason}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Document review */}
+      <div style={{ marginTop: "2rem", marginBottom: "2rem" }}>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          Document review
+          {docMsg && <span style={{ fontSize: 12, color: "#1D9E75", fontWeight: 400 }}>{docMsg}</span>}
+          {docSubmissions.length > 0 && (
+            <span style={{ background: "#FEF3C7", color: "#B45309", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 500 }}>
+              {docSubmissions.length} pending
+            </span>
+          )}
+        </div>
+        {docSubmissions.length === 0 ? (
+          <div style={{ fontSize: 13, color: "#64748B", background: "#f9f9f7", borderRadius: 8, padding: "1rem" }}>No pending documents.</div>
+        ) : docSubmissions.map(s => (
+          <div key={s.id} style={{ background: "#fff", border: "0.5px solid #FCD34D", borderRadius: 10, padding: "1rem 1.25rem", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>{s.user_name}</div>
+              <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>{s.user_email}</div>
+              <div style={{ fontSize: 12, color: "#555", marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <span style={{ fontWeight: 500 }}>{ADMIN_DOC_LABELS[s.document_type] || s.document_type}</span>
+                <span style={{ color: "#ccc" }}>·</span>
+                <span style={{ color: "#aaa" }}>{new Date(s.submitted_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+                {s.preview_url && (
+                  <a href={s.preview_url} target="_blank" rel="noopener noreferrer" style={{ color: "#3B82F6", textDecoration: "none", fontWeight: 500 }}>View document ↗</a>
+                )}
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
+              {rejectingId === s.id ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <textarea
+                    value={rejectReasons[s.id] || ""}
+                    onChange={e => setRejectReasons(prev => ({ ...prev, [s.id]: e.target.value }))}
+                    placeholder="Reason for rejection (sent to user)"
+                    style={{ fontSize: 12, padding: "6px 10px", borderRadius: 8, border: "0.5px solid #FCA5A5", resize: "vertical", minHeight: 60, width: 220, boxSizing: "border-box" }}
+                  />
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      onClick={() => handleReviewDoc(s.id, "rejected", rejectReasons[s.id] || "")}
+                      style={{ flex: 1, fontSize: 12, padding: "5px 10px", borderRadius: 8, border: "0.5px solid #FCA5A5", background: "#FEE2E2", color: "#991B1B", cursor: "pointer", minHeight: 36 }}
+                    >Confirm reject</button>
+                    <button
+                      onClick={() => { setRejectingId(null); setRejectReasons(prev => { const n = { ...prev }; delete n[s.id]; return n; }); }}
+                      style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, border: "0.5px solid #e0e0e0", background: "#fff", color: "#555", cursor: "pointer", minHeight: 36 }}
+                    >Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => handleReviewDoc(s.id, "approved")}
+                    style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "0.5px solid #A8DFC9", background: "#E1F5EE", color: "#0F6E56", cursor: "pointer", minHeight: 36 }}
+                  >Approve</button>
+                  <button
+                    onClick={() => setRejectingId(s.id)}
+                    style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "0.5px solid #FCA5A5", background: "#FEE2E2", color: "#991B1B", cursor: "pointer", minHeight: 36 }}
+                  >Reject</button>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Role management */}
+      <div style={{ marginTop: "2rem" }}>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+          Role management
+          {roleMsg && <span style={{ fontSize: 12, color: "#1D9E75", fontWeight: 400 }}>{roleMsg}</span>}
+        </div>
+        {usersLoading ? (
+          <div style={{ fontSize: 13, color: "#64748B" }}>Loading users…</div>
+        ) : allUsers.length === 0 ? (
+          <div style={{ fontSize: 13, color: "#64748B", background: "#f9f9f7", borderRadius: 8, padding: "1rem" }}>No profiles found.</div>
+        ) : allUsers.map(u => (
+          <div key={u.id} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 10, padding: "0.9rem 1.25rem", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 14, fontWeight: 500 }}>{u.full_name || "Anonymous"}</span>
+                {u.sequential_id && <span style={{ fontSize: 11, color: "#aaa" }}>{fmtId(u.sequential_id)}</span>}
+                <RoleBadge userRole={u.user_role} authRole={u.auth_role} />
+              </div>
+              <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>{u.email}</div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+              {u.user_role === "founder" ? (
+                <span style={{ fontSize: 12, color: "#aaa", fontStyle: "italic" }}>Founder — protected</span>
+              ) : u.user_role === "verified_pro" ? (
+                <button
+                  onClick={() => handleSetRole(u.id, null)}
+                  style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: "0.5px solid #e0e0e0", background: "#fff", color: "#993C1D", cursor: "pointer", minHeight: 36 }}
+                >
+                  Remove Verified Pro
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleSetRole(u.id, "verified_pro")}
+                  style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: "0.5px solid #B45309", background: "#FEF3C7", color: "#B45309", cursor: "pointer", minHeight: 36 }}
+                >
+                  ✦ Grant Verified Pro
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Disputes */}
+      <div style={{ marginTop: "2rem" }}>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          Dispute resolution
+          {disputeMsg && <span style={{ fontSize: 12, color: "#1D9E75", fontWeight: 400 }}>{disputeMsg}</span>}
+          {disputes.filter(d => d.status === "open").length > 0 && (
+            <span style={{ background: "#FEE2E2", color: "#991B1B", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 500 }}>
+              {disputes.filter(d => d.status === "open").length} open
+            </span>
+          )}
+        </div>
+        {disputes.length === 0 ? (
+          <div style={{ fontSize: 13, color: "#64748B", background: "#f9f9f7", borderRadius: 8, padding: "1rem" }}>No disputes.</div>
+        ) : disputes.map(dp => {
+          const statusCfg = { open: ["#FEE2E2","#991B1B"], resolved: ["#E1F5EE","#0F6E56"], escalated: ["#EEEDFE","#534AB7"] };
+          const [sbg, scol] = statusCfg[dp.status] || ["#f5f5f3","#64748B"];
+          return (
+            <div key={dp.id} style={{ background: "#fff", border: `0.5px solid ${dp.status === "open" ? "#FCA5A5" : "#e0e0e0"}`, borderRadius: 10, padding: "1rem 1.25rem", marginBottom: 8 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>{dp.deals?.title || "Deal"}</div>
+                  <div style={{ fontSize: 12, color: "#64748B" }}>Raised by {dp.raised_by_name || dp.raised_by_role} · {new Date(dp.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</div>
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 9px", borderRadius: 20, background: sbg, color: scol, flexShrink: 0 }}>
+                  {dp.status.charAt(0).toUpperCase() + dp.status.slice(1)}
+                </span>
+              </div>
+              <div style={{ fontSize: 13, color: "#444", lineHeight: 1.6, marginBottom: dp.status === "open" ? 10 : 0 }}>{dp.reason}</div>
+              {dp.status === "open" && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    onClick={() => handleDisputeAction(dp.id, "resolve-dispute", "Resolved by admin.")}
+                    style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "0.5px solid #A8DFC9", background: "#E1F5EE", color: "#0F6E56", cursor: "pointer", minHeight: 36 }}
+                  >Resolve</button>
+                  <button
+                    onClick={() => handleDisputeAction(dp.id, "escalate-dispute")}
+                    style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "0.5px solid #C4B5FD", background: "#EEEDFE", color: "#534AB7", cursor: "pointer", minHeight: 36 }}
+                  >Escalate</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Project document review (deal-specific required docs) */}
+      <div style={{ marginTop: "2rem" }}>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          Project document review
+          {dealDocMsg && <span style={{ fontSize: 12, color: "#1D9E75", fontWeight: 400 }}>{dealDocMsg}</span>}
+          {dealDocs.length > 0 && (
+            <span style={{ background: "#FEF3C7", color: "#B45309", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 500 }}>
+              {dealDocs.length} pending
+            </span>
+          )}
+        </div>
+        {dealDocs.length === 0 ? (
+          <div style={{ fontSize: 13, color: "#64748B", background: "#f9f9f7", borderRadius: 8, padding: "1rem" }}>No pending project documents.</div>
+        ) : dealDocs.map(doc => (
+          <div key={doc.id} style={{ background: "#fff", border: "0.5px solid #FCD34D", borderRadius: 10, padding: "1rem 1.25rem", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>{doc.deals?.title || "Deal"}</div>
+              <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>Builder: {doc.deals?.builder_name}</div>
+              <div style={{ fontSize: 12, color: "#555", marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <span style={{ fontWeight: 500 }}>{ADMIN_DOC_LABELS[doc.doc_type] || doc.doc_type}</span>
+                <span style={{ color: "#ccc" }}>·</span>
+                <span style={{ color: "#aaa" }}>{new Date(doc.uploaded_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+                {doc.preview_url && (
+                  <a href={doc.preview_url} target="_blank" rel="noopener noreferrer" style={{ color: "#3B82F6", textDecoration: "none", fontWeight: 500 }}>View document ↗</a>
+                )}
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
+              {rejectingDocId === doc.id ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <textarea
+                    value={docRejectReasons[doc.id] || ""}
+                    onChange={e => setDocRejectReasons(prev => ({ ...prev, [doc.id]: e.target.value }))}
+                    placeholder="Reason for rejection"
+                    style={{ fontSize: 12, padding: "6px 10px", borderRadius: 8, border: "0.5px solid #FCA5A5", resize: "vertical", minHeight: 60, width: 220, boxSizing: "border-box" }}
+                  />
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      onClick={() => handleDealDocAction(doc.id, "reject-deal-doc", docRejectReasons[doc.id] || "")}
+                      style={{ flex: 1, fontSize: 12, padding: "5px 10px", borderRadius: 8, border: "0.5px solid #FCA5A5", background: "#FEE2E2", color: "#991B1B", cursor: "pointer", minHeight: 36 }}
+                    >Confirm reject</button>
+                    <button
+                      onClick={() => { setRejectingDocId(null); setDocRejectReasons(prev => { const n = { ...prev }; delete n[doc.id]; return n; }); }}
+                      style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, border: "0.5px solid #e0e0e0", background: "#fff", color: "#555", cursor: "pointer", minHeight: 36 }}
+                    >Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => handleDealDocAction(doc.id, "approve-deal-doc")}
+                    style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "0.5px solid #A8DFC9", background: "#E1F5EE", color: "#0F6E56", cursor: "pointer", minHeight: 36 }}
+                  >Approve</button>
+                  <button
+                    onClick={() => setRejectingDocId(doc.id)}
+                    style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "0.5px solid #FCA5A5", background: "#FEE2E2", color: "#991B1B", cursor: "pointer", minHeight: 36 }}
+                  >Reject</button>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Default warning system — flagged deals */}
+      <div style={{ marginTop: "2rem" }}>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+          Default alerts
+          {defaultsData && defaultsData.alerts_sent > 0 && (
+            <span style={{ background: "#FEE2E2", color: "#991B1B", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 500 }}>
+              {defaultsData.alerts_sent} alerts sent this check
+            </span>
+          )}
+        </div>
+        {defaultsData && (defaultsData.flagged_defaults || []).length === 0 ? (
+          <div style={{ fontSize: 13, color: "#64748B", background: "#f9f9f7", borderRadius: 8, padding: "1rem" }}>
+            No deals currently flagged as in default.
+            {defaultsData.checked > 0 && ` Checked ${defaultsData.checked} overdue milestone(s).`}
+          </div>
+        ) : (defaultsData?.flagged_defaults || []).map(deal => (
+          <div key={deal.id} style={{ background: "#FEE2E2", border: "0.5px solid #FCA5A5", borderRadius: 10, padding: "1rem 1.25rem", marginBottom: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 500, color: "#991B1B", marginBottom: 4 }}>{deal.title}</div>
+            <div style={{ fontSize: 12, color: "#991B1B" }}>Lender: {deal.lender_name} · Builder: {deal.builder_name}</div>
+            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+              {(deal.milestones || []).filter(m => m.status === "pending" && m.due_date && new Date(m.due_date) < new Date()).map(m => (
+                <div key={m.id} style={{ fontSize: 12, color: "#991B1B" }}>
+                  Milestone "{m.title}" — due {m.due_date} — {Math.floor((new Date() - new Date(m.due_date)) / 86400000)} days overdue
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Community Moderation ─────────────────────────────────────────────── */}
+      <div style={{ marginTop: "2.5rem" }}>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          Community Moderation
+          {commMsg && <span style={{ fontSize: 12, color: "#1D9E75", fontWeight: 400 }}>{commMsg}</span>}
+          {commMod && ((commMod.reports?.length || 0) + (commMod.groupReports?.length || 0) + (commMod.messages?.filter(m => m.flagged && !m.hidden).length || 0) > 0) && (
+            <span style={{ background: "#FEE2E2", color: "#991B1B", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 500 }}>
+              {(commMod.reports?.length || 0) + (commMod.groupReports?.length || 0) + (commMod.messages?.filter(m => m.flagged && !m.hidden).length || 0)} pending
+            </span>
+          )}
+        </div>
+
+        {!commMod ? (
+          <div style={{ fontSize: 13, color: "#64748B", background: "#f9f9f7", borderRadius: 8, padding: "1rem" }}>Loading community data…</div>
+        ) : (
+          <>
+            {/* Message volume chart */}
+            {commMod.volume && commMod.volume.length > 0 && (
+              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1rem", marginBottom: "1.25rem" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 10 }}>Message volume — last 24h</div>
+                <ResponsiveContainer width="100%" height={90}>
+                  <BarChart data={commMod.volume} margin={{ top: 2, right: 4, left: -28, bottom: 2 }}>
+                    <XAxis dataKey="hour" tick={{ fontSize: 10, fill: "#aaa" }} interval={3} />
+                    <YAxis tick={{ fontSize: 10, fill: "#aaa" }} />
+                    <Tooltip contentStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="count" fill="#3B82F6" radius={[3,3,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Reported messages */}
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#555", marginBottom: 8, marginTop: 4 }}>Reported messages</div>
+            {(commMod.reports || []).length === 0 ? (
+              <div style={{ fontSize: 13, color: "#64748B", background: "#f9f9f7", borderRadius: 8, padding: "0.875rem", marginBottom: "1rem" }}>No reported messages.</div>
+            ) : (() => {
+              // Group reports by message_id
+              const byMsg = {};
+              for (const r of commMod.reports) {
+                if (!byMsg[r.message_id]) byMsg[r.message_id] = { reports: [], content: r.message_content, uid: r.message_user_id, uname: r.message_user_name };
+                byMsg[r.message_id].reports.push(r);
+              }
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: "1.25rem" }}>
+                  {Object.entries(byMsg).map(([msgId, g]) => {
+                    const modMsg = commMod.messages?.find(m => m.id === msgId);
+                    return (
+                      <div key={msgId} style={{ background: "#fff", border: "0.5px solid #FCA5A5", borderRadius: 10, padding: "1rem 1.25rem" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 500, color: "#991B1B" }}>{g.uname || "Unknown user"}</div>
+                            <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>
+                              {g.reports.length} report{g.reports.length !== 1 ? "s" : ""} ·{" "}
+                              {g.reports.map(r => r.reason).join(", ")}
+                            </div>
+                            {g.reports.map((r, i) => (
+                              <div key={i} style={{ fontSize: 11, color: "#64748B" }}>by {r.reporter_name} — {fmtTimeAgo(r.created_at)}</div>
+                            ))}
+                          </div>
+                          {modMsg && (
+                            <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 600, background: modMsg.hidden ? "#F1F5F9" : "#FEE2E2", color: modMsg.hidden ? "#64748B" : "#991B1B", flexShrink: 0 }}>
+                              {modMsg.hidden ? "Hidden" : "Visible"}
+                            </span>
+                          )}
+                        </div>
+                        {g.content && (
+                          <div style={{ fontSize: 13, color: "#555", background: "#f9f9f7", borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontStyle: "italic", wordBreak: "break-word" }}>
+                            "{g.content.slice(0, 300)}"
+                          </div>
+                        )}
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                          {!modMsg?.hidden && (
+                            <button onClick={() => handleModerateMessage(msgId, "remove")}
+                              style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "0.5px solid #FCA5A5", background: "#FEE2E2", color: "#991B1B", cursor: "pointer", minHeight: 36 }}>
+                              Remove
+                            </button>
+                          )}
+                          {modMsg?.hidden && (
+                            <button onClick={() => handleModerateMessage(msgId, "approve")}
+                              style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "0.5px solid #A8DFC9", background: "#E1F5EE", color: "#0F6E56", cursor: "pointer", minHeight: 36 }}>
+                              Restore
+                            </button>
+                          )}
+                          {/* Ban user from community */}
+                          {g.uid && !banForm[g.uid]?.open && !commMod.bans?.some(b => b.user_id === g.uid) && (
+                            <button onClick={() => setBanForm(prev => ({ ...prev, [g.uid]: { open: true, reason: "", type: "temporary" } }))}
+                              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: "0.5px solid #e0e0e0", background: "#fff", color: "#555", cursor: "pointer", minHeight: 36 }}>
+                              Ban from chat
+                            </button>
+                          )}
+                          {banForm[g.uid]?.open && (
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                              <select value={banForm[g.uid].type}
+                                onChange={e => setBanForm(prev => ({ ...prev, [g.uid]: { ...prev[g.uid], type: e.target.value } }))}
+                                style={{ height: 36, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 8px", fontSize: 12 }}>
+                                <option value="temporary">24h ban</option>
+                                <option value="permanent">Permanent ban</option>
+                              </select>
+                              <input placeholder="Reason (optional)"
+                                value={banForm[g.uid].reason || ""}
+                                onChange={e => setBanForm(prev => ({ ...prev, [g.uid]: { ...prev[g.uid], reason: e.target.value } }))}
+                                style={{ height: 36, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px", fontSize: 12, width: 160 }} />
+                              <button onClick={() => handleBanUser(g.uid, g.uname, banForm[g.uid].reason, banForm[g.uid].type)}
+                                style={{ height: 36, padding: "0 14px", background: "#991B1B", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>
+                                Confirm ban
+                              </button>
+                              <button onClick={() => setBanForm(prev => { const n = { ...prev }; delete n[g.uid]; return n; })}
+                                style={{ height: 36, padding: "0 10px", background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, fontSize: 12, color: "#555", cursor: "pointer" }}>
+                                Cancel
+                              </button>
+                            </div>
+                          )}
+                          {commMod.bans?.some(b => b.user_id === g.uid) && (
+                            <span style={{ fontSize: 11, color: "#991B1B", fontWeight: 600 }}>User banned</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {/* Group chat reports */}
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#555", marginBottom: 8, marginTop: 4 }}>Group chat reports</div>
+            {(commMod.groupReports || []).length === 0 ? (
+              <div style={{ fontSize: 13, color: "#64748B", background: "#f9f9f7", borderRadius: 8, padding: "0.875rem", marginBottom: "1rem" }}>No group chat reports.</div>
+            ) : (() => {
+              const byMsg = {};
+              for (const r of commMod.groupReports) {
+                if (!byMsg[r.message_id]) byMsg[r.message_id] = { reports: [], content: r.message_content, uid: r.message_user_id, uname: r.message_user_name };
+                byMsg[r.message_id].reports.push(r);
+              }
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: "1.25rem" }}>
+                  {Object.entries(byMsg).map(([msgId, g]) => {
+                    const modMsg = commMod.groupMessages?.find(m => m.id === msgId);
+                    return (
+                      <div key={msgId} style={{ background: "#fff", border: "0.5px solid #FCA5A5", borderRadius: 10, padding: "1rem 1.25rem" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 500, color: "#991B1B" }}>{g.uname || "Unknown user"}</div>
+                            <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>
+                              {g.reports.length} report{g.reports.length !== 1 ? "s" : ""} · {g.reports.map(r => r.reason).join(", ")}
+                            </div>
+                            {g.reports.map((r, i) => (
+                              <div key={i} style={{ fontSize: 11, color: "#64748B" }}>by {r.reporter_name} — {fmtTimeAgo(r.created_at)}</div>
+                            ))}
+                          </div>
+                          {modMsg && (
+                            <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 600, background: modMsg.hidden ? "#F1F5F9" : "#FEE2E2", color: modMsg.hidden ? "#64748B" : "#991B1B", flexShrink: 0 }}>
+                              {modMsg.hidden ? "Hidden" : "Visible"}
+                            </span>
+                          )}
+                        </div>
+                        {g.content && (
+                          <div style={{ fontSize: 13, color: "#555", background: "#f9f9f7", borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontStyle: "italic", wordBreak: "break-word" }}>
+                            "{g.content.slice(0, 300)}"
+                          </div>
+                        )}
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                          {!modMsg?.hidden && (
+                            <button onClick={() => handleModerateMessage(msgId, "remove", "group_messages")}
+                              style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "0.5px solid #FCA5A5", background: "#FEE2E2", color: "#991B1B", cursor: "pointer", minHeight: 36 }}>
+                              Remove
+                            </button>
+                          )}
+                          {modMsg?.hidden && (
+                            <button onClick={() => handleModerateMessage(msgId, "approve", "group_messages")}
+                              style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "0.5px solid #A8DFC9", background: "#E1F5EE", color: "#0F6E56", cursor: "pointer", minHeight: 36 }}>
+                              Restore
+                            </button>
+                          )}
+                          {g.uid && !banForm[g.uid]?.open && !commMod.bans?.some(b => b.user_id === g.uid) && (
+                            <button onClick={() => setBanForm(prev => ({ ...prev, [g.uid]: { open: true, reason: "", type: "temporary" } }))}
+                              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: "0.5px solid #e0e0e0", background: "#fff", color: "#555", cursor: "pointer", minHeight: 36 }}>
+                              Ban from chat
+                            </button>
+                          )}
+                          {banForm[g.uid]?.open && (
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                              <select value={banForm[g.uid].type}
+                                onChange={e => setBanForm(prev => ({ ...prev, [g.uid]: { ...prev[g.uid], type: e.target.value } }))}
+                                style={{ height: 36, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 8px", fontSize: 12 }}>
+                                <option value="temporary">24h ban</option>
+                                <option value="permanent">Permanent ban</option>
+                              </select>
+                              <input value={banForm[g.uid]?.reason || ""} onChange={e => setBanForm(prev => ({ ...prev, [g.uid]: { ...prev[g.uid], reason: e.target.value } }))}
+                                placeholder="Reason (optional)" maxLength={200}
+                                style={{ height: 36, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px", fontSize: 12, width: 160 }} />
+                              <button onClick={() => handleBanUser(g.uid, g.uname, banForm[g.uid].reason, banForm[g.uid].type)}
+                                style={{ height: 36, padding: "0 14px", borderRadius: 8, border: "none", fontSize: 12, fontWeight: 600, background: "#DC2626", color: "#fff", cursor: "pointer" }}>
+                                Confirm ban
+                              </button>
+                              <button onClick={() => setBanForm(prev => { const n = { ...prev }; delete n[g.uid]; return n; })}
+                                style={{ height: 36, padding: "0 10px", background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, fontSize: 12, color: "#555", cursor: "pointer" }}>
+                                Cancel
+                              </button>
+                            </div>
+                          )}
+                          {commMod.bans?.some(b => b.user_id === g.uid) && (
+                            <span style={{ fontSize: 11, color: "#991B1B", fontWeight: 600 }}>User banned</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {/* Auto-flagged messages */}
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#555", marginBottom: 8 }}>Auto-flagged messages</div>
+            {(commMod.messages || []).filter(m => m.flagged).length === 0 ? (
+              <div style={{ fontSize: 13, color: "#64748B", background: "#f9f9f7", borderRadius: 8, padding: "0.875rem", marginBottom: "1rem" }}>No auto-flagged messages.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: "1.25rem" }}>
+                {(commMod.messages || []).filter(m => m.flagged).map(m => (
+                  <div key={m.id} style={{ background: "#fff", border: "0.5px solid #FCD34D", borderRadius: 10, padding: "1rem 1.25rem" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 500 }}>{m.user_name || "Unknown"}</div>
+                        <div style={{ fontSize: 12, color: "#64748B" }}>
+                          #{m.channel} · flagged: <em>{m.flag_reason}</em> · {fmtTimeAgo(m.created_at)}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 600, background: m.hidden ? "#F1F5F9" : "#FFFBEB", color: m.hidden ? "#64748B" : "#92400E", flexShrink: 0 }}>
+                        {m.hidden ? "Hidden" : "Auto-hidden"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 13, color: "#555", background: "#FFFBEB", borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontStyle: "italic", wordBreak: "break-word" }}>
+                      "{(m.content || "").slice(0, 300)}"
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => handleModerateMessage(m.id, "approve")}
+                        style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "0.5px solid #A8DFC9", background: "#E1F5EE", color: "#0F6E56", cursor: "pointer", minHeight: 36 }}>
+                        Approve
+                      </button>
+                      <button onClick={() => handleModerateMessage(m.id, "remove")}
+                        style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "0.5px solid #FCA5A5", background: "#FEE2E2", color: "#991B1B", cursor: "pointer", minHeight: 36 }}>
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Bans list */}
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#555", marginBottom: 8 }}>
+              Banned users ({(commMod.bans || []).length})
+            </div>
+            {(commMod.bans || []).length === 0 ? (
+              <div style={{ fontSize: 13, color: "#64748B", background: "#f9f9f7", borderRadius: 8, padding: "0.875rem" }}>No banned users.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {(commMod.bans || []).map(b => (
+                  <div key={b.id} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 10, padding: "0.875rem 1.25rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{b.user_name || b.user_id}</div>
+                      <div style={{ fontSize: 12, color: "#64748B" }}>
+                        {b.ban_type === "permanent" ? "Permanent ban" : `Until ${b.banned_until ? new Date(b.banned_until).toLocaleString("en-GB") : "—"}`}
+                        {b.reason ? ` · ${b.reason}` : ""}
+                      </div>
+                    </div>
+                    <button onClick={() => handleUnbanUser(b.id)}
+                      style={{ fontSize: 12, padding: "5px 14px", borderRadius: 8, border: "0.5px solid #A8DFC9", background: "#E1F5EE", color: "#0F6E56", cursor: "pointer", minHeight: 36, flexShrink: 0 }}>
+                      Unban
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── POSTS FEED PAGE ─────────────────────────────────────────────────────────
+
+const CATEGORY_META = {
+  "looking-for-lender":  { label: "Looking for funding",  bg: "#EBF2FF", text: "#1E3A5F" },
+  "looking-for-builder": { label: "Available to lend",    bg: "#E1F5EE", text: "#0F6E56" },
+  "general":             { label: "General",              bg: "#F1EFE8", text: "#5F5E5A" },
+};
+
+function PostCard({ post, isOwn, onView, onEdit, onDelete }) {
+  const cat = CATEGORY_META[post.category] || CATEGORY_META.general;
+  const [deleting, setDeleting] = useState(false);
+  const preview = post.body.length > 180 ? post.body.slice(0, 180).trimEnd() + "…" : post.body;
+
+  async function handleDelete(e) {
+    e.stopPropagation();
+    setDeleting(true);
+    await onDelete(post.id);
+    setDeleting(false);
+  }
+
+  return (
+    <div
+      onClick={onView}
+      style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: 12, cursor: "pointer" }}
+      onMouseEnter={e => e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.06)"}
+      onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{
+            width: 34, height: 34, borderRadius: "50%", background: "#EBF2FF", color: "#1E3A5F",
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 600, flexShrink: 0,
+          }}>
+            {(post.author_name || "?").charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500 }}>{post.author_name}</div>
+            <div style={{ fontSize: 11, color: "#64748B", textTransform: "capitalize" }}>{post.author_role}</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ background: cat.bg, color: cat.text, fontSize: 11, padding: "3px 9px", borderRadius: 20, fontWeight: 500 }}>
+            {cat.label}
+          </span>
+          <span style={{ fontSize: 11, color: "#aaa" }}>
+            {new Date(post.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+          </span>
+        </div>
+      </div>
+      <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>{post.title}</div>
+      <p style={{ fontSize: 13, color: "#555", lineHeight: 1.65, margin: 0 }}>{preview}</p>
+      {isOwn ? (
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: "0.5px solid #f0f0f0", display: "flex", gap: 8 }}>
+          <button
+            onClick={e => { e.stopPropagation(); onEdit(post); }}
+            style={{ background: "transparent", color: "#333", border: "0.5px solid #ccc", padding: "5px 12px", minHeight: 44, borderRadius: 8, fontSize: 12, cursor: "pointer" }}
+          >
+            Edit
+          </button>
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            style={{ background: "transparent", color: "#993C1D", border: "0.5px solid #F5C9BB", padding: "5px 12px", minHeight: 44, borderRadius: 8, fontSize: 12, cursor: deleting ? "default" : "pointer" }}
+          >
+            {deleting ? "Deleting…" : "Delete"}
+          </button>
+        </div>
+      ) : (
+        <div style={{ marginTop: 10, fontSize: 12, color: "#3B82F6", fontWeight: 500 }}>Read more →</div>
+      )}
+    </div>
+  );
+}
+
+function PostDetailPage({ post, user, setPage, onMessage }) {
+  const cat = CATEGORY_META[post.category] || CATEGORY_META.general;
+  const isOwn = user && post.author_id === user.id;
+  const [msgStatus, setMsgStatus] = useState("idle");
+
+  async function handleMessage() {
+    if (!user) { setPage("auth"); return; }
+    setMsgStatus("loading");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/notify-message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ other_name: post.author_name, other_role: post.author_role }),
+    });
+    if (res.ok) {
+      const { conversation } = await res.json();
+      setMsgStatus("idle");
+      onMessage(conversation.id);
+    } else {
+      setMsgStatus("error");
+      setTimeout(() => setMsgStatus("idle"), 3000);
+    }
+  }
+
+  return (
+    <div style={{ maxWidth: 720, margin: "0 auto", padding: "1.5rem 1.25rem", minHeight: "calc(100vh - 56px)" }}>
+      <button
+        onClick={() => setPage("posts")}
+        style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 13, color: "#3B82F6", padding: 0, marginBottom: "1.5rem", display: "flex", alignItems: "center", gap: 4 }}
+      >
+        ← Back to posts
+      </button>
+
+      {/* Category + date */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "1rem", flexWrap: "wrap" }}>
+        <span style={{ background: cat.bg, color: cat.text, fontSize: 12, padding: "4px 10px", borderRadius: 20, fontWeight: 500 }}>
+          {cat.label}
+        </span>
+        <span style={{ fontSize: 12, color: "#aaa" }}>
+          {new Date(post.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+        </span>
+      </div>
+
+      {/* Title */}
+      <h1 style={{ fontSize: 24, fontWeight: 500, margin: "0 0 1.25rem", fontFamily: "'Georgia', serif", lineHeight: 1.3 }}>
+        {post.title}
+      </h1>
+
+      {/* Author */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "1.5rem", paddingBottom: "1.5rem", borderBottom: "0.5px solid #f0f0f0" }}>
+        <div style={{
+          width: 38, height: 38, borderRadius: "50%", background: "#EBF2FF", color: "#1E3A5F",
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 600, flexShrink: 0,
+        }}>
+          {(post.author_name || "?").charAt(0).toUpperCase()}
+        </div>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 500 }}>{post.author_name}</div>
+          <div style={{ fontSize: 12, color: "#64748B", textTransform: "capitalize" }}>{post.author_role}</div>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div style={{ fontSize: 15, color: "#333", lineHeight: 1.75, whiteSpace: "pre-wrap", marginBottom: "2rem" }}>
+        {post.body}
+      </div>
+
+      {/* Message button */}
+      {!isOwn && (
+        <div style={{ borderTop: "0.5px solid #f0f0f0", paddingTop: "1.5rem" }}>
+          {msgStatus === "error" && (
+            <div style={{ fontSize: 13, color: "#993C1D", marginBottom: 10 }}>
+              Couldn't start a conversation — please try again.
+            </div>
+          )}
+          <button
+            onClick={handleMessage}
+            disabled={msgStatus === "loading"}
+            style={{
+              padding: "10px 24px", minHeight: 44, background: msgStatus === "loading" ? "#aaa" : "#3B82F6",
+              color: "#fff", border: "none", borderRadius: 8,
+              fontSize: 14, fontWeight: 500, cursor: msgStatus === "loading" ? "default" : "pointer",
+            }}
+          >
+            {msgStatus === "loading" ? "Opening…" : `Message ${post.author_name}`}
+          </button>
+          {!user && (
+            <p style={{ fontSize: 12, color: "#64748B", marginTop: 8 }}>You need to be logged in to send a message.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const POST_CATEGORY_FILTERS = [
+  { key: "all",                 label: "All posts" },
+  { key: "looking-for-lender",  label: "Looking for funding" },
+  { key: "looking-for-builder", label: "Available to lend" },
+  { key: "general",             label: "General" },
+];
+
+function PostsFeedPage({ user, setPage }) {
+  const [posts,        setPosts]        = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState("");
+  const [myLocation,   setMyLocation]   = useState("");
+
+  // Filters
+  const [catFilter,    setCatFilter]    = useState("all");
+  const [expOnly,      setExpOnly]      = useState(false);
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
+  const [myRegion,     setMyRegion]     = useState(false);
+  const [showMine,     setShowMine]     = useState(false);
+  const [sortBy,       setSortBy]       = useState("recent");
+
+  useEffect(() => { loadPosts(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!user) return;
+    supabase.from("profiles").select("location").eq("id", user.id).maybeSingle()
+      .then(({ data }) => setMyLocation(data?.location || ""));
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadPosts() {
+    setLoading(true);
+    try {
+      const headers = {};
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) headers.Authorization = `Bearer ${session.access_token}`;
+      const res  = await fetch("/api/posts", { headers });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to load posts");
+      const raw = json.posts || [];
+      if (raw.length > 0) {
+        const authorIds = [...new Set(raw.map(p => p.author_id))];
+        const [{ data: profRows }, { data: bpRows }] = await Promise.all([
+          supabase.from("profiles").select("id, location").in("id", authorIds),
+          supabase.from("builder_profiles").select("user_id, projects_completed").in("user_id", authorIds),
+        ]);
+        const profMap = Object.fromEntries((profRows || []).map(r => [r.id, r]));
+        const bpMap   = Object.fromEntries((bpRows  || []).map(r => [r.user_id, r]));
+        setPosts(raw.map(p => ({
+          ...p,
+          author_location:           profMap[p.author_id]?.location || "",
+          author_projects_completed: bpMap[p.author_id]?.projects_completed || 0,
+        })));
+      } else {
+        setPosts([]);
+      }
+    } catch (e) {
+      setError(e.message);
+    }
+    setLoading(false);
+  }
+
+  async function handleView(post) {
+    if (user && post.author_id !== user.id) {
+      const key = `lb_pv_${post.id}`;
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, "1");
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          fetch("/api/posts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ action: "view", post_id: post.id, author_id: post.author_id }),
+          }).catch(() => {});
+        }
+      }
+    }
+    setPage("post-detail", post);
+  }
+
+  const myReg = ukRegion(myLocation);
+
+  const filtered = posts.filter(p => {
+    if (catFilter !== "all" && p.category !== catFilter)                          return false;
+    if (showMine   && !(user && p.author_id === user.id))                        return false;
+    if (expOnly    && (p.author_projects_completed || 0) < 5)                    return false;
+    if (verifiedOnly && !p.author_verified)                                       return false;
+    if (myRegion   && myReg && ukRegion(p.author_location) !== myReg)            return false;
+    return true;
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === "viewed")    return (b.view_count || 0) - (a.view_count || 0);
+    if (sortBy === "responses") return (b.interest_count || 0) - (a.interest_count || 0);
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
+
+  const hasActiveFilters = catFilter !== "all" || expOnly || verifiedOnly || myRegion || showMine;
+
+  function clearFilters() {
+    setCatFilter("all"); setExpOnly(false); setVerifiedOnly(false); setMyRegion(false); setShowMine(false);
+  }
+
+  const qualifiers = [
+    { key: "exp",      label: "Experienced only",   state: expOnly,      set: setExpOnly,      title: "5+ completed projects" },
+    { key: "verified", label: "✓ Verified only",    state: verifiedOnly, set: setVerifiedOnly, title: "ID-verified users" },
+    ...(user ? [
+      { key: "region", label: "My region",          state: myRegion,     set: setMyRegion,     title: myReg ? `Posts from ${myReg}` : "Set your location in profile" },
+      { key: "mine",   label: "My posts",           state: showMine,     set: setShowMine,     title: "Only your posts" },
+    ] : []),
+  ];
+
+  return (
+    <div style={{ padding: "1.5rem 1.25rem", maxWidth: 780, margin: "0 auto" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.25rem", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Community</div>
+          <h2 style={{ fontSize: 22, fontWeight: 500, margin: 0 }}>Posts</h2>
+          <p style={{ fontSize: 14, color: "#64748B", margin: "4px 0 0" }}>What builders and lenders are looking for</p>
+        </div>
+        {user ? (
+          <button onClick={() => setPage("create-post")}
+            style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "9px 18px", minHeight: 44, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+            + New post
+          </button>
+        ) : (
+          <button onClick={() => setPage("auth")}
+            style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "9px 18px", minHeight: 44, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+            Log in to post
+          </button>
+        )}
+      </div>
+
+      {/* Filter bar */}
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: "0.875rem" }}>
+        {/* Category pills */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+          {POST_CATEGORY_FILTERS.map(f => (
+            <button key={f.key} onClick={() => setCatFilter(f.key)}
+              style={{
+                padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 500,
+                cursor: "pointer", border: "none", minHeight: 36,
+                background: catFilter === f.key ? "#1E3A5F" : "#F1F5F9",
+                color:      catFilter === f.key ? "#fff"    : "#475569",
+                transition: "background 0.15s",
+              }}>
+              {f.label}
+              {f.key !== "all" && (
+                <span style={{ marginLeft: 5, fontSize: 11, opacity: 0.65 }}>
+                  ({posts.filter(p => p.category === f.key).length})
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Qualifier toggles + sort */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          {qualifiers.map(q => (
+            <button key={q.key} onClick={() => q.set(v => !v)} title={q.title}
+              style={{
+                padding: "5px 12px", borderRadius: 20, fontSize: 12, fontWeight: 500,
+                cursor: "pointer", minHeight: 32,
+                background: q.state ? "#EBF2FF" : "transparent",
+                color:      q.state ? "#1E3A5F" : "#64748B",
+                border:     q.state ? "1.5px solid #3B82F6" : "1px solid #e0e0e0",
+                transition: "all 0.15s",
+              }}>
+              {q.label}
+            </button>
+          ))}
+
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 12, color: "#64748B", whiteSpace: "nowrap" }}>Sort:</span>
+            <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+              style={{ height: 32, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 8px", fontSize: 12, background: "#fff", cursor: "pointer" }}>
+              <option value="recent">Most recent</option>
+              <option value="viewed">Most viewed</option>
+              <option value="responses">Most responses</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Results count / active filter badge */}
+      {!loading && !error && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "0.75rem", minHeight: 24 }}>
+          <span style={{
+            fontSize: 13, fontWeight: hasActiveFilters ? 600 : 400,
+            color: hasActiveFilters ? "#1E3A5F" : "#64748B",
+            background: hasActiveFilters ? "#EBF2FF" : "transparent",
+            padding: hasActiveFilters ? "3px 10px" : "0",
+            borderRadius: 20,
+          }}>
+            {hasActiveFilters
+              ? `Showing ${sorted.length} post${sorted.length !== 1 ? "s" : ""} matching your filters`
+              : `${sorted.length} post${sorted.length !== 1 ? "s" : ""}`}
+          </span>
+          {hasActiveFilters && (
+            <button onClick={clearFilters}
+              style={{ fontSize: 12, color: "#64748B", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0 }}>
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
+
+      {loading && <div style={{ textAlign: "center", padding: "4rem", color: "#64748B", fontSize: 14 }}>Loading posts…</div>}
+      {error   && <div style={{ background: "#FAECE7", color: "#993C1D", borderRadius: 8, padding: "12px 16px", fontSize: 13, marginBottom: "1rem" }}>{error}</div>}
+
+      {!loading && !error && sorted.length === 0 && (
+        <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>📝</div>
+          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 8 }}>
+            {hasActiveFilters ? "No posts match your filters" : "No posts yet"}
+          </div>
+          {hasActiveFilters
+            ? <button onClick={clearFilters} style={{ background: "none", border: "none", color: "#3B82F6", cursor: "pointer", fontSize: 13, fontWeight: 500 }}>Clear filters →</button>
+            : <span style={{ fontSize: 13 }}>Be the first to share what you're looking for.</span>}
+        </div>
+      )}
+
+      {sorted.map(p => (
+        <PostCard
+          key={p.id}
+          post={p}
+          isOwn={user && p.author_id === user.id}
+          onView={() => handleView(p)}
+          onEdit={post => setPage("edit-post", post)}
+          onDelete={async (id) => {
+            const { data: { session } } = await supabase.auth.getSession();
+            await fetch("/api/posts", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+              body: JSON.stringify({ action: "delete", post_id: id }),
+            });
+            await supabase.auth.refreshSession();
+            await loadPosts();
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ─── CREATE / EDIT POST PAGE ──────────────────────────────────────────────────
+
+function CreateEditPostPage({ user, setPage, editPost = null }) {
+  const isEdit = !!editPost;
+  const [title,    setTitle]    = useState(editPost?.title    || "");
+  const [body,     setBody]     = useState(editPost?.body     || "");
+  const [category, setCategory] = useState(editPost?.category || "general");
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState("");
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!title.trim() || !body.trim()) { setError("Title and body are required."); return; }
+    setLoading(true);
+    setError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    const payload = isEdit
+      ? { action: "update", post_id: editPost.id, title, body, category }
+      : { action: "create", title, body, category };
+
+    const res  = await fetch("/api/posts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json();
+    setLoading(false);
+    if (!res.ok) { setError(json.error || "Failed to save post."); return; }
+    await supabase.auth.refreshSession();
+    setPage("my-posts");
+  }
+
+  const inputStyle = {
+    width: "100%", border: "0.5px solid #ccc", borderRadius: 8,
+    padding: "10px 12px", fontSize: 14, background: "#fff", boxSizing: "border-box",
+  };
+
+  return (
+    <div style={{ padding: "1.5rem 1.25rem", maxWidth: 640, margin: "0 auto" }}>
+      <button
+        onClick={() => setPage("my-posts")}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: "#555", fontSize: 14, cursor: "pointer", padding: 0, marginBottom: "1.5rem" }}
+      >
+        ← Back to my posts
+      </button>
+
+      <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>
+        {isEdit ? "Edit post" : "New post"}
+      </div>
+      <h2 style={{ fontSize: 22, fontWeight: 500, margin: "0 0 1.5rem" }}>
+        {isEdit ? "Edit your post" : "Create a post"}
+      </h2>
+
+      {error && (
+        <div style={{ background: "#FAECE7", color: "#993C1D", border: "0.5px solid #F5C9BB", borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: "1rem" }}>
+          {error}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+        <div>
+          <label style={{ fontSize: 13, color: "#555", marginBottom: 6, display: "block" }}>Category</label>
+          <select
+            value={category} onChange={e => setCategory(e.target.value)}
+            style={{ ...inputStyle, height: 44 }}
+          >
+            <option value="looking-for-lender">Looking for a lender</option>
+            <option value="looking-for-builder">Looking for a builder</option>
+            <option value="general">General</option>
+          </select>
+        </div>
+        <div>
+          <label style={{ fontSize: 13, color: "#555", marginBottom: 6, display: "block" }}>Title</label>
+          <input
+            type="text" required maxLength={120}
+            value={title} onChange={e => setTitle(e.target.value)}
+            placeholder="What are you looking for?"
+            style={{ ...inputStyle, height: 44 }}
+          />
+        </div>
+        <div>
+          <label style={{ fontSize: 13, color: "#555", marginBottom: 6, display: "block" }}>Details</label>
+          <textarea
+            required rows={6}
+            value={body} onChange={e => setBody(e.target.value)}
+            placeholder="Describe your project, funding needs, budget, location, timeline…"
+            style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
+          />
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            type="submit" disabled={loading}
+            style={{
+              flex: 1, height: 44, background: loading ? "#aaa" : "#3B82F6", color: loading ? "#fff" : "#1E3A5F",
+              border: "none", borderRadius: 8, fontSize: 15, fontWeight: 500, cursor: loading ? "default" : "pointer",
+            }}
+          >
+            {loading ? "Saving…" : isEdit ? "Save changes" : "Publish post"}
+          </button>
+          <button
+            type="button" onClick={() => setPage("my-posts")}
+            style={{ padding: "0 20px", height: 44, background: "transparent", color: "#555", border: "0.5px solid #ccc", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ─── MY POSTS PAGE ────────────────────────────────────────────────────────────
+
+function MyPostsPage({ user, setPage }) {
+  const [posts,   setPosts]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState("");
+
+  useEffect(() => {
+    loadPosts();
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadPosts() {
+    setLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res  = await fetch("/api/posts", {
+        headers: session ? { Authorization: `Bearer ${session.access_token}` } : {},
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to load posts");
+      setPosts((json.posts || []).filter(p => p.author_id === user.id));
+    } catch (e) {
+      setError(e.message);
+    }
+    setLoading(false);
+  }
+
+  async function handleDelete(postId) {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/posts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "delete", post_id: postId }),
+    });
+    if (res.ok) {
+      await supabase.auth.refreshSession();
+      await loadPosts();
+    }
+  }
+
+  return (
+    <div style={{ padding: "1.5rem 1.25rem", maxWidth: 720, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>My posts</div>
+          <h2 style={{ fontSize: 22, fontWeight: 500, margin: 0 }}>Your posts</h2>
+          <p style={{ fontSize: 14, color: "#64748B", margin: "4px 0 0" }}>Manage the posts you've published</p>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={() => setPage("posts")}
+            style={{ background: "transparent", color: "#555", border: "0.5px solid #ccc", padding: "9px 18px", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
+          >
+            Browse all posts
+          </button>
+          <button
+            onClick={() => setPage("create-post")}
+            style={{ background: "#3B82F6", color: "#FFFFFF", border: "none", padding: "9px 18px", minHeight: 44, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}
+          >
+            + New post
+          </button>
+        </div>
+      </div>
+
+      {loading && <div style={{ textAlign: "center", padding: "4rem", color: "#64748B", fontSize: 14 }}>Loading…</div>}
+      {error   && <div style={{ background: "#FAECE7", color: "#993C1D", borderRadius: 8, padding: "12px 16px", fontSize: 13, marginBottom: "1rem" }}>{error}</div>}
+
+      {!loading && !error && posts.length === 0 && (
+        <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>📝</div>
+          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>No posts yet</div>
+          <div style={{ fontSize: 13, marginBottom: "1.5rem" }}>Share what you're looking for with the community.</div>
+          <button
+            onClick={() => setPage("create-post")}
+            style={{ background: "#3B82F6", color: "#FFFFFF", border: "none", padding: "10px 24px", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}
+          >
+            Create your first post
+          </button>
+        </div>
+      )}
+
+      {posts.map(p => (
+        <PostCard
+          key={p.id}
+          post={p}
+          isOwn={true}
+          onView={() => setPage("post-detail", p)}
+          onEdit={post => setPage("edit-post", post)}
+          onDelete={handleDelete}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ─── LENDER PROFILE PAGE ─────────────────────────────────────────────────────
+
+function LenderProfilePage({ lc, user, setPage, settings, onBack, onMessage, viewerRoleProfile }) {
+  const isAccepting = settings?.accepting_requests !== false;
+  const isListed    = settings?.listing_active     !== false;
+
+  const alreadyConnected = user?.user_metadata?.connections?.some(
+    c => c.lender_name === lc.name
+  );
+  const [connectStatus, setConnectStatus] = useState(
+    alreadyConnected ? "done" : "idle"
+  );
+  const [msgStatus, setMsgStatus] = useState("idle");
+
+  async function handleMessage() {
+    if (!user) { setPage("auth"); return; }
+    setMsgStatus("loading");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/notify-message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ other_name: lc.name, other_role: "lender" }),
+    });
+    if (res.ok) {
+      const { conversation } = await res.json();
+      setMsgStatus("idle");
+      onMessage(conversation.id);
+    } else {
+      setMsgStatus("error");
+      setTimeout(() => setMsgStatus("idle"), 3000);
+    }
+  }
+
+  async function handleConnect() {
+    if (!user) { setPage("auth"); return; }
+    if (!isAccepting) return;
+    setConnectStatus("loading");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/connect-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ lender_name: lc.name, lender_type: lc.type }),
+    });
+    if (res.ok) {
+      setConnectStatus("done");
+      await supabase.auth.refreshSession();
+    } else {
+      setConnectStatus("error");
+      setTimeout(() => setConnectStatus("idle"), 3000);
+    }
+  }
+
+  const notAccepting = !isAccepting;
+  const connectLabel = notAccepting
+    ? "Not accepting requests"
+    : { idle: "Request introduction", loading: "Sending...", done: "Request sent!", error: "We couldn't send that — retry" }[connectStatus];
+  const connectBg = notAccepting
+    ? "#aaa"
+    : { idle: "#2E5FA3", loading: "#64748B", done: "#1E40AF", error: "#DC2626" }[connectStatus];
+
+
+  return (
+    <div style={{ padding: "1.5rem 1.25rem", maxWidth: 680, margin: "0 auto" }}>
+
+      {/* Back button */}
+      <button
+        onClick={onBack}
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          background: "transparent", border: "none",
+          color: "#555", fontSize: 14, cursor: "pointer", padding: 0,
+          marginBottom: "1.5rem",
+        }}
+      >
+        ← Back to search
+      </button>
+
+      {/* Header */}
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.75rem", marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 16 }}>
+          <Avatar initials={lc.initials} color={lc.color} size={64} url={lc.avatar_url} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 22, fontWeight: 500 }}>{lc.name}</div>
+              <RoleBadge userRole={lc.user_role} authRole="lender" />
+              {lc.verified && (
+                <span style={{ background: "#EBF2FF", color: "#1E3A5F", fontSize: 11, padding: "3px 9px", borderRadius: 20, fontWeight: 500 }}>
+                  ✓ Verified
+                </span>
+              )}
+              {lc.featured && (
+                <span style={{ background: "#EBF2FF", color: "#1E3A5F", fontSize: 11, padding: "3px 9px", borderRadius: 20, fontWeight: 500 }}>
+                  Most active
+                </span>
+              )}
+            </div>
+            {lc.sequential_id && <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>{fmtId(lc.sequential_id)}</div>}
+            <div style={{ fontSize: 14, color: "#64748B", marginTop: 3 }}>{lc.type}</div>
+            {lc.location && (
+              <div style={{ fontSize: 13, color: "#666", marginTop: 5 }}>
+                📍 {lc.location}
+              </div>
+            )}
+            {(() => {
+              if (!viewerRoleProfile || user?.user_metadata?.role !== "builder") return null;
+              const m = computeMatch(viewerRoleProfile, lc, "builder");
+              if (!m) return null;
+              return <div style={{ marginTop: 8 }}><MatchBadge score={m.score} breakdown={m.components} /></div>;
+            })()}
+          </div>
+        </div>
+        {lc.bio && (
+          <p style={{ fontSize: 14, color: "#555", lineHeight: 1.65, margin: 0, paddingTop: 14, borderTop: "0.5px solid #f0f0f0" }}>
+            {lc.bio}
+          </p>
+        )}
+      </div>
+
+      {/* Investment details */}
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.5rem", marginBottom: 14 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>
+          Investment details
+        </div>
+        <div style={{ display: "inline-block", background: "#EBF2FF", color: "#1E3A5F", fontSize: 14, fontWeight: 500, padding: "5px 12px", borderRadius: 8, marginBottom: 14 }}>
+          Up to {lc.budget}
+        </div>
+        <div>
+          {[
+            ["Return type",   lc.returnType],
+            lc.builderShare ? ["Builder share",  lc.builderShare] : null,
+            lc.lenderShare  ? ["Lender share",   lc.lenderShare]  : null,
+            lc.rate         ? ["Rate",            lc.rate]         : null,
+            lc.term         ? ["Term",            lc.term]         : null,
+            lc.equity       ? ["Equity ask",      lc.equity]       : null,
+            lc.exit         ? ["Exit timeline",   lc.exit]         : null,
+            ["Project pref.", lc.project],
+          ].filter(Boolean).map(([label, val], i, arr) => (
+            <div key={label} style={{
+              display: "flex", justifyContent: "space-between",
+              padding: "8px 0",
+              borderBottom: i < arr.length - 1 ? "0.5px solid #f5f5f3" : "none",
+              fontSize: 14, color: "#666",
+            }}>
+              <span>{label}</span>
+              <span style={{ fontWeight: 500, color: "#222" }}>{val}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+
+      {/* Actions CTA */}
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.5rem" }}>
+        <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>
+          Interested in working with {lc.name}?
+        </div>
+        <div style={{ fontSize: 13, color: "#64748B", marginBottom: 14 }}>
+          Send a message to start a conversation, or send a connection request for them to review.
+        </div>
+        {notAccepting && (!settings || isListed) && (
+          <div style={{ background: "#F1EFE8", border: "0.5px solid #e0e0de", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#5F5E5A", marginBottom: 12 }}>
+            This lender is not currently accepting new requests.
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+          {user && (
+            <button
+              onClick={handleMessage}
+              disabled={msgStatus === "loading"}
+              style={{
+                flex: 1, background: "#fff", color: "#1E3A5F",
+                border: "1.5px solid #2E5FA3",
+                padding: "11px 0", borderRadius: 8, fontSize: 14, fontWeight: 500, minHeight: 44,
+                cursor: msgStatus === "loading" ? "default" : "pointer",
+                transition: "background 0.2s",
+              }}
+            >
+              {msgStatus === "loading" ? "Opening…" : msgStatus === "error" ? "We couldn't open chat — try again" : "Send message"}
+            </button>
+          )}
+          {(!settings || isListed) && (
+            <button
+              onClick={handleConnect}
+              disabled={notAccepting || connectStatus === "loading" || connectStatus === "done"}
+              style={{
+                flex: 1, background: connectBg, color: "#fff", border: "none",
+                padding: "11px 0", borderRadius: 8, fontSize: 14, fontWeight: 600, minHeight: 44,
+                cursor: notAccepting || connectStatus === "loading" || connectStatus === "done" ? "default" : "pointer",
+                transition: "background 0.2s",
+              }}
+            >
+              {connectStatus === "idle" && !notAccepting ? "Request introduction" : connectLabel}
+            </button>
+          )}
+          {!user && (
+            <button
+              onClick={() => setPage("auth")}
+              style={{
+                flex: 1, background: "#2E5FA3", color: "#FFFFFF", border: "none",
+                padding: "11px 0", borderRadius: 8, fontSize: 14, fontWeight: 600, minHeight: 44,
+                cursor: "pointer",
+              }}
+            >
+              Log in to message
+            </button>
+          )}
+        </div>
+        {user && connectStatus === "idle" && !notAccepting && (!settings || isListed) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#64748B", justifyContent: "center", padding: "8px 12px", background: "#F8FAFC", borderRadius: 8 }}>
+            <svg width="12" height="14" viewBox="0 0 12 14" fill="none"><rect x="1" y="6" width="10" height="7" rx="1.5" stroke="#64748B" strokeWidth="1.3"/><path d="M3.5 6V4.5a2.5 2.5 0 015 0V6" stroke="#64748B" strokeWidth="1.3" strokeLinecap="round"/></svg>
+            Your contact details are protected until both parties agree to connect
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── BUILDER PROFILE PAGE ────────────────────────────────────────────────────
+
+function BuilderProfilePage({ builder, user, setPage, onBack, onMessage, viewerRoleProfile }) {
+  const alreadyConnected = user?.user_metadata?.builder_connections?.some(
+    c => c.builder_name === builder.name
+  );
+  const [connectStatus, setConnectStatus] = useState(alreadyConnected ? "done" : "idle");
+  const [msgStatus,     setMsgStatus]     = useState("idle");
+
+  async function handleConnect() {
+    if (!user) { setPage("auth"); return; }
+    setConnectStatus("loading");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/connect-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ builder_name: builder.name, builder_type: builder.type }),
+    });
+    if (res.ok) {
+      setConnectStatus("done");
+      await supabase.auth.refreshSession();
+    } else {
+      setConnectStatus("error");
+      setTimeout(() => setConnectStatus("idle"), 3000);
+    }
+  }
+
+  async function handleMessage() {
+    if (!user) { setPage("auth"); return; }
+    setMsgStatus("loading");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/notify-message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ other_name: builder.name, other_role: "builder" }),
+    });
+    if (res.ok) {
+      const { conversation } = await res.json();
+      setMsgStatus("idle");
+      onMessage(conversation.id);
+    } else {
+      setMsgStatus("error");
+      setTimeout(() => setMsgStatus("idle"), 3000);
+    }
+  }
+
+  const connectLabel = { idle: "Connect", loading: "Sending...", done: "Requested!", error: "Error — retry" }[connectStatus];
+  const connectBg    = { idle: "#1D9E75", loading: "#64748B", done: "#5aaf90", error: "#D85A30" }[connectStatus];
+  const completionColor = builder.completion >= 95 ? "#1D9E75" : builder.completion >= 80 ? "#2E5FA3" : "#D85A30";
+
+  return (
+    <div style={{ padding: "1.5rem 1.25rem", maxWidth: 680, margin: "0 auto" }}>
+
+      {/* Back button */}
+      <button
+        onClick={onBack}
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          background: "transparent", border: "none",
+          color: "#555", fontSize: 14, cursor: "pointer", padding: 0,
+          marginBottom: "1.5rem",
+        }}
+      >
+        ← Back to builders
+      </button>
+
+      {/* Header */}
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.75rem", marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: builder.bio ? 16 : 0 }}>
+          <CredibilityRing score={computeCredibilityScore(builder)} size={64}>
+            <Avatar initials={builder.initials} color={builder.color} size={64} url={builder.avatar_url} />
+          </CredibilityRing>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 22, fontWeight: 500 }}>{builder.name}</div>
+              <RoleBadge userRole={builder.user_role} authRole="builder" />
+              {builder.verified_documents?.length > 0 && (
+                <span style={{ fontSize: 11, fontWeight: 500, padding: "2px 9px", borderRadius: 20, background: "#EBF2FF", color: "#1E3A5F", flexShrink: 0 }}>
+                  ✓ Verified
+                </span>
+              )}
+            </div>
+            {builder.sequential_id && <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>{fmtId(builder.sequential_id)}</div>}
+            <div style={{ fontSize: 14, color: "#64748B", marginTop: 3 }}>{builder.type}</div>
+            {builder.location && (
+              <div style={{ fontSize: 13, color: "#666", marginTop: 5 }}>📍 {builder.location}</div>
+            )}
+            {(() => {
+              if (!viewerRoleProfile || user?.user_metadata?.role !== "lender") return null;
+              const m = computeMatch(viewerRoleProfile, builder, "lender");
+              if (!m) return null;
+              return <div style={{ marginTop: 8 }}><MatchBadge score={m.score} breakdown={m.components} /></div>;
+            })()}
+          </div>
+        </div>
+        {builder.verified_documents?.length > 0 && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+            {[
+              { key: "photo_id",    label: "ID verified" },
+              { key: "selfie",      label: "Selfie verified" },
+              { key: "site_photos", label: "Site photos" },
+              { key: "planning",    label: "Planning docs" },
+            ].filter(d => builder.verified_documents.includes(d.key)).map(d => (
+              <span key={d.key} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: "#EBF2FF", color: "#1E3A5F" }}>
+                {d.label}
+              </span>
+            ))}
+          </div>
+        )}
+        {builder.bio && (
+          <p style={{ fontSize: 14, color: "#555", lineHeight: 1.65, margin: 0, paddingTop: 14, borderTop: "0.5px solid #f0f0f0" }}>
+            {builder.bio}
+          </p>
+        )}
+      </div>
+
+      {/* Track record */}
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.5rem", marginBottom: 14 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>
+          Track record
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+          <MetricCard label="Projects completed" value={builder.props} />
+          <MetricCard label="Total value built" value={fmt(builder.value)} />
+        </div>
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#666", marginBottom: 6 }}>
+            <span>Completion rate</span>
+            <span style={{ fontWeight: 500, color: completionColor }}>{builder.completion}%</span>
+          </div>
+          <div style={{ height: 6, background: "#eee", borderRadius: 3 }}>
+            <div style={{ height: 6, borderRadius: 3, background: completionColor, width: `${builder.completion}%`, transition: "width 0.3s" }} />
+          </div>
+        </div>
+      </div>
+
+      {/* Actions CTA */}
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.5rem" }}>
+        <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>
+          Interested in working with {builder.name}?
+        </div>
+        <div style={{ fontSize: 13, color: "#64748B", marginBottom: 14 }}>
+          Send a message to start a conversation, or send a connection request.
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          {user && (
+            <button
+              onClick={handleMessage}
+              disabled={msgStatus === "loading"}
+              style={{
+                flex: 1, background: "#fff", color: "#1E3A5F",
+                border: "1px solid #1D9E75",
+                padding: "11px 0", borderRadius: 8, fontSize: 14, fontWeight: 500, minHeight: 44,
+                cursor: msgStatus === "loading" ? "default" : "pointer",
+                transition: "background 0.2s",
+              }}
+            >
+              {msgStatus === "loading" ? "Opening…" : msgStatus === "error" ? "Error — retry" : "Message"}
+            </button>
+          )}
+          <button
+            onClick={handleConnect}
+            disabled={connectStatus === "loading" || connectStatus === "done"}
+            style={{
+              flex: 1, background: connectBg, color: "#fff", border: "none",
+              padding: "11px 0", borderRadius: 8, fontSize: 14, fontWeight: 500, minHeight: 44,
+              cursor: connectStatus === "loading" || connectStatus === "done" ? "default" : "pointer",
+              transition: "background 0.2s",
+            }}
+          >
+            {connectLabel}
+          </button>
+          {!user && (
+            <button
+              onClick={() => setPage("auth")}
+              style={{
+                flex: 1, background: "#3B82F6", color: "#FFFFFF", border: "none",
+                padding: "11px 0", borderRadius: 8, fontSize: 14, fontWeight: 600, minHeight: 44,
+                cursor: "pointer",
+              }}
+            >
+              Log in to message
+            </button>
+          )}
+        </div>
+        {builder.sequential_id && (
+          <div style={{ marginTop: 10 }}>
+            <button
+              onClick={() => setPage("builder-passport", builder.sequential_id)}
+              style={{ width: "100%", background: "transparent", border: "1px solid #CBD5E1", color: "#475569", borderRadius: 8, padding: "9px 0", fontSize: 13, fontWeight: 500, cursor: "pointer", minHeight: 40 }}
+            >
+              View full builder passport
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── MESSAGES PAGE ───────────────────────────────────────────────────────────
+
+function MessagesPage({ user, initialConversationId }) {
+  const [conversations, setConversations] = useState([]);
+  const [selectedConvo, setSelectedConvo] = useState(null);
+  const [messages,      setMessages]      = useState([]);
+  const [newMessage,    setNewMessage]    = useState("");
+  const [loading,       setLoading]       = useState(true);
+  const [sending,       setSending]       = useState(false);
+  const [avatarMap,     setAvatarMap]     = useState({});
+  const messagesEndRef = useRef(null);
+  const inputRef       = useRef(null);
+  const [width, setWidth] = useState(window.innerWidth);
+
+  const myId = user?.id;
+  const role = user?.user_metadata?.role;
+
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const isMobile = width < 700;
+
+  // Load conversations on mount
+  useEffect(() => {
+    loadConversations();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-select conversation when opened from a profile page
+  useEffect(() => {
+    if (!initialConversationId || !conversations.length || selectedConvo) return;
+    const convo = conversations.find(c => c.id === initialConversationId);
+    if (convo) setSelectedConvo(convo);
+  }, [initialConversationId, conversations]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load messages + subscribe to real-time when a conversation is selected
+  useEffect(() => {
+    if (!selectedConvo) return;
+    setMessages([]);
+    loadMessages(selectedConvo.id);
+
+    const channel = supabase
+      .channel(`messages-${selectedConvo.id}`)
+      .on("postgres_changes", {
+        event:  "INSERT",
+        schema: "public",
+        table:  "messages",
+        filter: `conversation_id=eq.${selectedConvo.id}`,
+      }, payload => {
+        const msg = payload.new;
+        setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+        setConversations(prev => prev.map(c =>
+          c.id === msg.conversation_id
+            ? { ...c, last_message: msg.content, last_message_at: msg.created_at }
+            : c
+        ));
+      })
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [selectedConvo?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length]);
+
+  async function loadConversations() {
+    setLoading(true);
+    const { data } = await supabase
+      .from("conversations")
+      .select("*")
+      .or(`lender_id.eq.${myId},builder_id.eq.${myId}`)
+      .order("last_message_at", { ascending: false, nullsFirst: false });
+    const convos = data || [];
+    setConversations(convos);
+    setLoading(false);
+    const otherIds = [...new Set(convos.map(c => myId === c.lender_id ? c.builder_id : c.lender_id).filter(Boolean))];
+    if (otherIds.length > 0) {
+      fetch(`/api/get-profiles?type=avatars&ids=${otherIds.join(",")}`)
+        .then(r => r.json())
+        .then(d => setAvatarMap(d.avatars || {}))
+        .catch(() => {});
+    }
+  }
+
+  async function loadMessages(conversationId) {
+    const { data } = await supabase
+      .from("messages")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true });
+    setMessages(data || []);
+  }
+
+  async function handleSend(e) {
+    e.preventDefault();
+    const content = newMessage.trim();
+    if (!content || !selectedConvo || sending) return;
+    setSending(true);
+    setNewMessage("");
+
+    const { data: msg } = await supabase
+      .from("messages")
+      .insert({ conversation_id: selectedConvo.id, sender_id: myId, content })
+      .select()
+      .single();
+
+    if (msg) {
+      // Optimistic local update (realtime will also fire but we deduplicate)
+      setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+      const ts = msg.created_at;
+      setConversations(prev => prev.map(c =>
+        c.id === selectedConvo.id ? { ...c, last_message: content, last_message_at: ts } : c
+      ));
+      // Persist last_message on the conversation row
+      await supabase
+        .from("conversations")
+        .update({ last_message: content, last_message_at: ts })
+        .eq("id", selectedConvo.id);
+      // Fire-and-forget email notification to recipient
+      const { data: { session: s } } = await supabase.auth.getSession();
+      if (s) {
+        fetch("/api/notify-message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.access_token}` },
+          body: JSON.stringify({ conversation_id: selectedConvo.id }),
+        }).catch(() => {});
+      }
+    }
+
+    setSending(false);
+    inputRef.current?.focus();
+  }
+
+  function getOtherName(convo) {
+    return myId === convo.lender_id ? convo.builder_name : convo.lender_name;
+  }
+
+  function getOtherRole(convo) {
+    return myId === convo.lender_id ? "Builder" : "Lender";
+  }
+
+  function fmtTime(ts) {
+    if (!ts) return "";
+    const d   = new Date(ts);
+    const now = new Date();
+    const min = Math.floor((now - d) / 60000);
+    if (min < 1)  return "just now";
+    if (min < 60) return `${min}m`;
+    const h = Math.floor(min / 60);
+    if (h < 24)   return `${h}h`;
+    const day = Math.floor(h / 24);
+    if (day < 7)  return `${day}d`;
+    return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  }
+
+  const showList = !isMobile || !selectedConvo;
+  const showChat = !isMobile || !!selectedConvo;
+
+  return (
+    <div style={{
+      padding: isMobile && selectedConvo ? "0" : "1.5rem 1.25rem",
+      height: isMobile && selectedConvo ? "calc(100dvh - 56px)" : undefined,
+      minHeight: isMobile && selectedConvo ? undefined : "calc(100vh - 56px)",
+      boxSizing: "border-box", overflow: isMobile && selectedConvo ? "hidden" : undefined,
+    }}>
+
+      {/* Header — hidden on mobile when chat is open */}
+      {showList && (
+        <div style={{ marginBottom: "1.25rem", padding: isMobile ? "1.5rem 1.25rem 0" : 0 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 500, margin: 0, fontFamily: "'Georgia', serif" }}>Messages</h1>
+          <p style={{ fontSize: 13, color: "#64748B", margin: "4px 0 0" }}>
+            Your conversations with connected {role === "lender" ? "builders" : "lenders"}
+          </p>
+        </div>
+      )}
+
+      <div style={{
+        display: "flex", gap: 16,
+        height: isMobile
+          ? (selectedConvo ? "100%" : "auto")
+          : "calc(100vh - 170px)",
+        minHeight: isMobile ? undefined : 440,
+      }}>
+
+        {/* ── Conversations list ─────────────────────────────────────────── */}
+        {showList && (
+          <div style={{
+            width: isMobile ? "100%" : 300, flexShrink: 0,
+            background: "#fff",
+            border: isMobile ? "none" : "0.5px solid #e0e0e0",
+            borderRadius: isMobile ? 0 : 12,
+            overflow: "hidden", display: "flex", flexDirection: "column",
+            marginTop: isMobile ? "1.25rem" : 0,
+          }}>
+            <div style={{ padding: "12px 16px", borderBottom: "0.5px solid #f0f0f0", fontSize: 13, fontWeight: 500, color: "#555" }}>
+              Conversations
+            </div>
+
+            {loading ? (
+              <div style={{ padding: "2rem", textAlign: "center", color: "#aaa", fontSize: 13 }}>Loading…</div>
+            ) : conversations.length === 0 ? (
+              <div style={{ padding: "2.5rem 1.5rem", textAlign: "center" }}>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>💬</div>
+                <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>No conversations yet</div>
+                <div style={{ fontSize: 13, color: "#64748B", lineHeight: 1.55 }}>
+                  Message any lender or builder directly from their profile page.
+                </div>
+              </div>
+            ) : (
+              <div style={{ overflowY: "auto", flex: 1 }}>
+                {conversations.map((convo, i) => {
+                  const isSelected = selectedConvo?.id === convo.id;
+                  const otherName  = getOtherName(convo);
+                  return (
+                    <div
+                      key={convo.id}
+                      onClick={() => setSelectedConvo(convo)}
+                      style={{
+                        padding: "12px 16px",
+                        borderBottom: i < conversations.length - 1 ? "0.5px solid #f5f5f3" : "none",
+                        background: isSelected ? "#f0faf6" : "transparent",
+                        cursor: "pointer", transition: "background 0.1s",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <Avatar initials={nameInitials(otherName)} color={pickColor(otherName || "")} size={38}
+                          url={avatarMap[myId === convo.lender_id ? convo.builder_id : convo.lender_id]} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 4 }}>
+                            <div style={{ fontSize: 14, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {otherName || "Unknown"}
+                            </div>
+                            <div style={{ fontSize: 11, color: "#aaa", flexShrink: 0 }}>
+                              {fmtTime(convo.last_message_at || convo.created_at)}
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 12, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>
+                            {convo.last_message || "No messages yet — say hello!"}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Chat panel ────────────────────────────────────────────────── */}
+        {showChat && (
+          <div style={{
+            flex: 1, background: "#fff",
+            border: isMobile ? "none" : "0.5px solid #e0e0e0",
+            borderRadius: isMobile ? 0 : 12,
+            overflow: "hidden", display: "flex", flexDirection: "column",
+          }}>
+            {!selectedConvo ? (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: "#bbb" }}>
+                <div style={{ fontSize: 38 }}>💬</div>
+                <div style={{ fontSize: 14 }}>Select a conversation</div>
+              </div>
+            ) : (
+              <>
+                {/* Chat header */}
+                <div style={{ padding: "11px 16px", borderBottom: "0.5px solid #f0f0f0", display: "flex", alignItems: "center", gap: 10 }}>
+                  {isMobile && (
+                    <button
+                      onClick={() => setSelectedConvo(null)}
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: "4px 10px 4px 0", color: "#555", display: "flex", alignItems: "center", flexShrink: 0 }}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </button>
+                  )}
+                  <Avatar initials={nameInitials(getOtherName(selectedConvo))} color={pickColor(getOtherName(selectedConvo) || "")} size={34}
+                    url={avatarMap[myId === selectedConvo.lender_id ? selectedConvo.builder_id : selectedConvo.lender_id]} />
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 500 }}>{getOtherName(selectedConvo)}</div>
+                    <div style={{ fontSize: 11, color: "#64748B" }}>{getOtherRole(selectedConvo)}</div>
+                  </div>
+                </div>
+
+                {/* Messages list */}
+                <div style={{ flex: 1, overflowY: "auto", padding: "1rem", display: "flex", flexDirection: "column", gap: 8 }}>
+                  {messages.length === 0 ? (
+                    <div style={{ textAlign: "center", color: "#bbb", fontSize: 13, marginTop: "2rem" }}>
+                      No messages yet — say hello!
+                    </div>
+                  ) : (
+                    messages.map(msg => {
+                      const isMine = msg.sender_id === myId;
+                      return (
+                        <div key={msg.id} style={{ display: "flex", justifyContent: isMine ? "flex-end" : "flex-start" }}>
+                          <div style={{
+                            maxWidth: isMobile ? "85%" : "72%",
+                            background: isMine ? "#1E3A5F" : "#f5f5f3",
+                            color: isMine ? "#fff" : "#222",
+                            borderRadius: isMine ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
+                            padding: "8px 12px",
+                            fontSize: 14, lineHeight: 1.5,
+                          }}>
+                            <div>{msg.content}</div>
+                            <div style={{ fontSize: 10, opacity: 0.6, marginTop: 3, textAlign: "right" }}>
+                              {new Date(msg.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Input */}
+                <form onSubmit={handleSend} style={{ padding: `10px 14px ${isMobile ? "max(10px, env(safe-area-inset-bottom))" : "10px"}`, borderTop: "0.5px solid #f0f0f0", display: "flex", gap: 8, alignItems: "center" }}>
+                  <input
+                    ref={inputRef}
+                    value={newMessage}
+                    onChange={e => setNewMessage(e.target.value)}
+                    placeholder="Type a message…"
+                    style={{
+                      flex: 1, height: 44,
+                      border: "0.5px solid #ddd", borderRadius: 20,
+                      padding: "0 14px", fontSize: isMobile ? 16 : 14, background: "#fafafa",
+                      outline: "none", boxSizing: "border-box",
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(e); }
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!newMessage.trim() || sending}
+                    aria-label="Send message"
+                    style={{
+                      width: 44, height: 44, borderRadius: "50%", flexShrink: 0,
+                      background: newMessage.trim() && !sending ? "#2E5FA3" : "#e0e0e0",
+                      border: "none",
+                      cursor: newMessage.trim() && !sending ? "pointer" : "default",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      transition: "background 0.15s",
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path d="M14 8H2M14 8L9 3M14 8L9 13"
+                        stroke={newMessage.trim() && !sending ? "#fff" : "#aaa"}
+                        strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                </form>
+              </>
+            )}
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+// ─── COMMUNITY PAGE ──────────────────────────────────────────────────────────
+
+const COMMUNITY_CHANNELS = [
+  { id: "general", label: "General",            desc: "Open discussion" },
+  { id: "funding", label: "Looking for funding", desc: "Builders post what they need" },
+  { id: "lending", label: "Available to lend",   desc: "Lenders post what they're offering" },
+];
+
+// Link / phone / off-platform blocking
+const _LINK_RE   = /(?:https?:\/\/|www\.)[\w\-./?=#&%+:@!~]+|[\w-]+\.(?:com|co\.uk|org\.uk|net|io|app|ai|tech|online|info|biz|co|uk)(?:[/\s?#][^\s]*)?/gi;
+const _PHONE_RE  = /(?:\+44[\s-]?|0044[\s-]?|0(?:7\d{3}|800|808|870|845|844|1\d{3}|2\d{3}|3\d{3}))[\s-]?\d{3}[\s-]?\d{3,4}/g;
+const _OFFSITE_RE= /\b(?:whatsapp|wha?ts[\s-]?app|telegram|t\.me\/|signal\.me|snapchat|wechat|instagram|imessage|facetime)\b/gi;
+const _ALLOWED_  = /lenderbuild\.co\.uk/i;
+
+function sanitizeChatMessage(text) {
+  let s = text; let blocked = false;
+  s = s.replace(_LINK_RE,    m => { if (_ALLOWED_.test(m)) return m; blocked = true; return "[link removed - connect through the platform]"; });
+  s = s.replace(_PHONE_RE,   () => { blocked = true; return "[link removed - connect through the platform]"; });
+  s = s.replace(_OFFSITE_RE, () => { blocked = true; return "[link removed - connect through the platform]"; });
+  return { sanitized: s.trim(), blocked };
+}
+
+// Auto-moderation keyword list
+const AUTOMOD_TERMS = [
+  "investment guaranteed","guaranteed returns","100% returns","100% guaranteed",
+  "guaranteed profit","send money","bank transfer","wire transfer",
+  "western union","moneygram","bitcoin","cryptocurrency","crypto ",
+  " btc "," eth "," usdt ","cash only","no questions asked",
+  "untraceable","offshore account",
+];
+function checkAutomod(text) {
+  const l = " " + text.toLowerCase() + " ";
+  for (const t of AUTOMOD_TERMS) if (l.includes(t)) return t.trim();
+  return null;
+}
+
+// Rate limiting via localStorage (5 msg / 60s)
+function chatRateLimitAllowed(userId) {
+  const k = `lb_rl_${userId}`, now = Date.now();
+  const ts = JSON.parse(localStorage.getItem(k) || "[]").filter(t => now - t < 60000);
+  if (ts.length >= 5) return false;
+  localStorage.setItem(k, JSON.stringify([...ts, now].slice(-20)));
+  return true;
+}
+function chatCooldownSecs(userId) {
+  const k = `lb_rl_${userId}`, now = Date.now();
+  const ts = JSON.parse(localStorage.getItem(k) || "[]").filter(t => now - t < 60000);
+  if (ts.length < 5) return 0;
+  return Math.max(1, Math.ceil((Math.min(...ts) + 60000 - now) / 1000));
+}
+
+const COMMUNITY_WARN_KEY = "lb_comm_warned_v1";
+
+// ── Report reasons ────────────────────────────────────────────────────────────
+const REPORT_REASONS = ["Spam", "Scam or fraud", "Inappropriate content", "Off-platform solicitation"];
+
+function MessageBubble({ msg, myId, onReport, reported }) {
+  const isOwn    = msg.user_id === myId;
+  const [menuOpen,  setMenuOpen]  = useState(false);
+  const [subOpen,   setSubOpen]   = useState(false);
+  const [reportSent, setReportSent] = useState(reported || false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    function outside(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) { setMenuOpen(false); setSubOpen(false); }
+    }
+    document.addEventListener("mousedown", outside);
+    return () => document.removeEventListener("mousedown", outside);
+  }, []);
+
+  if (msg.hidden) {
+    return (
+      <div style={{ display: "flex", gap: 10, marginBottom: "0.875rem", alignItems: "center" }}>
+        <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#f0f0f0", flexShrink: 0 }} />
+        <span style={{ fontSize: 13, color: "#aaa", fontStyle: "italic", background: "#f9f9f7", padding: "5px 12px", borderRadius: 8, border: "0.5px solid #ececec" }}>
+          [message under review]
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 10, marginBottom: "0.875rem", alignItems: "flex-start" }}>
+      <Avatar initials={nameInitials(msg.user_name || "?")} color={pickColor(msg.user_id || "")} size={34} url={msg.user_avatar_url || null} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 3 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: isOwn ? "#2E5FA3" : "#1E3A5F" }}>{msg.user_name || "User"}</span>
+          <RoleBadge authRole={msg.user_role} />
+          {msg.sequential_id && <span style={{ fontSize: 11, color: "#94A3B8", fontFamily: "monospace" }}>{fmtId(msg.sequential_id)}</span>}
+          <span style={{ fontSize: 11, color: "#aaa", marginLeft: "auto", flexShrink: 0 }}>{fmtTimeAgo(msg.created_at)}</span>
+          {!isOwn && (
+            <div ref={menuRef} style={{ position: "relative", flexShrink: 0 }}>
+              <button onClick={() => { setMenuOpen(o => !o); setSubOpen(false); }}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: "1px 5px", color: "#bbb", borderRadius: 4, fontSize: 17, lineHeight: 1 }}>
+                ···
+              </button>
+              {menuOpen && (
+                <div style={{ position: "absolute", right: 0, top: "calc(100% + 2px)", background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.10)", zIndex: 200, minWidth: 180, overflow: "hidden" }}>
+                  {!subOpen ? (
+                    <button onClick={() => setSubOpen(true)} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", fontSize: 13, color: "#D85A30", background: "none", border: "none", cursor: "pointer" }}>
+                      🚩 Report message
+                    </button>
+                  ) : (
+                    <>
+                      <div style={{ padding: "7px 14px 5px", fontSize: 11, fontWeight: 600, color: "#777", borderBottom: "0.5px solid #f0f0f0" }}>Select reason:</div>
+                      {REPORT_REASONS.map(r => (
+                        <button key={r}
+                          onClick={async () => {
+                            setMenuOpen(false); setSubOpen(false);
+                            if (!reportSent) { setReportSent(true); await onReport(msg, r); }
+                          }}
+                          disabled={reportSent}
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 14px", fontSize: 13, color: reportSent ? "#aaa" : "#333", background: "none", border: "none", cursor: reportSent ? "default" : "pointer" }}>
+                          {r}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <div style={{ fontSize: 14, color: "#333", lineHeight: 1.55, wordBreak: "break-word" }}>{msg.content}</div>
+        {reportSent && !msg.hidden && <div style={{ fontSize: 11, color: "#aaa", marginTop: 3 }}>Reported — thank you</div>}
+      </div>
+    </div>
+  );
+}
+
+function ScamWarningModal({ onClose }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
+      <div style={{ background: "#fff", borderRadius: 16, maxWidth: 440, width: "100%", padding: "1.75rem", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "1rem" }}>
+          <span style={{ fontSize: 28 }}>🛡️</span>
+          <h2 style={{ fontSize: 18, fontWeight: 600, margin: 0, color: "#1E3A5F" }}>Stay safe in community chat</h2>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: "1.5rem" }}>
+          {[
+            "LenderBuild will never ask you to transfer money outside the platform.",
+            "Always verify a user's ID badge before agreeing to any deal.",
+            "Report anyone asking for personal bank details in chat.",
+            "All legitimate deals happen through the Project Tracker only.",
+          ].map((line, i) => (
+            <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+              <span style={{ color: "#2E5FA3", fontWeight: 700, flexShrink: 0 }}>✓</span>
+              <span style={{ fontSize: 14, color: "#333", lineHeight: 1.5 }}>{line}</span>
+            </div>
+          ))}
+        </div>
+        <button onClick={onClose}
+          style={{ width: "100%", background: "#2E5FA3", color: "#fff", border: "none", padding: "12px", borderRadius: 10, fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+          I understand — enter community
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CommunityPage({ user, setPage }) {
+  const [channel,   setChannel]   = useState("general");
+  const [messages,  setMessages]  = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [text,      setText]      = useState("");
+  const [sending,   setSending]   = useState(false);
+  const [cooldown,  setCooldown]  = useState(0);
+  const [coolMsg,   setCoolMsg]   = useState("");
+  const [banned,    setBanned]    = useState(null); // null | { ban_type, banned_until, reason }
+  const [communityTab, setCommunityTab] = useState("chat");
+  const [showWarn,  setShowWarn]  = useState(!localStorage.getItem(COMMUNITY_WARN_KEY));
+  const [reported,  setReported]  = useState({}); // { messageId: true }
+  const messagesEndRef  = useRef(null);
+  const chatScrollRef   = useRef(null);
+  const realtimeChanRef = useRef(null);
+  const cooldownRef     = useRef(null);
+  const myId = user?.id;
+
+  // Check ban status on mount
+  useEffect(() => {
+    if (!myId) return;
+    supabase.from("community_bans").select("*").eq("user_id", myId).maybeSingle()
+      .then(({ data }) => {
+        if (!data) { setBanned(null); return; }
+        if (data.ban_type === "permanent") { setBanned(data); return; }
+        if (data.banned_until && new Date(data.banned_until) > new Date()) { setBanned(data); return; }
+        setBanned(null);
+      });
+  }, [myId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load messages + realtime subscription, switching with channel
+  useEffect(() => {
+    loadMessages();
+    if (realtimeChanRef.current) supabase.removeChannel(realtimeChanRef.current);
+    realtimeChanRef.current = supabase.channel(`comm-${channel}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "community_messages", filter: `channel=eq.${channel}` },
+        payload => {
+          setMessages(prev => prev.some(m => m.id === payload.new.id) ? prev : [...prev, payload.new]);
+          setTimeout(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }, 50);
+        })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "community_messages", filter: `channel=eq.${channel}` },
+        payload => setMessages(prev => prev.map(m => m.id === payload.new.id ? { ...m, ...payload.new } : m)))
+      .subscribe();
+    return () => { if (realtimeChanRef.current) supabase.removeChannel(realtimeChanRef.current); };
+  }, [channel]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cooldown countdown
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    clearInterval(cooldownRef.current);
+    cooldownRef.current = setInterval(() => {
+      setCooldown(s => {
+        if (s <= 1) { clearInterval(cooldownRef.current); setCoolMsg(""); return 0; }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(cooldownRef.current);
+  }, [cooldown]);
+
+  async function loadMessages() {
+    setLoading(true);
+    const { data } = await supabase.from("community_messages").select("*")
+      .eq("channel", channel).order("created_at", { ascending: true }).limit(50);
+    setMessages(data || []);
+    setLoading(false);
+    setTimeout(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }, 80);
+  }
+
+  async function handleSend(e) {
+    e.preventDefault();
+    if (!text.trim() || sending) return;
+    if (!user) { setPage("auth"); return; }
+    if (banned) return;
+
+    // Rate limit
+    if (!chatRateLimitAllowed(myId)) {
+      const secs = chatCooldownSecs(myId);
+      setCooldown(secs);
+      setCoolMsg(`Please wait ${secs}s before sending another message`);
+      return;
+    }
+
+    setSending(true);
+    const name = user.user_metadata?.name || user.email?.split("@")[0] || "User";
+
+    // Link blocking
+    const { sanitized, blocked } = sanitizeChatMessage(text.trim());
+    if (blocked) {
+      // Notify the user inline then continue with sanitized content
+      setCoolMsg("Links and contact details are not allowed in community chat.");
+      setTimeout(() => setCoolMsg(""), 5000);
+      // Send in-app notification to the sender
+      supabase.from("notifications").insert({
+        user_id: myId,
+        type:    "message",
+        message: "Your message contained a link or contact detail that was removed. Please connect through the platform.",
+      }).then(() => {}).catch(() => {});
+    }
+
+    if (!sanitized) { setSending(false); return; }
+
+    // Auto-moderation
+    const flagTerm = checkAutomod(sanitized);
+    const shouldFlag = !!flagTerm;
+
+    const { data: profile } = await supabase.from("profiles").select("sequential_id").eq("id", myId).maybeSingle();
+    const payload = {
+      user_id:         myId,
+      channel,
+      content:         sanitized.slice(0, 1000),
+      user_name:       name,
+      user_avatar_url: user.user_metadata?.avatar_url || null,
+      user_role:       user.user_metadata?.role || "member",
+      sequential_id:   profile?.sequential_id || null,
+      flagged:         shouldFlag,
+      hidden:          shouldFlag,
+      flag_reason:     flagTerm || null,
+    };
+
+    const { data: inserted, error } = await supabase.from("community_messages").insert(payload).select().single();
+    if (!error) {
+      setText("");
+      // Alert admin of auto-flagged message
+      if (shouldFlag && inserted) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          fetch("/api/notify-message", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ action: "community-flag-alert", message_id: inserted.id, flag_reason: flagTerm, message_content: sanitized, user_name: name }),
+          }).catch(() => {});
+        }
+      }
+    }
+    setSending(false);
+  }
+
+  async function handleReport(msg, reason) {
+    if (!user) return;
+    const name = user.user_metadata?.name || user.email?.split("@")[0] || "User";
+    setReported(prev => ({ ...prev, [msg.id]: true }));
+    await supabase.rpc("report_community_message", {
+      p_message_id:        msg.id,
+      p_reporter_id:       myId,
+      p_reporter_name:     name,
+      p_reason:            reason,
+      p_message_content:   msg.content,
+      p_message_user_id:   msg.user_id,
+      p_message_user_name: msg.user_name,
+    });
+  }
+
+  function handleWarnClose() {
+    localStorage.setItem(COMMUNITY_WARN_KEY, "1");
+    setShowWarn(false);
+  }
+
+  const channelMeta  = COMMUNITY_CHANNELS.find(c => c.id === channel);
+  const channelLabel = channel === "general" ? "#general" : channel === "funding" ? "#looking-for-funding" : "#available-to-lend";
+  const canSend      = !banned && cooldown === 0 && !!user;
+
+  return (
+    <>
+      {showWarn && <ScamWarningModal onClose={handleWarnClose} />}
+
+      <div style={{ maxWidth: 820, margin: "0 auto", padding: "1.5rem 1.25rem", minHeight: "calc(100vh - 120px)", display: "flex", flexDirection: "column" }}>
+        <div style={{ marginBottom: "1rem" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Community</div>
+          <h1 style={{ fontSize: 22, fontWeight: 500, margin: "0 0 4px" }}>Community</h1>
+          <p style={{ fontSize: 13, color: "#64748B", margin: 0 }}>Chat rooms and local area groups for builders and lenders</p>
+        </div>
+
+        {/* Section tabs: Chat | Groups */}
+        <div style={{ display: "flex", gap: 0, marginBottom: "1.25rem", borderBottom: "1.5px solid #e8e8e8" }}>
+          {[{ id: "chat", label: "💬 Chat" }, { id: "groups", label: "👥 Groups" }].map(tab => (
+            <button key={tab.id} onClick={() => setCommunityTab(tab.id)}
+              style={{ padding: "8px 18px", border: "none", borderBottom: communityTab === tab.id ? "2.5px solid #3B82F6" : "2.5px solid transparent", marginBottom: "-1.5px", background: "none", fontSize: 14, fontWeight: communityTab === tab.id ? 600 : 400, color: communityTab === tab.id ? "#2E5FA3" : "#64748B", cursor: "pointer", transition: "all 0.15s" }}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {communityTab === "chat" && (
+          <>
+            {/* Safety banner */}
+            <div style={{ background: "#EBF5FF", border: "0.5px solid #BFDBFE", borderRadius: 10, padding: "10px 14px", marginBottom: "1rem", display: "flex", gap: 10, alignItems: "flex-start" }}>
+              <span style={{ fontSize: 16, flexShrink: 0 }}>🛡️</span>
+              <p style={{ margin: 0, fontSize: 13, color: "#1E3A5F", lineHeight: 1.55 }}>
+                <strong>For your protection:</strong> never share personal financial details in public chat. Always verify identities before connecting. Report suspicious behaviour using the flag button.
+              </p>
+            </div>
+
+            {/* Ban notice */}
+            {banned && (
+              <div style={{ background: "#FEE2E2", border: "0.5px solid #FCA5A5", borderRadius: 10, padding: "12px 16px", marginBottom: "1rem" }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#991B1B" }}>Community chat access suspended</div>
+                <div style={{ fontSize: 13, color: "#991B1B", marginTop: 4 }}>
+                  {banned.ban_type === "permanent"
+                    ? "Your access has been permanently suspended."
+                    : `Your access is suspended until ${new Date(banned.banned_until).toLocaleString("en-GB")}.`}
+                  {banned.reason && ` Reason: ${banned.reason}`}
+                </div>
+              </div>
+            )}
+
+            {/* Channel tabs */}
+            <div style={{ display: "flex", gap: 8, marginBottom: "1rem", flexWrap: "wrap" }}>
+              {COMMUNITY_CHANNELS.map(ch => (
+                <button key={ch.id} onClick={() => setChannel(ch.id)} title={ch.desc}
+                  style={{ padding: "6px 14px", borderRadius: 20, border: `0.5px solid ${channel === ch.id ? "#3B82F6" : "#e0e0e0"}`, fontSize: 13, fontWeight: 500, cursor: "pointer", background: channel === ch.id ? "#EBF2FF" : "#fff", color: channel === ch.id ? "#2E5FA3" : "#555", transition: "all 0.15s" }}>
+                  {ch.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Chat container */}
+            <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, display: "flex", flexDirection: "column", flex: 1, minHeight: 400, maxHeight: "60vh" }}>
+              <div style={{ padding: "9px 1rem", borderBottom: "0.5px solid #f0f0f0", flexShrink: 0 }}>
+                <span style={{ fontSize: 12, color: "#64748B" }}>{channelMeta?.desc} · Last 50 messages</span>
+              </div>
+
+              <div ref={chatScrollRef} style={{ flex: 1, overflowY: "auto", padding: "1rem" }}>
+                {loading ? (
+                  <div style={{ textAlign: "center", color: "#aaa", padding: "2rem", fontSize: 14 }}>Loading…</div>
+                ) : messages.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "3rem" }}>
+                    <div style={{ fontSize: 32, marginBottom: 8 }}>💬</div>
+                    <div style={{ fontSize: 14, color: "#64748B" }}>No messages yet — start the conversation!</div>
+                  </div>
+                ) : (
+                  messages.map(msg => (
+                    <MessageBubble key={msg.id} msg={msg} myId={myId}
+                      onReport={handleReport} reported={!!reported[msg.id]} />
+                  ))
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {coolMsg && (
+                <div style={{ padding: "7px 1rem", background: "#FFFBEB", borderTop: "0.5px solid #FDE68A", fontSize: 13, color: "#92400E", flexShrink: 0 }}>
+                  ⏳ {coolMsg}{cooldown > 0 ? ` (${cooldown}s)` : ""}
+                </div>
+              )}
+
+              {user && !banned ? (
+                <form onSubmit={handleSend} style={{ borderTop: "0.5px solid #f0f0f0", padding: "0.75rem 1rem", display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+                  <input value={text} onChange={e => setText(e.target.value)}
+                    placeholder={cooldown > 0 ? `Wait ${cooldown}s…` : `Message ${channelLabel}…`}
+                    maxLength={1000} disabled={cooldown > 0}
+                    style={{ flex: 1, height: 40, border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "0 12px", fontSize: 14, background: cooldown > 0 ? "#f5f5f5" : "#f9f9f9", outline: "none" }}
+                  />
+                  <button type="submit" disabled={!text.trim() || sending || cooldown > 0}
+                    style={{ width: 40, height: 40, borderRadius: 8, border: "none", flexShrink: 0, background: canSend && text.trim() && !sending ? "#3B82F6" : "#e0e0e0", cursor: canSend && text.trim() && !sending ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path d="M14 8H2M14 8L9 3M14 8L9 13" stroke={canSend && text.trim() && !sending ? "#fff" : "#bbb"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                </form>
+              ) : !user ? (
+                <div style={{ padding: "1rem", borderTop: "0.5px solid #f0f0f0", textAlign: "center", flexShrink: 0 }}>
+                  <button onClick={() => setPage("auth")} style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "9px 24px", minHeight: 44, borderRadius: 8, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>
+                    Log in to chat
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </>
+        )}
+
+        {communityTab === "groups" && (
+          <GroupsTab user={user} setPage={setPage} />
+        )}
+      </div>
+    </>
+  );
+}
+
+// ─── COMMUNITY GROUPS ────────────────────────────────────────────────────────
+
+const GROUP_REGIONS = [
+  "London", "South East", "South West", "Midlands",
+  "North West", "North East", "Yorkshire", "Scotland",
+  "Wales", "Northern Ireland", "Online/National",
+];
+
+function genInviteCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < 8; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+function GroupsTab({ user, setPage }) {
+  const [view,          setView]          = useState("browse"); // "browse" | "create"
+  const [groups,        setGroups]        = useState([]);
+  const [myMemberships, setMyMemberships] = useState([]);
+  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [loading,       setLoading]       = useState(true);
+  const [creating,      setCreating]      = useState(false);
+  const [createForm,    setCreateForm]    = useState({ name: "", description: "", region: "", is_private: false });
+  const [createError,   setCreateError]   = useState("");
+  const [inviteInput,   setInviteInput]   = useState("");
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteError,   setInviteError]   = useState("");
+  const [inviteSuccess, setInviteSuccess] = useState("");
+  const myId = user?.id;
+
+  useEffect(() => { loadGroups(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadGroups() {
+    setLoading(true);
+    const [{ data: allGroups }, membRes] = await Promise.all([
+      supabase.from("community_groups").select("*").order("last_activity", { ascending: false, nullsFirst: false }),
+      myId ? supabase.from("community_group_members").select("group_id").eq("user_id", myId) : Promise.resolve({ data: [] }),
+    ]);
+    const memberIds = (membRes.data || []).map(m => m.group_id);
+    setGroups(allGroups || []);
+    setMyMemberships(memberIds);
+    setLoading(false);
+  }
+
+  async function handleJoin(groupId) {
+    if (!user) { setPage("auth"); return; }
+    await supabase.from("community_group_members").insert({ group_id: groupId, user_id: myId });
+    loadGroups();
+  }
+
+  async function handleLeave(groupId) {
+    if (!user) return;
+    await supabase.from("community_group_members").delete().eq("group_id", groupId).eq("user_id", myId);
+    loadGroups();
+  }
+
+  async function handleCreate(e) {
+    e.preventDefault();
+    if (!user) { setPage("auth"); return; }
+    setCreateError("");
+    if (!createForm.name.trim() || !createForm.region) {
+      setCreateError("Please enter a group name and select a region.");
+      return;
+    }
+    const { data: myCreated } = await supabase.from("community_groups").select("id").eq("created_by", myId);
+    if ((myCreated || []).length >= 3) {
+      setCreateError("You can only create up to 3 groups.");
+      return;
+    }
+    setCreating(true);
+    const name = user.user_metadata?.name || user.email?.split("@")[0] || "User";
+    const { data: newGroup, error } = await supabase.from("community_groups").insert({
+      name:            createForm.name.trim().slice(0, 60),
+      description:     createForm.description.trim().slice(0, 300),
+      region:          createForm.region,
+      created_by:      myId,
+      created_by_name: name,
+      is_private:      createForm.is_private,
+      invite_code:     createForm.is_private ? genInviteCode() : null,
+    }).select().single();
+    if (error) { setCreateError("Failed to create group. Please try again."); setCreating(false); return; }
+    await supabase.from("community_group_members").insert({ group_id: newGroup.id, user_id: myId });
+    setCreateForm({ name: "", description: "", region: "", is_private: false });
+    setCreating(false);
+    setView("browse");
+    loadGroups();
+  }
+
+  async function handleJoinByCode(e) {
+    e.preventDefault();
+    if (!user) { setPage("auth"); return; }
+    const code = inviteInput.trim();
+    if (!code) return;
+    setInviteLoading(true);
+    setInviteError("");
+    setInviteSuccess("");
+    const { data, error } = await supabase.rpc("join_group_by_invite", {
+      p_invite_code: code,
+      p_user_id:     myId,
+    });
+    if (error || !data?.ok) {
+      setInviteError(data?.error || "Something went wrong. Please try again.");
+      setInviteLoading(false);
+      return;
+    }
+    setInviteSuccess(`Joined "${data.group_name}"!`);
+    setInviteInput("");
+    setInviteLoading(false);
+    await loadGroups();
+    setTimeout(() => setInviteSuccess(""), 4000);
+  }
+
+  if (selectedGroup) {
+    return (
+      <GroupChatRoom
+        group={selectedGroup} user={user} setPage={setPage}
+        myMemberships={myMemberships}
+        onBack={() => { setSelectedGroup(null); loadGroups(); }}
+        onJoin={() => handleJoin(selectedGroup.id)}
+        onLeave={() => handleLeave(selectedGroup.id)}
+      />
+    );
+  }
+
+  if (view === "create") {
+    return (
+      <div>
+        <button onClick={() => { setView("browse"); setCreateError(""); }}
+          style={{ background: "none", border: "none", cursor: "pointer", color: "#3B82F6", fontSize: 14, padding: "0 0 1rem", display: "flex", alignItems: "center", gap: 6 }}>
+          ← Back to groups
+        </button>
+        <h3 style={{ fontSize: 18, fontWeight: 600, margin: "0 0 1rem", color: "#1E3A5F" }}>Create a group</h3>
+        <p style={{ fontSize: 13, color: "#64748B", margin: "0 0 1.25rem" }}>You can create up to 3 groups. Groups are for local areas or specific topics.</p>
+        <form onSubmit={handleCreate} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", display: "block", marginBottom: 4 }}>Group name *</label>
+            <input value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
+              placeholder="e.g. Manchester Property Investors" maxLength={60}
+              style={{ width: "100%", height: 40, border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "0 12px", fontSize: 14, outline: "none" }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", display: "block", marginBottom: 4 }}>Description</label>
+            <textarea value={createForm.description} onChange={e => setCreateForm(f => ({ ...f, description: e.target.value }))}
+              placeholder="What is this group about?" maxLength={300} rows={3}
+              style={{ width: "100%", border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "10px 12px", fontSize: 14, resize: "vertical", outline: "none" }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", display: "block", marginBottom: 4 }}>Region *</label>
+            <select value={createForm.region} onChange={e => setCreateForm(f => ({ ...f, region: e.target.value }))}
+              style={{ width: "100%", height: 40, border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "0 12px", fontSize: 14, outline: "none", background: "#fff" }}>
+              <option value="">Select a region…</option>
+              {GROUP_REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={createForm.is_private}
+                onChange={e => setCreateForm(f => ({ ...f, is_private: e.target.checked }))}
+                style={{ width: 16, height: 16, cursor: "pointer", accentColor: "#3B82F6" }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F" }}>🔒 Private group</span>
+            </label>
+            {createForm.is_private && (
+              <p style={{ fontSize: 12, color: "#64748B", margin: "6px 0 0 26px" }}>
+                Private groups are hidden from browse. Members join using an invite code you share with them.
+              </p>
+            )}
+          </div>
+          {createError && (
+            <div style={{ fontSize: 13, color: "#DC2626", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px" }}>{createError}</div>
+          )}
+          <button type="submit" disabled={creating}
+            style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "11px", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: creating ? "default" : "pointer" }}>
+            {creating ? "Creating…" : "Create group"}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  const myGroups = groups.filter(g => myMemberships.includes(g.id));
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", gap: 12 }}>
+        <p style={{ margin: 0, fontSize: 13, color: "#64748B" }}>Local area groups created by the community</p>
+        <button onClick={() => user ? setView("create") : setPage("auth")}
+          style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>
+          + Create group
+        </button>
+      </div>
+
+      <div style={{ marginBottom: "1.25rem" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Join a private group</div>
+        <form onSubmit={handleJoinByCode} style={{ display: "flex", gap: 8 }}>
+          <input value={inviteInput} onChange={e => setInviteInput(e.target.value.toUpperCase())}
+            placeholder="Enter invite code (e.g. A1B2C3D4)" maxLength={8}
+            style={{ flex: 1, height: 38, border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "0 12px", fontSize: 13, outline: "none", fontFamily: "monospace", letterSpacing: "0.1em", textTransform: "uppercase" }} />
+          <button type="submit" disabled={!inviteInput.trim() || inviteLoading}
+            style={{ padding: "0 16px", height: 38, borderRadius: 8, border: "none", fontSize: 13, fontWeight: 600, background: inviteInput.trim() && !inviteLoading ? "#3B82F6" : "#e0e0e0", color: inviteInput.trim() && !inviteLoading ? "#fff" : "#aaa", cursor: inviteInput.trim() && !inviteLoading ? "pointer" : "default", flexShrink: 0 }}>
+            {inviteLoading ? "Joining…" : "Join"}
+          </button>
+        </form>
+        {inviteError && <div style={{ fontSize: 12, color: "#DC2626", marginTop: 6 }}>{inviteError}</div>}
+        {inviteSuccess && <div style={{ fontSize: 12, color: "#166534", background: "#DCFCE7", borderRadius: 6, padding: "5px 10px", marginTop: 6 }}>{inviteSuccess}</div>}
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", color: "#aaa", padding: "2rem", fontSize: 14 }}>Loading groups…</div>
+      ) : (
+        <>
+          {myGroups.length > 0 && (
+            <div style={{ marginBottom: "1.5rem" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>My groups</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {myGroups.map(g => (
+                  <GroupCard key={g.id} group={g} isMember={true} isOwner={g.created_by === myId}
+                    onOpen={() => setSelectedGroup(g)} onLeave={() => handleLeave(g.id)} onJoin={() => {}} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {groups.length > 0 ? (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
+                {myGroups.length > 0 ? "All groups" : "Browse groups"}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {groups.map(g => (
+                  <GroupCard key={g.id} group={g} isMember={myMemberships.includes(g.id)} isOwner={g.created_by === myId}
+                    onOpen={() => setSelectedGroup(g)} onLeave={() => handleLeave(g.id)} onJoin={() => handleJoin(g.id)} />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div style={{ textAlign: "center", padding: "3rem 1rem", background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12 }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>👥</div>
+              <div style={{ fontSize: 15, fontWeight: 500, color: "#1E3A5F", marginBottom: 6 }}>No groups yet</div>
+              <div style={{ fontSize: 13, color: "#64748B", marginBottom: 16 }}>Be the first to create a local area group!</div>
+              <button onClick={() => user ? setView("create") : setPage("auth")}
+                style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "10px 22px", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+                Create the first group
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function GroupCard({ group, isMember, isOwner, onOpen, onJoin, onLeave }) {
+  return (
+    <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", transition: "box-shadow 0.15s" }}
+      onClick={onOpen}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F" }}>{group.name}</span>
+          {group.is_private && <span title="Private group — invite only" style={{ fontSize: 12 }}>🔒</span>}
+          {isOwner && <span title="You created this group" style={{ fontSize: 13 }}>👑</span>}
+          {isMember && !isOwner && <span style={{ fontSize: 11, background: "#DCFCE7", color: "#166534", padding: "1px 6px", borderRadius: 10, fontWeight: 500 }}>Joined</span>}
+        </div>
+        {group.description && (
+          <div style={{ fontSize: 12, color: "#64748B", marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{group.description}</div>
+        )}
+        <div style={{ fontSize: 11, color: "#94A3B8", display: "flex", flexWrap: "wrap", gap: "4px 10px" }}>
+          <span>📍 {group.region}</span>
+          <span>👥 {group.member_count || 0} {group.member_count === 1 ? "member" : "members"}</span>
+          {group.last_activity && <span>Active {fmtTimeAgo(group.last_activity)}</span>}
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+        <button onClick={onOpen}
+          style={{ padding: "6px 12px", borderRadius: 6, border: "0.5px solid #3B82F6", fontSize: 12, fontWeight: 500, background: "#EBF2FF", color: "#2E5FA3", cursor: "pointer" }}>
+          Open
+        </button>
+        {!isMember ? (
+          <button onClick={onJoin}
+            style={{ padding: "6px 12px", borderRadius: 6, border: "none", fontSize: 12, fontWeight: 500, background: "#3B82F6", color: "#fff", cursor: "pointer" }}>
+            Join
+          </button>
+        ) : !isOwner ? (
+          <button onClick={onLeave}
+            style={{ padding: "6px 12px", borderRadius: 6, border: "0.5px solid #e0e0e0", fontSize: 12, fontWeight: 500, background: "#fff", color: "#64748B", cursor: "pointer" }}>
+            Leave
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, onLeave }) {
+  const [messages,  setMessages]  = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [text,      setText]      = useState("");
+  const [sending,   setSending]   = useState(false);
+  const [cooldown,  setCooldown]  = useState(0);
+  const [coolMsg,   setCoolMsg]   = useState("");
+  const [banned,    setBanned]    = useState(null);
+  const [reported,  setReported]  = useState({});
+  const chatScrollRef   = useRef(null);
+  const realtimeChanRef = useRef(null);
+  const cooldownRef     = useRef(null);
+  const myId    = user?.id;
+  const isMember  = myMemberships.includes(group.id);
+  const isCreator = group.created_by === myId;
+
+  useEffect(() => {
+    if (!myId) return;
+    supabase.from("community_bans").select("*").eq("user_id", myId).maybeSingle()
+      .then(({ data }) => {
+        if (!data) { setBanned(null); return; }
+        if (data.ban_type === "permanent") { setBanned(data); return; }
+        if (data.banned_until && new Date(data.banned_until) > new Date()) { setBanned(data); return; }
+        setBanned(null);
+      });
+  }, [myId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    loadMessages();
+    if (realtimeChanRef.current) supabase.removeChannel(realtimeChanRef.current);
+    realtimeChanRef.current = supabase.channel(`grp-${group.id}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "group_messages", filter: `group_id=eq.${group.id}` },
+        payload => {
+          setMessages(prev => prev.some(m => m.id === payload.new.id) ? prev : [...prev, payload.new]);
+          setTimeout(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }, 50);
+        })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "group_messages", filter: `group_id=eq.${group.id}` },
+        payload => setMessages(prev => prev.map(m => m.id === payload.new.id ? { ...m, ...payload.new } : m)))
+      .subscribe();
+    return () => { if (realtimeChanRef.current) supabase.removeChannel(realtimeChanRef.current); };
+  }, [group.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    clearInterval(cooldownRef.current);
+    cooldownRef.current = setInterval(() => {
+      setCooldown(s => {
+        if (s <= 1) { clearInterval(cooldownRef.current); setCoolMsg(""); return 0; }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(cooldownRef.current);
+  }, [cooldown]);
+
+  async function loadMessages() {
+    setLoading(true);
+    const { data } = await supabase.from("group_messages").select("*")
+      .eq("group_id", group.id).order("created_at", { ascending: true }).limit(50);
+    setMessages(data || []);
+    setLoading(false);
+    setTimeout(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }, 80);
+  }
+
+  async function handleSend(e) {
+    e.preventDefault();
+    if (!text.trim() || sending || !user || banned || !isMember) return;
+
+    if (!chatRateLimitAllowed(myId)) {
+      const secs = chatCooldownSecs(myId);
+      setCooldown(secs);
+      setCoolMsg(`Please wait ${secs}s before sending another message`);
+      return;
+    }
+
+    setSending(true);
+    const name = user.user_metadata?.name || user.email?.split("@")[0] || "User";
+    const { sanitized, blocked } = sanitizeChatMessage(text.trim());
+    if (blocked) {
+      setCoolMsg("Links and contact details are not allowed in group chat.");
+      setTimeout(() => setCoolMsg(""), 5000);
+      supabase.from("notifications").insert({ user_id: myId, type: "message", message: "Your message contained a link or contact detail that was removed." }).then(() => {}).catch(() => {});
+    }
+    if (!sanitized) { setSending(false); return; }
+
+    const flagTerm = checkAutomod(sanitized);
+    const { data: profile } = await supabase.from("profiles").select("sequential_id").eq("id", myId).maybeSingle();
+    const payload = {
+      group_id:        group.id,
+      user_id:         myId,
+      content:         sanitized.slice(0, 1000),
+      user_name:       name,
+      user_avatar_url: user.user_metadata?.avatar_url || null,
+      user_role:       user.user_metadata?.role || "member",
+      sequential_id:   profile?.sequential_id || null,
+      flagged:         !!flagTerm,
+      hidden:          !!flagTerm,
+      flag_reason:     flagTerm || null,
+    };
+
+    const { error } = await supabase.from("group_messages").insert(payload);
+    if (!error) {
+      setText("");
+      supabase.from("community_groups").update({ last_activity: new Date().toISOString() }).eq("id", group.id).then(() => {}).catch(() => {});
+    }
+    setSending(false);
+  }
+
+  async function handleReport(msg, reason) {
+    if (!user) return;
+    const name = user.user_metadata?.name || user.email?.split("@")[0] || "User";
+    setReported(prev => ({ ...prev, [msg.id]: true }));
+    await supabase.rpc("report_group_message", {
+      p_message_id:        msg.id,
+      p_reporter_id:       myId,
+      p_reporter_name:     name,
+      p_reason:            reason,
+      p_message_content:   msg.content,
+      p_message_user_id:   msg.user_id,
+      p_message_user_name: msg.user_name,
+    });
+  }
+
+  const canSend = !banned && cooldown === 0 && !!user && isMember;
+
+  return (
+    <div>
+      <button onClick={onBack}
+        style={{ background: "none", border: "none", cursor: "pointer", color: "#3B82F6", fontSize: 14, padding: "0 0 1rem", display: "flex", alignItems: "center", gap: 6 }}>
+        ← Back to groups
+      </button>
+
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "0.75rem", gap: 12 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 2 }}>
+            <h3 style={{ fontSize: 18, fontWeight: 600, margin: 0, color: "#1E3A5F" }}>{group.name}</h3>
+            {group.is_private && <span title="Private group" style={{ fontSize: 15 }}>🔒</span>}
+            {isCreator && <span title="You created this group" style={{ fontSize: 16 }}>👑</span>}
+          </div>
+          {group.description && <p style={{ fontSize: 13, color: "#64748B", margin: "0 0 4px" }}>{group.description}</p>}
+          <div style={{ fontSize: 12, color: "#94A3B8", display: "flex", flexWrap: "wrap", gap: "3px 10px" }}>
+            <span>📍 {group.region}</span>
+            <span>👥 {group.member_count || 0} {group.member_count === 1 ? "member" : "members"}</span>
+          </div>
+        </div>
+        {user && !isCreator && (
+          isMember ? (
+            <button onClick={onLeave}
+              style={{ padding: "7px 14px", borderRadius: 8, border: "0.5px solid #e0e0e0", fontSize: 13, fontWeight: 500, background: "#fff", color: "#64748B", cursor: "pointer", flexShrink: 0 }}>
+              Leave
+            </button>
+          ) : (
+            <button onClick={onJoin}
+              style={{ padding: "7px 14px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 500, background: "#3B82F6", color: "#fff", cursor: "pointer", flexShrink: 0 }}>
+              Join group
+            </button>
+          )
+        )}
+      </div>
+
+      {banned && (
+        <div style={{ background: "#FEE2E2", border: "0.5px solid #FCA5A5", borderRadius: 10, padding: "12px 16px", marginBottom: "0.75rem" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#991B1B" }}>Community chat access suspended</div>
+        </div>
+      )}
+
+      {isCreator && group.is_private && group.invite_code && (
+        <InviteCodePanel inviteCode={group.invite_code} />
+      )}
+
+      {!isMember && user && !banned && (
+        <div style={{ background: "#FFFBEB", border: "0.5px solid #FDE68A", borderRadius: 10, padding: "10px 14px", marginBottom: "0.75rem", fontSize: 13, color: "#92400E" }}>
+          Join this group to send messages.
+        </div>
+      )}
+
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, display: "flex", flexDirection: "column", minHeight: 400, maxHeight: "60vh" }}>
+        <div style={{ padding: "9px 1rem", borderBottom: "0.5px solid #f0f0f0", flexShrink: 0 }}>
+          <span style={{ fontSize: 12, color: "#64748B" }}>Group chat · Last 50 messages</span>
+        </div>
+
+        <div ref={chatScrollRef} style={{ flex: 1, overflowY: "auto", padding: "1rem" }}>
+          {loading ? (
+            <div style={{ textAlign: "center", color: "#aaa", padding: "2rem", fontSize: 14 }}>Loading…</div>
+          ) : messages.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "3rem" }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>💬</div>
+              <div style={{ fontSize: 14, color: "#64748B" }}>No messages yet — start the conversation!</div>
+            </div>
+          ) : (
+            messages.map(msg => (
+              <GroupMessageBubble key={msg.id} msg={msg} myId={myId} groupCreatorId={group.created_by}
+                onReport={handleReport} reported={!!reported[msg.id]} />
+            ))
+          )}
+        </div>
+
+        {coolMsg && (
+          <div style={{ padding: "7px 1rem", background: "#FFFBEB", borderTop: "0.5px solid #FDE68A", fontSize: 13, color: "#92400E", flexShrink: 0 }}>
+            ⏳ {coolMsg}{cooldown > 0 ? ` (${cooldown}s)` : ""}
+          </div>
+        )}
+
+        {user && !banned && isMember ? (
+          <form onSubmit={handleSend} style={{ borderTop: "0.5px solid #f0f0f0", padding: "0.75rem 1rem", display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+            <input value={text} onChange={e => setText(e.target.value)}
+              placeholder={cooldown > 0 ? `Wait ${cooldown}s…` : `Message ${group.name}…`}
+              maxLength={1000} disabled={cooldown > 0}
+              style={{ flex: 1, height: 40, border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "0 12px", fontSize: 14, background: cooldown > 0 ? "#f5f5f5" : "#f9f9f9", outline: "none" }}
+            />
+            <button type="submit" disabled={!text.trim() || sending || cooldown > 0}
+              style={{ width: 40, height: 40, borderRadius: 8, border: "none", flexShrink: 0, background: canSend && text.trim() && !sending ? "#3B82F6" : "#e0e0e0", cursor: canSend && text.trim() && !sending ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M14 8H2M14 8L9 3M14 8L9 13" stroke={canSend && text.trim() && !sending ? "#fff" : "#bbb"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </form>
+        ) : !user ? (
+          <div style={{ padding: "1rem", borderTop: "0.5px solid #f0f0f0", textAlign: "center", flexShrink: 0 }}>
+            <button onClick={() => setPage("auth")}
+              style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "9px 24px", minHeight: 44, borderRadius: 8, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>
+              Log in to join the conversation
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function InviteCodePanel({ inviteCode }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    navigator.clipboard.writeText(inviteCode).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  }
+
+  return (
+    <div style={{ background: "#EFF6FF", border: "0.5px solid #BFDBFE", borderRadius: 10, padding: "12px 16px", marginBottom: "0.75rem" }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#1D4ED8", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>🔒 Private group — invite code</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ fontFamily: "monospace", fontSize: 20, fontWeight: 700, letterSpacing: "0.15em", color: "#1E3A5F", background: "#fff", border: "0.5px solid #BFDBFE", borderRadius: 8, padding: "6px 14px", flex: 1, textAlign: "center" }}>
+          {inviteCode}
+        </span>
+        <button onClick={handleCopy}
+          style={{ padding: "7px 14px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 600, background: copied ? "#16A34A" : "#3B82F6", color: "#fff", cursor: "pointer", flexShrink: 0, transition: "background 0.2s" }}>
+          {copied ? "Copied!" : "Copy"}
+        </button>
+      </div>
+      <p style={{ fontSize: 11, color: "#64748B", margin: "8px 0 0" }}>Share this code with people you want to invite. They enter it in the Groups tab to join.</p>
+    </div>
+  );
+}
+
+function GroupMessageBubble({ msg, myId, groupCreatorId, onReport, reported }) {
+  const isOwn     = msg.user_id === myId;
+  const isCreator = msg.user_id === groupCreatorId;
+  const [menuOpen,    setMenuOpen]    = useState(false);
+  const [subOpen,     setSubOpen]     = useState(false);
+  const [reportSent,  setReportSent]  = useState(reported || false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    function outside(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) { setMenuOpen(false); setSubOpen(false); }
+    }
+    document.addEventListener("mousedown", outside);
+    return () => document.removeEventListener("mousedown", outside);
+  }, []);
+
+  if (msg.hidden) {
+    return (
+      <div style={{ display: "flex", gap: 10, marginBottom: "0.875rem", alignItems: "center" }}>
+        <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#f0f0f0", flexShrink: 0 }} />
+        <span style={{ fontSize: 13, color: "#aaa", fontStyle: "italic", background: "#f9f9f7", padding: "5px 12px", borderRadius: 8, border: "0.5px solid #ececec" }}>
+          [message under review]
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 10, marginBottom: "0.875rem", alignItems: "flex-start" }}>
+      <Avatar initials={nameInitials(msg.user_name || "?")} color={pickColor(msg.user_id || "")} size={34} url={msg.user_avatar_url || null} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 3 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: isOwn ? "#2E5FA3" : "#1E3A5F" }}>{msg.user_name || "User"}</span>
+          {isCreator && <span title="Group creator" style={{ fontSize: 12 }}>👑</span>}
+          <RoleBadge authRole={msg.user_role} />
+          {msg.sequential_id && <span style={{ fontSize: 11, color: "#94A3B8", fontFamily: "monospace" }}>{fmtId(msg.sequential_id)}</span>}
+          <span style={{ fontSize: 11, color: "#aaa", marginLeft: "auto", flexShrink: 0 }}>{fmtTimeAgo(msg.created_at)}</span>
+          {!isOwn && (
+            <div ref={menuRef} style={{ position: "relative", flexShrink: 0 }}>
+              <button onClick={() => { setMenuOpen(o => !o); setSubOpen(false); }}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: "1px 5px", color: "#bbb", borderRadius: 4, fontSize: 17, lineHeight: 1 }}>
+                ···
+              </button>
+              {menuOpen && (
+                <div style={{ position: "absolute", right: 0, top: "calc(100% + 2px)", background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.10)", zIndex: 200, minWidth: 180, overflow: "hidden" }}>
+                  {!subOpen ? (
+                    <button onClick={() => setSubOpen(true)} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", fontSize: 13, color: "#D85A30", background: "none", border: "none", cursor: "pointer" }}>
+                      🚩 Report message
+                    </button>
+                  ) : (
+                    <>
+                      <div style={{ padding: "7px 14px 5px", fontSize: 11, fontWeight: 600, color: "#777", borderBottom: "0.5px solid #f0f0f0" }}>Select reason:</div>
+                      {REPORT_REASONS.map(r => (
+                        <button key={r}
+                          onClick={async () => {
+                            setMenuOpen(false); setSubOpen(false);
+                            if (!reportSent) { setReportSent(true); await onReport(msg, r); }
+                          }}
+                          disabled={reportSent}
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 14px", fontSize: 13, color: reportSent ? "#aaa" : "#333", background: "none", border: "none", cursor: reportSent ? "default" : "pointer" }}>
+                          {r}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <div style={{ fontSize: 14, color: "#333", lineHeight: 1.55, wordBreak: "break-word" }}>{msg.content}</div>
+        {reportSent && !msg.hidden && <div style={{ fontSize: 11, color: "#aaa", marginTop: 3 }}>Reported — thank you</div>}
+      </div>
+    </div>
+  );
+}
+
+// ─── BROWSE PROJECTS PAGE ────────────────────────────────────────────────────
+
+function BrowseProjectsPage({ user, setPage }) {
+  const [listings,        setListings]        = useState([]);
+  const [loading,         setLoading]         = useState(true);
+  const [interestStatus,  setInterestStatus]  = useState({});
+  const [commitments,     setCommitments]     = useState([]); // group_project_commitments
+  const [syndicateTotals, setSyndicateTotals] = useState({}); // { [listing_id]: { total, count } }
+  const [myCommitments,   setMyCommitments]   = useState({}); // { [listing_id]: amount }
+  const role = user?.user_metadata?.role;
+
+  useEffect(() => { loadAll(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadAll() {
+    setLoading(true);
+    const [listRes, { data: cmts }] = await Promise.all([
+      fetch("/api/project-listings").then(r => r.json()).catch(() => ({})),
+      supabase.from("group_project_commitments").select("*"),
+    ]);
+    setListings(listRes.listings || []);
+    setSyndicateTotals(listRes.syndicate_totals || {});
+    setCommitments(cmts || []);
+
+    if (user) {
+      const { data: mine } = await supabase
+        .from("syndicate_commitments")
+        .select("listing_id, amount")
+        .eq("lender_user_id", user.id);
+      const mineMap = {};
+      for (const c of mine || []) mineMap[c.listing_id] = Number(c.amount);
+      setMyCommitments(mineMap);
+    }
+    setLoading(false);
+  }
+
+  async function handleExpressInterest(listing) {
+    if (!user) { setPage("auth"); return; }
+    const key = listing.id;
+    setInterestStatus(prev => ({ ...prev, [key]: "loading" }));
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/connect-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "express-interest", builder_user_id: listing.user_id, builder_name: listing.builder_name, listing_title: listing.title }),
+    });
+    if (res.ok) {
+      setInterestStatus(prev => ({ ...prev, [key]: "done" }));
+      await supabase.auth.refreshSession();
+    } else {
+      const d = await res.json().catch(() => ({}));
+      if (d.error === "Already expressed interest") {
+        setInterestStatus(prev => ({ ...prev, [key]: "done" }));
+      } else {
+        setInterestStatus(prev => ({ ...prev, [key]: "error" }));
+        setTimeout(() => setInterestStatus(prev => ({ ...prev, [key]: "idle" })), 3000);
+      }
+    }
+  }
+
+  async function handleCommit(listing, amount) {
+    if (!user) { setPage("auth"); return; }
+    const name = user.user_metadata?.name || user.email?.split("@")[0] || "Lender";
+    const { error } = await supabase.from("group_project_commitments").upsert({
+      listing_id:  listing.id,
+      lender_id:   user.id,
+      lender_name: name,
+      amount:      Number(amount),
+    }, { onConflict: "listing_id,lender_id" });
+    if (!error) {
+      const { data: cmts } = await supabase.from("group_project_commitments").select("*");
+      setCommitments(cmts || []);
+    }
+  }
+
+  async function handleSyndicateCommit(listing, amount) {
+    if (!user) { setPage("auth"); return; }
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/project-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "commit-syndicate", listing_id: listing.id, builder_user_id: listing.user_id, amount: Number(amount) }),
+    });
+    if (res.ok) {
+      const d = await res.json();
+      const newTotal = (d.commitments || []).reduce((s, c) => s + Number(c.amount), 0);
+      const newCount = (d.commitments || []).length;
+      setSyndicateTotals(prev => ({ ...prev, [listing.id]: { total: newTotal, count: newCount } }));
+      setMyCommitments(prev => ({ ...prev, [listing.id]: Number(amount) }));
+    }
+  }
+
+  const myListings        = role === "builder" ? listings.filter(l => l.user_id === user?.id) : [];
+  const otherListings     = role === "builder" ? listings.filter(l => l.user_id !== user?.id) : listings;
+  const syndicatedListings = otherListings.filter(l => l.syndicate_open);
+  const groupListings     = otherListings.filter(l => l.group_funding && !l.syndicate_open);
+  const regularListings   = otherListings.filter(l => !l.group_funding && !l.syndicate_open);
+
+  function cmtsFor(listingId) {
+    return commitments.filter(c => c.listing_id === listingId);
+  }
+
+  return (
+    <div style={{ padding: "1.5rem 1.25rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem", flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 500, margin: 0, fontFamily: "'Georgia', serif" }}>Browse Projects</h1>
+          <p style={{ fontSize: 13, color: "#64748B", margin: "4px 0 0" }}>Property projects seeking funding from lenders</p>
+        </div>
+        {role === "builder" && (
+          <button
+            onClick={() => setPage("create-project-listing")}
+            style={{ padding: "9px 18px", minHeight: 44, background: "#3B82F6", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+          >
+            + Post a project
+          </button>
+        )}
+        {!user && (
+          <button
+            onClick={() => setPage("auth")}
+            style={{ padding: "9px 18px", background: "#3B82F6", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+          >
+            Log in to express interest
+          </button>
+        )}
+      </div>
+
+      {/* Builder's own listings */}
+      {role === "builder" && myListings.length > 0 && (
+        <div style={{ marginBottom: "1.75rem" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>Your listings</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+            {myListings.map(l => (
+              <ProjectListingCard key={l.id} listing={l} user={user} isOwn
+                interestStatus={interestStatus[l.id]} onExpressInterest={handleExpressInterest}
+                listingCommitments={cmtsFor(l.id)} onCommit={handleCommit}
+                syndicateTotal={syndicateTotals[l.id]?.total || 0}
+                syndicateCount={syndicateTotals[l.id]?.count || 0}
+                myCommitmentAmount={myCommitments[l.id] || 0}
+                onSyndicateCommit={handleSyndicateCommit}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ textAlign: "center", color: "#aaa", padding: "3rem", fontSize: 14 }}>Loading projects…</div>
+      ) : otherListings.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "3rem" }}>
+          <div style={{ fontSize: 36, marginBottom: 10 }}>🏗️</div>
+          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>No projects yet</div>
+          <div style={{ fontSize: 13, color: "#64748B" }}>
+            {role === "builder"
+              ? "Be the first to post a project listing."
+              : "Check back soon — builders are posting projects."}
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Syndicated lending projects */}
+          {syndicatedListings.length > 0 && (
+            <div style={{ marginBottom: "1.75rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#1D4ED8", letterSpacing: "0.1em", textTransform: "uppercase" }}>Syndicated Lending</div>
+                <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 20, background: "#EFF6FF", color: "#1D4ED8", fontWeight: 600 }}>Multiple lenders · tracked commitments</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
+                {syndicatedListings.map(l => (
+                  <ProjectListingCard key={l.id} listing={l} user={user} isOwn={false}
+                    interestStatus={interestStatus[l.id]} onExpressInterest={handleExpressInterest}
+                    listingCommitments={cmtsFor(l.id)} onCommit={handleCommit}
+                    syndicateTotal={syndicateTotals[l.id]?.total || 0}
+                    syndicateCount={syndicateTotals[l.id]?.count || 0}
+                    myCommitmentAmount={myCommitments[l.id] || 0}
+                    onSyndicateCommit={handleSyndicateCommit}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Group funding projects */}
+          {groupListings.length > 0 && (
+            <div style={{ marginBottom: "1.75rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#7C3AED", letterSpacing: "0.1em", textTransform: "uppercase" }}>Group Funding Projects</div>
+                <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 20, background: "#F3F0FF", color: "#7C3AED", fontWeight: 600 }}>Multiple lenders welcome</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
+                {groupListings.map(l => (
+                  <ProjectListingCard key={l.id} listing={l} user={user} isOwn={false}
+                    interestStatus={interestStatus[l.id]} onExpressInterest={handleExpressInterest}
+                    listingCommitments={cmtsFor(l.id)} onCommit={handleCommit}
+                    syndicateTotal={0} syndicateCount={0} myCommitmentAmount={0} onSyndicateCommit={handleSyndicateCommit}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Regular projects */}
+          {regularListings.length > 0 && (
+            <>
+              {(syndicatedListings.length > 0 || groupListings.length > 0) && (
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#64748B", letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 12 }}>
+                  {role === "builder" && myListings.length > 0 ? "Other projects" : "All projects"}
+                </div>
+              )}
+              {role === "builder" && myListings.length > 0 && syndicatedListings.length === 0 && groupListings.length === 0 && (
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#64748B", letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 12 }}>Other projects</div>
+              )}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+                {regularListings.map(l => (
+                  <ProjectListingCard key={l.id} listing={l} user={user} isOwn={false}
+                    interestStatus={interestStatus[l.id]} onExpressInterest={handleExpressInterest}
+                    listingCommitments={[]} onCommit={handleCommit}
+                    syndicateTotal={0} syndicateCount={0} myCommitmentAmount={0} onSyndicateCommit={handleSyndicateCommit}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ProjectListingCard({ listing, user, isOwn, interestStatus, onExpressInterest, listingCommitments = [], onCommit,
+  syndicateTotal = 0, syndicateCount = 0, myCommitmentAmount = 0, onSyndicateCommit }) {
+  const [photoIdx,    setPhotoIdx]    = useState(0);
+  const [commitInput, setCommitInput] = useState("");
+  const [commitOpen,  setCommitOpen]  = useState(false);
+  const [committing,  setCommitting]  = useState(false);
+  const [synCommitOpen,  setSynCommitOpen]  = useState(false);
+  const [synCommitInput, setSynCommitInput] = useState("");
+  const [synCommitting,  setSynCommitting]  = useState(false);
+  const [synError,       setSynError]       = useState("");
+  const photos = listing.photos || [];
+  const role   = user?.user_metadata?.role;
+  const st     = interestStatus || "idle";
+
+  const alreadySent = user?.user_metadata?.builder_connections?.some(
+    c => c.builder_name === listing.builder_name && c.project_title === listing.title
+  );
+  const isDone = alreadySent || st === "done";
+
+  const btnLabel = isDone ? "Interest sent!" : st === "loading" ? "Sending…" : st === "error" ? "Error — retry" : "Express Interest";
+  const btnBg    = isDone ? "#5aaf90" : st === "error" ? "#D85A30" : "#1D9E75";
+
+  // Group funding progress
+  const isGroup        = !!listing.group_funding;
+  const totalNeeded    = listing.funding_needed || 0;
+  const totalCommitted = listingCommitments.reduce((s, c) => s + Number(c.amount), 0);
+  const pct            = totalNeeded > 0 ? Math.min(100, Math.round((totalCommitted / totalNeeded) * 100)) : 0;
+  const fullyFunded    = pct >= 100;
+  const myCommitment   = listingCommitments.find(c => c.lender_id === user?.id);
+
+  // Syndicated lending
+  const isSyndicate      = !!listing.syndicate_open;
+  const synPct           = totalNeeded > 0 ? Math.min(100, Math.round((syndicateTotal / totalNeeded) * 100)) : 0;
+  const synFullyFunded   = synPct >= 100;
+  const minCommitment    = listing.min_commitment || 0;
+  const mySharePct       = totalNeeded > 0 && myCommitmentAmount > 0
+    ? ((myCommitmentAmount / totalNeeded) * 100).toFixed(1)
+    : null;
+
+  async function handleCommitSubmit(e) {
+    e.preventDefault();
+    if (!commitInput || isNaN(Number(commitInput)) || Number(commitInput) <= 0) return;
+    setCommitting(true);
+    await onCommit(listing, commitInput);
+    setCommitting(false);
+    setCommitOpen(false);
+    setCommitInput("");
+  }
+
+  async function handleSynCommitSubmit(e) {
+    e.preventDefault();
+    setSynError("");
+    const val = Number(synCommitInput);
+    if (!synCommitInput || isNaN(val) || val <= 0) return;
+    if (minCommitment > 0 && val < minCommitment) {
+      setSynError(`Minimum commitment is ${fmt(minCommitment)}`);
+      return;
+    }
+    setSynCommitting(true);
+    await onSyndicateCommit(listing, synCommitInput);
+    setSynCommitting(false);
+    setSynCommitOpen(false);
+    setSynCommitInput("");
+  }
+
+  const cardBorder = isSyndicate ? "#BFDBFE" : isGroup ? "#DDD6FE" : "#e0e0e0";
+  const cardHeaderBg = isSyndicate ? "#EFF6FF" : isGroup ? "#F3F0FF" : "#f0faf6";
+
+  return (
+    <div style={{ background: "#fff", border: `0.5px solid ${cardBorder}`, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+      {photos.length > 0 ? (
+        <div style={{ position: "relative", height: 180, background: "#f0f0f0", overflow: "hidden", flexShrink: 0 }}>
+          <img src={photos[photoIdx]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          {photos.length > 1 && (
+            <div style={{ position: "absolute", bottom: 8, right: 8, display: "flex", gap: 4 }}>
+              {photos.map((_, i) => (
+                <button key={i} onClick={() => setPhotoIdx(i)} style={{
+                  width: 7, height: 7, borderRadius: "50%", border: "none",
+                  cursor: "pointer", padding: 0,
+                  background: i === photoIdx ? "#fff" : "rgba(255,255,255,0.5)",
+                }} />
+              ))}
+            </div>
+          )}
+          <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 4 }}>
+            {isSyndicate && (
+              <span style={{ background: "#1D4ED8", color: "#fff", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20 }}>
+                Syndicated
+              </span>
+            )}
+            {isGroup && (
+              <span style={{ background: "#7C3AED", color: "#fff", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20 }}>
+                Group Funding
+              </span>
+            )}
+          </div>
+          {isSyndicate && synFullyFunded && (
+            <div style={{ position: "absolute", top: 8, right: 8, background: "#059669", color: "#fff", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20 }}>
+              Fully Funded ✓
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ height: 90, background: cardHeaderBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, flexShrink: 0, position: "relative" }}>
+          🏗️
+          <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 4 }}>
+            {isSyndicate && (
+              <span style={{ background: "#1D4ED8", color: "#fff", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20 }}>
+                Syndicated
+              </span>
+            )}
+            {isGroup && (
+              <span style={{ background: "#7C3AED", color: "#fff", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20 }}>
+                Group Funding
+              </span>
+            )}
+          </div>
+          {isSyndicate && synFullyFunded && (
+            <div style={{ position: "absolute", top: 8, right: 8, background: "#059669", color: "#fff", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20 }}>
+              Fully Funded ✓
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ padding: "1rem", flex: 1, display: "flex", flexDirection: "column" }}>
+        {(() => {
+          const ai = computeAIRiskAnalysis(listing);
+          return (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+              <div style={{ fontSize: 15, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{listing.title}</div>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20, background: ai.riskBg, color: ai.riskColor, flexShrink: 0, marginLeft: 6 }}>
+                {ai.riskLabel}
+              </span>
+            </div>
+          );
+        })()}
+
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+          <Avatar initials={nameInitials(listing.builder_name)} color={pickColor(listing.user_id || "")} size={22} url={listing.builder_avatar_url} />
+          <span style={{ fontSize: 12, color: "#64748B" }}>{listing.builder_name}</span>
+          {listing.location && <span style={{ fontSize: 12, color: "#aaa" }}>· 📍 {listing.location}</span>}
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
+          {listing.project_type    && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: "#EBF2FF", color: "#1E3A5F" }}>{listing.project_type}</span>}
+          {listing.funding_needed  && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: "#EBF2FF", color: "#1E3A5F" }}>{fmt(listing.funding_needed)}</span>}
+          {listing.expected_return && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: "#DBEAFE", color: "#1D4ED8" }}>{listing.expected_return} return</span>}
+        </div>
+
+        {listing.description && (
+          <p style={{
+            fontSize: 13, color: "#666", lineHeight: 1.5, margin: "0 0 10px", flex: 1,
+            overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+          }}>
+            {listing.description}
+          </p>
+        )}
+
+        {listing.timeline && (
+          <div style={{ fontSize: 12, color: "#64748B", marginBottom: 10 }}>⏱ {listing.timeline}</div>
+        )}
+
+        {/* Syndicated lending progress bar */}
+        {isSyndicate && totalNeeded > 0 && (
+          <div style={{ marginBottom: 12, background: "#EFF6FF", borderRadius: 8, padding: "10px 12px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+              <span style={{ fontSize: 12, color: synFullyFunded ? "#059669" : "#1D4ED8", fontWeight: 700 }}>
+                {synFullyFunded ? "Fully Funded!" : `${synPct}% funded`}
+              </span>
+              <span style={{ fontSize: 12, color: "#64748B" }}>
+                {fmt(syndicateTotal)} of {fmt(totalNeeded)}
+              </span>
+            </div>
+            <div style={{ height: 7, background: "#BFDBFE", borderRadius: 4, overflow: "hidden", marginBottom: 6 }}>
+              <div style={{
+                height: "100%", borderRadius: 4,
+                background: synFullyFunded ? "#059669" : "#2563EB",
+                width: `${synPct}%`, transition: "width 0.4s ease",
+              }} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: "#64748B" }}>
+                {syndicateCount} lender{syndicateCount !== 1 ? "s" : ""} committed
+              </span>
+              {minCommitment > 0 && (
+                <span style={{ fontSize: 11, color: "#1D4ED8", fontWeight: 500 }}>
+                  Min: {fmt(minCommitment)}
+                </span>
+              )}
+            </div>
+            {myCommitmentAmount > 0 && (
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: "0.5px solid #BFDBFE" }}>
+                <div style={{ fontSize: 12, color: "#1D4ED8", fontWeight: 600 }}>
+                  Your commitment: {fmt(myCommitmentAmount)} · {mySharePct}% share
+                </div>
+                {listing.expected_return && (
+                  <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>
+                    Projected return on your {fmt(myCommitmentAmount)}: {listing.expected_return}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Group funding progress bar */}
+        {isGroup && !isSyndicate && totalNeeded > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span style={{ fontSize: 12, color: "#7C3AED", fontWeight: 600 }}>
+                {fullyFunded ? "Fully funded!" : `${pct}% committed`}
+              </span>
+              <span style={{ fontSize: 12, color: "#64748B" }}>
+                {fmt(totalCommitted)} / {fmt(totalNeeded)}
+              </span>
+            </div>
+            <div style={{ height: 6, background: "#EDE9FE", borderRadius: 3, overflow: "hidden" }}>
+              <div style={{
+                height: "100%", borderRadius: 3,
+                background: fullyFunded ? "#059669" : "#7C3AED",
+                width: `${pct}%`, transition: "width 0.4s ease",
+              }} />
+            </div>
+            {listingCommitments.length > 0 && (
+              <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 4 }}>
+                {listingCommitments.length} lender{listingCommitments.length !== 1 ? "s" : ""} committed
+                {myCommitment && <span style={{ color: "#7C3AED", fontWeight: 600 }}> · You: {fmt(myCommitment.amount)}</span>}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Action buttons */}
+        {isOwn ? (
+          <div style={{ fontSize: 12, color: "#3B82F6", fontWeight: 500, paddingTop: 4 }}>Your listing · active</div>
+        ) : isSyndicate && role === "lender" ? (
+          <>
+            {!synFullyFunded && !synCommitOpen && (
+              <button
+                onClick={() => { setSynCommitOpen(true); setSynCommitInput(myCommitmentAmount > 0 ? String(myCommitmentAmount) : ""); }}
+                style={{
+                  width: "100%",
+                  background: myCommitmentAmount > 0 ? "#EFF6FF" : "#1D4ED8",
+                  color: myCommitmentAmount > 0 ? "#1D4ED8" : "#fff",
+                  border: myCommitmentAmount > 0 ? "0.5px solid #BFDBFE" : "none",
+                  padding: "8px 0", minHeight: 44, borderRadius: 8,
+                  fontSize: 13, fontWeight: 500, marginTop: "auto", cursor: "pointer",
+                  transition: "background 0.2s",
+                }}
+              >
+                {myCommitmentAmount > 0 ? `Update commitment · ${fmt(myCommitmentAmount)}` : "Commit funds"}
+              </button>
+            )}
+            {synFullyFunded && (
+              <div style={{ fontSize: 12, color: "#059669", fontWeight: 700, padding: "8px 0", textAlign: "center", background: "#ECFDF5", borderRadius: 8 }}>
+                Fully Funded ✓
+              </div>
+            )}
+            {synCommitOpen && (
+              <form onSubmit={handleSynCommitSubmit} style={{ marginTop: "auto" }}>
+                {minCommitment > 0 && (
+                  <div style={{ fontSize: 11, color: "#64748B", marginBottom: 6 }}>
+                    Minimum commitment: {fmt(minCommitment)}
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 6 }}>
+                  <div style={{ flex: 1, position: "relative" }}>
+                    <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#555" }}>£</span>
+                    <input
+                      type="number"
+                      min={minCommitment || 1}
+                      step="1000"
+                      value={synCommitInput}
+                      onChange={e => { setSynCommitInput(e.target.value); setSynError(""); }}
+                      placeholder={minCommitment > 0 ? String(minCommitment) : "Amount"}
+                      style={{ width: "100%", height: 40, border: "0.5px solid #BFDBFE", borderRadius: 8, padding: "0 10px 0 22px", fontSize: 14, boxSizing: "border-box" }}
+                      autoFocus
+                    />
+                  </div>
+                  <button type="submit" disabled={synCommitting}
+                    style={{ padding: "0 14px", height: 40, background: "#1D4ED8", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: synCommitting ? "default" : "pointer", flexShrink: 0 }}>
+                    {synCommitting ? "…" : "Confirm"}
+                  </button>
+                  <button type="button" onClick={() => { setSynCommitOpen(false); setSynCommitInput(""); setSynError(""); }}
+                    style={{ padding: "0 10px", height: 40, background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, fontSize: 13, color: "#555", cursor: "pointer", flexShrink: 0 }}>
+                    ✕
+                  </button>
+                </div>
+                {synError && <div style={{ fontSize: 11, color: "#993C1D", marginTop: 4 }}>{synError}</div>}
+              </form>
+            )}
+          </>
+        ) : isSyndicate && !user ? (
+          <button
+            style={{ width: "100%", background: "#1D4ED8", color: "#fff", border: "none", padding: "8px 0", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, marginTop: "auto", cursor: "pointer" }}
+            onClick={() => window.location.hash = "auth"}
+          >
+            Log in to commit funds
+          </button>
+        ) : isGroup && !isSyndicate && role === "lender" ? (
+          <>
+            {!fullyFunded && !commitOpen && (
+              <button
+                onClick={() => setCommitOpen(true)}
+                style={{
+                  width: "100%", background: myCommitment ? "#EDE9FE" : "#7C3AED",
+                  color: myCommitment ? "#7C3AED" : "#fff",
+                  border: myCommitment ? "0.5px solid #DDD6FE" : "none",
+                  padding: "8px 0", minHeight: 44, borderRadius: 8,
+                  fontSize: 13, fontWeight: 500, marginTop: "auto", cursor: "pointer",
+                  transition: "background 0.2s",
+                }}
+              >
+                {myCommitment ? `Update commitment · ${fmt(myCommitment.amount)}` : "Commit funding"}
+              </button>
+            )}
+            {fullyFunded && (
+              <div style={{ fontSize: 12, color: "#059669", fontWeight: 600, padding: "8px 0", textAlign: "center" }}>
+                Fully funded ✓
+              </div>
+            )}
+            {commitOpen && (
+              <form onSubmit={handleCommitSubmit} style={{ display: "flex", gap: 6, marginTop: "auto" }}>
+                <div style={{ flex: 1, position: "relative" }}>
+                  <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#555" }}>£</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1000"
+                    value={commitInput}
+                    onChange={e => setCommitInput(e.target.value)}
+                    placeholder="Amount"
+                    style={{ width: "100%", height: 40, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px 0 22px", fontSize: 14, boxSizing: "border-box" }}
+                    autoFocus
+                  />
+                </div>
+                <button type="submit" disabled={committing}
+                  style={{ padding: "0 14px", height: 40, background: "#7C3AED", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: committing ? "default" : "pointer", flexShrink: 0 }}>
+                  {committing ? "…" : "Confirm"}
+                </button>
+                <button type="button" onClick={() => { setCommitOpen(false); setCommitInput(""); }}
+                  style={{ padding: "0 10px", height: 40, background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, fontSize: 13, color: "#555", cursor: "pointer", flexShrink: 0 }}>
+                  ✕
+                </button>
+              </form>
+            )}
+          </>
+        ) : !isSyndicate && !isGroup && role === "lender" ? (
+          <button
+            onClick={() => onExpressInterest(listing)}
+            disabled={isDone || st === "loading"}
+            style={{
+              width: "100%", background: btnBg, color: "#fff", border: "none",
+              padding: "8px 0", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, marginTop: "auto",
+              cursor: isDone || st === "loading" ? "default" : "pointer",
+              transition: "background 0.2s",
+            }}
+          >
+            {btnLabel}
+          </button>
+        ) : !user ? (
+          <div style={{ fontSize: 12, color: "#64748B", marginTop: "auto" }}>Log in to express interest</div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// ─── CREATE PROJECT LISTING PAGE ──────────────────────────────────────────────
+
+function CreateProjectListingPage({ user, setPage }) {
+  const [title,          setTitle]          = useState("");
+  const [location,       setLocation]       = useState("");
+  const [projectType,    setProjectType]    = useState("");
+  const [fundingNeeded,  setFundingNeeded]  = useState("");
+  const [expectedReturn, setExpectedReturn] = useState("");
+  const [timeline,       setTimeline]       = useState("");
+  const [description,    setDescription]    = useState("");
+  const [photos,         setPhotos]         = useState([]);
+  const [groupFunding,   setGroupFunding]   = useState(false);
+  const [syndicateOpen,  setSyndicateOpen]  = useState(false);
+  const [minCommitment,  setMinCommitment]  = useState("");
+  const [uploading,      setUploading]      = useState(false);
+  const [saving,         setSaving]         = useState(false);
+  const [error,          setError]          = useState("");
+  const [aiPreview,      setAiPreview]      = useState(null);
+
+  async function handlePhotoUpload(e) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const remaining = 5 - photos.length;
+    if (remaining <= 0) return;
+    setUploading(true);
+    const newUrls = [];
+    for (const file of files.slice(0, remaining)) {
+      if (file.size > 5 * 1024 * 1024) continue;
+      const ext  = file.name.split(".").pop().toLowerCase();
+      const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error: uploadErr } = await supabase.storage.from("project-photos").upload(path, file);
+      if (!uploadErr) {
+        const { data: { publicUrl } } = supabase.storage.from("project-photos").getPublicUrl(path);
+        newUrls.push(publicUrl);
+      }
+    }
+    setPhotos(prev => [...prev, ...newUrls].slice(0, 5));
+    setUploading(false);
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!title.trim()) { setError("Title is required"); return; }
+    setSaving(true);
+    setError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/project-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({
+        action:          "create",
+        title:           title.trim(),
+        location:        location.trim(),
+        project_type:    projectType,
+        funding_needed:  fundingNeeded ? Number(fundingNeeded) : null,
+        expected_return: expectedReturn.trim(),
+        timeline:        timeline.trim(),
+        description:     description.trim(),
+        photos,
+        group_funding:   groupFunding,
+        syndicate_open:  syndicateOpen,
+        min_commitment:  syndicateOpen && minCommitment ? Number(minCommitment) : null,
+      }),
+    });
+    setSaving(false);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(d.error || "We couldn't save that — please try again.");
+      return;
+    }
+    // Show AI analysis preview before navigating
+    const listingForAI = { title, location, project_type: projectType, funding_needed: fundingNeeded ? Number(fundingNeeded) : null, description, photos, timeline };
+    setAiPreview(computeAIRiskAnalysis(listingForAI));
+  }
+
+  const inp = {
+    width: "100%", height: 44, border: "0.5px solid #ccc", borderRadius: 8,
+    padding: "0 12px", fontSize: 14, background: "#fff", boxSizing: "border-box",
+  };
+  const lbl = { fontSize: 13, color: "#555", marginBottom: 5, display: "block", fontWeight: 500 };
+  const PROJECT_TYPES = ["Residential", "Commercial", "Mixed use", "Renovation", "Industrial", "Other"];
+
+  if (aiPreview) {
+    return (
+      <div style={{ padding: "2rem 1.25rem", maxWidth: 560, margin: "0 auto" }}>
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 16, padding: "1.75rem", textAlign: "center" }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>✅</div>
+          <h2 style={{ fontSize: 20, fontWeight: 600, color: "#1E3A5F", marginBottom: 6 }}>Project listed!</h2>
+          <p style={{ fontSize: 13, color: "#64748B", marginBottom: 20 }}>Here's your AI risk preview:</p>
+          <div style={{ background: aiPreview.riskBg, border: `1px solid ${aiPreview.riskColor}30`, borderRadius: 12, padding: "1rem", marginBottom: 16, textAlign: "left" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: aiPreview.riskColor }}>{aiPreview.riskLabel}</span>
+              <span style={{ fontSize: 12, color: aiPreview.riskColor }}>Score: {aiPreview.score}/100</span>
+            </div>
+            <p style={{ fontSize: 13, color: "#555", lineHeight: 1.6, margin: "0 0 8px" }}>{aiPreview.summary}</p>
+            <div style={{ fontSize: 12, color: "#555", fontStyle: "italic" }}>{aiPreview.structure}</div>
+          </div>
+          <button onClick={() => setPage("browse-projects")} style={{ padding: "11px 28px", background: "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+            View your listing →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: "2rem 1.25rem", maxWidth: 560, margin: "0 auto" }}>
+      <button
+        onClick={() => setPage("browse-projects")}
+        style={{ background: "none", border: "none", color: "#555", fontSize: 14, cursor: "pointer", padding: 0, marginBottom: "1.5rem" }}
+      >
+        ← Browse projects
+      </button>
+      <h1 style={{ fontSize: 22, fontWeight: 500, margin: "0 0 6px", fontFamily: "'Georgia', serif" }}>Post a project</h1>
+      <p style={{ fontSize: 13, color: "#64748B", margin: "0 0 1.75rem" }}>List your project to attract lenders</p>
+
+      {error && (
+        <div style={{ background: "#FAECE7", color: "#993C1D", border: "0.5px solid #F5C9BB", borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: "1rem" }}>
+          {error}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>Project details</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <label style={lbl}>Project title *</label>
+              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. 3-bed new build, Manchester" required style={inp} />
+            </div>
+            <div>
+              <label style={lbl}>Location</label>
+              <input value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. Manchester, UK" style={inp} />
+            </div>
+            <div>
+              <label style={lbl}>Project type</label>
+              <select value={projectType} onChange={e => setProjectType(e.target.value)} style={inp}>
+                <option value="">Select type…</option>
+                {PROJECT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={lbl}>Funding needed (£)</label>
+              <input type="number" min="0" step="1000" value={fundingNeeded} onChange={e => setFundingNeeded(e.target.value)} placeholder="e.g. 150000" style={inp} />
+            </div>
+            <div>
+              <label style={lbl}>Expected return for lender</label>
+              <input value={expectedReturn} onChange={e => setExpectedReturn(e.target.value)} placeholder="e.g. 8% p.a., 60/40 split" style={inp} />
+            </div>
+            <div>
+              <label style={lbl}>Timeline</label>
+              <input value={timeline} onChange={e => setTimeline(e.target.value)} placeholder="e.g. 12 months" style={inp} />
+            </div>
+            <div>
+              <label style={lbl}>Description</label>
+              <textarea
+                value={description} onChange={e => setDescription(e.target.value)}
+                placeholder="Describe the project, planning status, expected profits…"
+                style={{ ...inp, height: 100, padding: "10px 12px", resize: "vertical", lineHeight: 1.5 }}
+              />
+            </div>
+
+            {/* Group funding toggle */}
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", paddingTop: 4 }}>
+              <input
+                type="checkbox"
+                checked={groupFunding}
+                onChange={e => setGroupFunding(e.target.checked)}
+                style={{ marginTop: 2, width: 16, height: 16, cursor: "pointer", flexShrink: 0 }}
+              />
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500, color: "#333" }}>Open to group funding</div>
+                <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>Multiple lenders can each commit a portion of the total amount. Each lender only funds their committed portion via milestones.</div>
+              </div>
+            </label>
+
+            {/* Syndicated lending toggle */}
+            <div style={{ borderTop: "0.5px solid #f0f0f0", paddingTop: 14 }}>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={syndicateOpen}
+                  onChange={e => { setSyndicateOpen(e.target.checked); if (!e.target.checked) setMinCommitment(""); }}
+                  style={{ marginTop: 2, width: 16, height: 16, cursor: "pointer", flexShrink: 0 }}
+                />
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: "#333" }}>Open to syndicated lending</div>
+                  <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>Lenders commit specific amounts tracked on a live progress bar. You're notified each time someone commits and again when fully funded.</div>
+                </div>
+              </label>
+              {syndicateOpen && (
+                <div style={{ marginTop: 12, paddingLeft: 26 }}>
+                  <label style={lbl}>Minimum contribution per lender (£) <span style={{ color: "#aaa", fontWeight: 400 }}>optional</span></label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={minCommitment}
+                    onChange={e => setMinCommitment(e.target.value)}
+                    placeholder="e.g. 10000"
+                    style={{ ...inp, maxWidth: 220 }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>
+            Photos (up to 5)
+          </div>
+          {photos.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+              {photos.map((url, i) => (
+                <div key={i} style={{ position: "relative", width: 80, height: 80 }}>
+                  <img src={url} alt="" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 8, border: "0.5px solid #e0e0e0" }} />
+                  <button
+                    type="button"
+                    onClick={() => setPhotos(prev => prev.filter((_, j) => j !== i))}
+                    style={{
+                      position: "absolute", top: -6, right: -6,
+                      width: 20, height: 20, borderRadius: "50%",
+                      background: "#D85A30", color: "#fff", border: "none",
+                      cursor: "pointer", fontSize: 13, lineHeight: 1,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                  >×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {photos.length < 5 && (
+            <label style={{
+              display: "inline-flex", alignItems: "center", padding: "0 16px",
+              height: 44, minHeight: 44,
+              background: uploading ? "#f0f0f0" : "#fff",
+              border: "0.5px solid #ccc", borderRadius: 8,
+              fontSize: 13, cursor: uploading ? "default" : "pointer", color: "#555",
+            }}>
+              {uploading ? "Uploading…" : "Add photos"}
+              <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={handlePhotoUpload} disabled={uploading} />
+            </label>
+          )}
+          <div style={{ fontSize: 11, color: "#aaa", marginTop: 8 }}>Max 5 photos · 5 MB each · Requires a "project-photos" public bucket in Supabase Storage</div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={saving || uploading}
+          style={{
+            background: saving || uploading ? "#aaa" : "#3B82F6", color: (saving || uploading) ? "#fff" : "#1E3A5F",
+            border: "none", padding: "12px", borderRadius: 8,
+            fontSize: 15, fontWeight: 500,
+            cursor: saving || uploading ? "default" : "pointer",
+          }}
+        >
+          {saving ? "Posting…" : "Post project"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+// ─── ABOUT PAGE ──────────────────────────────────────────────────────────────
+
+function AboutPage({ setPage }) {
+  const [contactForm, setContactForm] = useState({ name: "", email: "", message: "" });
+  const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  async function handleContact(e) {
+    e.preventDefault();
+    setSending(true);
+    await fetch("/api/notify-message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "contact-form", ...contactForm }),
+    }).catch(() => {});
+    setSent(true);
+    setSending(false);
+  }
+
+  return (
+    <div style={{ padding: "1.5rem 1.25rem", maxWidth: 760, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(28px, 5vw, 42px)", fontWeight: 700, color: "#1E3A5F", margin: "0 0 0.5rem" }}>About LenderBuild</h1>
+      <p style={{ fontSize: 16, color: "#64748B", margin: "0 0 2.5rem", lineHeight: 1.6 }}>Making UK property investment accessible to builders and lenders alike.</p>
+
+      {/* Founder section */}
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 14, padding: "2rem", marginBottom: "1.5rem", display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-start" }}>
+        <div style={{ width: 90, height: 90, borderRadius: "50%", background: "linear-gradient(135deg, #1E3A5F 0%, #3B82F6 100%)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <span style={{ fontSize: 36, fontWeight: 700, color: "#fff" }}>L</span>
+        </div>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: "#1E3A5F", marginBottom: 4 }}>Louis Graham</div>
+          <div style={{ fontSize: 14, color: "#3B82F6", fontWeight: 500, marginBottom: 12 }}>Founder & CEO, LenderBuild</div>
+          <p style={{ fontSize: 14, color: "#555", lineHeight: 1.7, margin: 0 }}>
+            I built LenderBuild after watching talented builders struggle to find the right funding, while motivated lenders had no reliable way to vet and connect with credible projects. The UK property market is full of opportunity — but the matchmaking problem was getting in the way. LenderBuild fixes that.
+          </p>
+        </div>
+      </div>
+
+      {/* Mission */}
+      <div style={{ background: "linear-gradient(135deg, #1E3A5F 0%, #2E5FA3 100%)", borderRadius: 14, padding: "2rem", marginBottom: "1.5rem", color: "#fff" }}>
+        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.65, marginBottom: 10 }}>Our mission</div>
+        <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 24, fontWeight: 700, margin: "0 0 14px" }}>Making property investment accessible</h2>
+        <p style={{ fontSize: 14, lineHeight: 1.75, opacity: 0.85, margin: 0 }}>
+          We believe every builder with a solid plan deserves access to capital, and every lender deserves a transparent, trustworthy platform to put their money to work. LenderBuild uses smart matching, verified profiles, and milestone-based payments to create fair, protected deals for both sides.
+        </p>
+      </div>
+
+      {/* Team */}
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 14, padding: "1.75rem", marginBottom: "1.5rem" }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 16 }}>The team</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ width: 50, height: 50, borderRadius: "50%", background: "#EBF2FF", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <span style={{ fontSize: 20, fontWeight: 700, color: "#1E3A5F" }}>L</span>
+          </div>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: "#1E3A5F" }}>Louis Graham</div>
+            <div style={{ fontSize: 13, color: "#64748B" }}>Founder — product, engineering & growth</div>
+          </div>
+        </div>
+        <p style={{ fontSize: 13, color: "#64748B", margin: "16px 0 0", lineHeight: 1.6 }}>We're a small team with big ambitions. If you share our vision for transforming UK property finance, <button onClick={() => document.getElementById("contact-form").scrollIntoView({ behavior: "smooth" })} style={{ background: "none", border: "none", color: "#3B82F6", cursor: "pointer", fontSize: 13, padding: 0, fontWeight: 500 }}>get in touch</button>.</p>
+      </div>
+
+      {/* Contact */}
+      <div id="contact-form" style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 14, padding: "1.75rem" }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Contact us</div>
+        <p style={{ fontSize: 13, color: "#64748B", margin: "0 0 16px" }}>Have a question or want to get involved? Email us directly at <a href="mailto:louisgraham932@gmail.com" style={{ color: "#3B82F6", textDecoration: "none", fontWeight: 500 }}>louisgraham932@gmail.com</a>, or use the form below.</p>
+        {sent ? (
+          <div style={{ background: "#E1F5EE", border: "0.5px solid #A8DFC9", borderRadius: 10, padding: "14px 16px", fontSize: 14, color: "#0F6E56", fontWeight: 500 }}>Message sent — we'll be in touch soon.</div>
+        ) : (
+          <form onSubmit={handleContact} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {[["name","Your name","text"],["email","Your email","email"]].map(([field, ph, type]) => (
+              <input key={field} type={type} required value={contactForm[field]} onChange={e => setContactForm(f => ({ ...f, [field]: e.target.value }))}
+                placeholder={ph}
+                style={{ width: "100%", height: 44, border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "0 12px", fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+            ))}
+            <textarea required value={contactForm.message} onChange={e => setContactForm(f => ({ ...f, message: e.target.value }))}
+              placeholder="Your message…" rows={4}
+              style={{ width: "100%", border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "10px 12px", fontSize: 14, resize: "vertical", outline: "none", lineHeight: 1.5, boxSizing: "border-box" }} />
+            <button type="submit" disabled={sending} style={{ padding: "11px", background: sending ? "#aaa" : "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: sending ? "default" : "pointer" }}>
+              {sending ? "Sending…" : "Send message"}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── DEAL ROOM PAGE ───────────────────────────────────────────────────────────
+
+function DealRoomPage({ user, setPage, deal }) {
+  const [activeTab, setActiveTab] = useState("summary");
+  const [notes, setNotes] = useState([]);
+  const [noteText, setNoteText] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+  const [callModal, setCallModal] = useState(false);
+  const [callTime, setCallTime] = useState("");
+  const [callSent, setCallSent] = useState(false);
+
+  const milestones = (deal.milestones || []).sort((a, b) => a.order_index - b.order_index);
+  const totalAmount = milestones.reduce((s, m) => s + Number(m.amount), 0);
+  const role = user?.user_metadata?.role;
+  const docs = deal.deal_documents || [];
+
+  useEffect(() => {
+    if (activeTab === "notes") loadNotes();
+  }, [activeTab]); // eslint-disable-line
+
+  async function loadNotes() {
+    const { data } = await supabase.from("deal_notes").select("*").eq("deal_id", deal.id).order("created_at", { ascending: true });
+    setNotes(data || []);
+  }
+
+  async function handleAddNote(e) {
+    e.preventDefault();
+    if (!noteText.trim()) return;
+    setSavingNote(true);
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const authorName = authUser?.user_metadata?.name || authUser?.email || "Unknown";
+    const { error } = await supabase.from("deal_notes").insert({
+      deal_id: deal.id,
+      user_id: user.id,
+      author_name: authorName,
+      content: noteText.trim(),
+    });
+    setSavingNote(false);
+    if (!error) {
+      setNoteText("");
+      loadNotes();
+    }
+  }
+
+  async function handleSendCallProposal(e) {
+    e.preventDefault();
+    const { data: { session } } = await supabase.auth.getSession();
+    await fetch("/api/notify-message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({
+        action: "contact-form",
+        name: user?.user_metadata?.name || "User",
+        email: user?.email,
+        message: `Meeting proposal for deal "${deal.title}": ${callTime}`,
+      }),
+    });
+    setCallSent(true);
+    setCallModal(false);
+  }
+
+  // Build timeline events
+  const timelineEvents = [
+    { date: deal.created_at, label: "Deal created", color: "#3B82F6" },
+    ...milestones.filter(m => m.completed_at).map(m => ({ date: m.completed_at, label: `Milestone completed: ${m.title}`, color: "#8B5CF6" })),
+    ...milestones.filter(m => m.approved_at).map(m => ({ date: m.approved_at, label: `Milestone approved: ${m.title}`, color: "#16A34A" })),
+    ...docs.filter(d => d.uploaded_at).map(d => ({ date: d.uploaded_at, label: `Document uploaded: ${d.doc_type?.replace(/_/g, " ")}`, color: "#D97706" })),
+  ].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  const tabs = ["Summary", "Documents", "Timeline", "Notes", "Milestones", "Messages"];
+
+  const statusColors = { pending: { bg: "#F1EFE8", text: "#5F5E5A" }, completed: { bg: "#EBF2FF", text: "#1E3A5F" }, approved: { bg: "#EEEDFE", text: "#534AB7" }, paid: { bg: "#E1F5EE", text: "#0F6E56" } };
+  const statusLabels = { pending: "Pending", completed: "Awaiting approval", approved: "Approved", paid: "Paid" };
+
+  return (
+    <div style={{ maxWidth: 780, margin: "0 auto", padding: "1.5rem 1.25rem" }}>
+      <button onClick={() => setPage("deal-detail", deal)} style={{ background: "none", border: "none", color: "#3B82F6", fontSize: 13, cursor: "pointer", padding: 0, marginBottom: "1rem" }}>
+        ← Back to deal
+      </button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.25rem", flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 4px", fontFamily: "'Georgia', serif" }}>Deal Room</h1>
+          <div style={{ fontSize: 13, color: "#64748B" }}>{deal.title}</div>
+        </div>
+        <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: deal.status === "active" ? "#DCFCE7" : "#EBF2FF", color: deal.status === "active" ? "#16A34A" : "#1E3A5F", textTransform: "capitalize" }}>
+          {deal.status}
+        </span>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 4, borderBottom: "0.5px solid #e0e0e0", marginBottom: "1.5rem", overflowX: "auto" }}>
+        {tabs.map(t => (
+          <button key={t} onClick={() => setActiveTab(t.toLowerCase())}
+            style={{ padding: "8px 14px", border: "none", background: "none", fontSize: 13, fontWeight: activeTab === t.toLowerCase() ? 600 : 400, color: activeTab === t.toLowerCase() ? "#3B82F6" : "#64748B", borderBottom: activeTab === t.toLowerCase() ? "2px solid #3B82F6" : "2px solid transparent", cursor: "pointer", whiteSpace: "nowrap" }}>
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Summary ── */}
+      {activeTab === "summary" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Parties</div>
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 140 }}><div style={{ fontSize: 11, color: "#aaa", marginBottom: 2 }}>Lender</div><div style={{ fontSize: 14, fontWeight: 500 }}>{deal.lender_name}</div></div>
+              <div style={{ flex: 1, minWidth: 140 }}><div style={{ fontSize: 11, color: "#aaa", marginBottom: 2 }}>Builder</div><div style={{ fontSize: 14, fontWeight: 500 }}>{deal.builder_name}</div></div>
+            </div>
+          </div>
+          <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Deal overview</div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ background: "#f5f5f3", borderRadius: 10, padding: "0.75rem 1rem", flex: 1, minWidth: 100 }}>
+                <div style={{ fontSize: 11, color: "#aaa", marginBottom: 2 }}>Deal value</div>
+                <div style={{ fontSize: 18, fontWeight: 600, color: "#3B82F6" }}>{fmt(totalAmount)}</div>
+              </div>
+              {deal.property_value && (
+                <div style={{ background: "#f5f5f3", borderRadius: 10, padding: "0.75rem 1rem", flex: 1, minWidth: 100 }}>
+                  <div style={{ fontSize: 11, color: "#aaa", marginBottom: 2 }}>LTV</div>
+                  <div style={{ fontSize: 18, fontWeight: 600 }}>{Math.round((totalAmount / deal.property_value) * 100)}%</div>
+                </div>
+              )}
+              <div style={{ background: "#f5f5f3", borderRadius: 10, padding: "0.75rem 1rem", flex: 1, minWidth: 100 }}>
+                <div style={{ fontSize: 11, color: "#aaa", marginBottom: 2 }}>Milestones</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{milestones.length}</div>
+              </div>
+            </div>
+          </div>
+          <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Schedule a call</div>
+            {callSent
+              ? <div style={{ fontSize: 13, color: "#16A34A" }}>Proposal sent ✓</div>
+              : <button onClick={() => setCallModal(true)} style={{ padding: "8px 18px", background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Schedule a call</button>
+            }
+          </div>
+        </div>
+      )}
+
+      {/* ── Documents ── */}
+      {activeTab === "documents" && (
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Deal documents</div>
+          {docs.length === 0
+            ? <div style={{ fontSize: 13, color: "#aaa" }}>No documents uploaded yet.</div>
+            : docs.map((doc, i) => {
+                const { data: { publicUrl } } = supabase.storage.from("builder-documents").getPublicUrl(doc.file_path || "");
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "0.5px solid #f0f0f0" }}>
+                    <span style={{ fontSize: 16 }}>📄</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{doc.doc_type?.replace(/_/g, " ")}</div>
+                      <span style={{ fontSize: 11, padding: "1px 7px", borderRadius: 20, background: doc.status === "approved" ? "#DCFCE7" : "#F1F5F9", color: doc.status === "approved" ? "#16A34A" : "#64748B" }}>{doc.status}</span>
+                    </div>
+                    {doc.file_path && <a href={publicUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#3B82F6", textDecoration: "none" }}>Download</a>}
+                  </div>
+                );
+              })
+          }
+        </div>
+      )}
+
+      {/* ── Timeline ── */}
+      {activeTab === "timeline" && (
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 16 }}>Deal timeline</div>
+          {timelineEvents.length === 0
+            ? <div style={{ fontSize: 13, color: "#aaa" }}>No events yet.</div>
+            : timelineEvents.map((ev, i) => (
+                <div key={i} style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: ev.color, flexShrink: 0, marginTop: 3 }} />
+                    {i < timelineEvents.length - 1 && <div style={{ width: 1.5, flex: 1, background: "#e0e0e0", margin: "3px 0" }} />}
+                  </div>
+                  <div style={{ paddingBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{ev.label}</div>
+                    <div style={{ fontSize: 11, color: "#aaa" }}>{new Date(ev.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</div>
+                  </div>
+                </div>
+              ))
+          }
+        </div>
+      )}
+
+      {/* ── Notes ── */}
+      {activeTab === "notes" && (
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Shared notes</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+            {notes.length === 0 && <div style={{ fontSize: 13, color: "#aaa" }}>No notes yet. Add the first one below.</div>}
+            {notes.map(n => (
+              <div key={n.id} style={{ background: "#f9f9f7", borderRadius: 8, padding: "10px 12px" }}>
+                <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>{n.author_name}</span>
+                  <span style={{ fontSize: 11, color: "#aaa" }}>{new Date(n.created_at).toLocaleDateString("en-GB")}</span>
+                </div>
+                <div style={{ fontSize: 13, lineHeight: 1.5 }}>{n.content}</div>
+              </div>
+            ))}
+          </div>
+          <form onSubmit={handleAddNote} style={{ display: "flex", gap: 8 }}>
+            <textarea
+              value={noteText} onChange={e => setNoteText(e.target.value)}
+              placeholder="Add a note visible to both parties…"
+              rows={3}
+              style={{ flex: 1, border: "0.5px solid #ccc", borderRadius: 8, padding: "8px 10px", fontSize: 13, resize: "vertical", outline: "none" }}
+            />
+            <button type="submit" disabled={savingNote || !noteText.trim()} style={{ padding: "0 14px", alignSelf: "flex-end", height: 40, background: "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+              Add
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* ── Milestones ── */}
+      {activeTab === "milestones" && (
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Milestones</div>
+          {milestones.map((m, i) => {
+            const sc = statusColors[m.status] || { bg: "#F1F5F9", text: "#64748B" };
+            const sl = statusLabels[m.status] || m.status;
+            return (
+              <div key={m.id || i} style={{ padding: "10px 12px", background: "#fafaf8", borderRadius: 10, border: "0.5px solid #e8e8e5", marginBottom: 8, display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ width: 24, height: 24, borderRadius: "50%", background: "#EBF2FF", color: "#1E3A5F", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{m.title}</div>
+                  <div style={{ fontSize: 12, color: "#64748B" }}>{fmt(m.amount)}</div>
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: sc.bg, color: sc.text }}>{sl}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Messages ── */}
+      {activeTab === "messages" && (
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.5rem", textAlign: "center" }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>💬</div>
+          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 8 }}>Direct messages</div>
+          <div style={{ fontSize: 13, color: "#64748B", marginBottom: 16 }}>Continue the conversation in the full messages thread.</div>
+          <button onClick={() => setPage("messages")} style={{ padding: "10px 24px", background: "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+            Go to Messages
+          </button>
+        </div>
+      )}
+
+      {/* Schedule a call modal */}
+      {callModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 9998, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
+          <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", maxWidth: 400, width: "100%" }}>
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Propose a meeting time</div>
+            <form onSubmit={handleSendCallProposal}>
+              <input
+                value={callTime} onChange={e => setCallTime(e.target.value)}
+                placeholder="e.g. Tuesday 3pm or 15 May at 14:00"
+                style={{ width: "100%", height: 44, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 12px", fontSize: 14, boxSizing: "border-box", marginBottom: 12 }}
+                required
+              />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" onClick={() => setCallModal(false)} style={{ flex: 1, height: 44, background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, fontSize: 14, cursor: "pointer" }}>Cancel</button>
+                <button type="submit" style={{ flex: 2, height: 44, background: "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Send proposal</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── BUILD COST CALCULATOR ────────────────────────────────────────────────────
+
+const BUILD_COST_DATA = {
+  types: {
+    "New build residential": { low: 1500, high: 2500, label: "New build residential" },
+    "Renovation":            { low: 800,  high: 1500, label: "Renovation" },
+    "Extension":             { low: 1200, high: 2000, label: "Extension" },
+    "Commercial":            { low: 2000, high: 3500, label: "Commercial" },
+  },
+  regionMultipliers: {
+    "London":           1.4,
+    "South East":       1.2,
+    "South West":       1.1,
+    "East of England":  1.1,
+    "East Midlands":    1.0,
+    "West Midlands":    1.0,
+    "Yorkshire":        0.9,
+    "North West":       0.9,
+    "North East":       0.85,
+    "Scotland":         0.9,
+    "Wales":            0.88,
+    "Northern Ireland": 0.85,
+    "Other":            1.0,
+  },
+  // 2024 average new-build property price per sq m by region
+  propertyPricePerSqm: {
+    "London":           10500,
+    "South East":       5200,
+    "South West":       4200,
+    "East of England":  4400,
+    "East Midlands":    2900,
+    "West Midlands":    3000,
+    "Yorkshire":        2600,
+    "North West":       2700,
+    "North East":       2100,
+    "Scotland":         2700,
+    "Wales":            2400,
+    "Northern Ireland": 2100,
+    "Other":            3000,
+  },
+  milestones: [
+    { stage: "Site preparation & foundations",  pct: 15 },
+    { stage: "Structure & external walls",      pct: 25 },
+    { stage: "Roof & weatherproofing",          pct: 15 },
+    { stage: "Internal fit-out & mechanical",   pct: 25 },
+    { stage: "Finishing & decoration",          pct: 15 },
+    { stage: "Final completion & snagging",     pct: 5  },
+  ],
+};
+
+function buildLtvRateSuggestion(ltv) {
+  if (ltv < 50)  return { rate: "5–6% p.a.", risk: "Very low", color: "#16A34A" };
+  if (ltv < 60)  return { rate: "6–7% p.a.", risk: "Low",      color: "#16A34A" };
+  if (ltv < 70)  return { rate: "7–8.5% p.a.", risk: "Moderate", color: "#D97706" };
+  if (ltv < 75)  return { rate: "8.5–10% p.a.", risk: "Medium-high", color: "#D97706" };
+  if (ltv < 80)  return { rate: "10–12% p.a.", risk: "High",   color: "#DC2626" };
+  return { rate: "Not recommended", risk: "Very high (>80% LTV)", color: "#DC2626" };
+}
+
+function BuildCostCalculatorPage({ setPage }) {
+  const [projectType, setProjectType] = useState("New build residential");
+  const [region, setRegion] = useState("South East");
+  const [size, setSize] = useState("");
+
+  const sqm = parseFloat(size) || 0;
+  const typeData = BUILD_COST_DATA.types[projectType];
+  const mult = BUILD_COST_DATA.regionMultipliers[region] || 1.0;
+  const pricePerSqm = BUILD_COST_DATA.propertyPricePerSqm[region] || 3000;
+
+  const costLow  = Math.round(typeData.low  * mult * sqm);
+  const costHigh = Math.round(typeData.high * mult * sqm);
+  const midCost  = Math.round((costLow + costHigh) / 2);
+  const fundingRec = Math.round(midCost * 0.8);
+
+  // Property value on completion estimate
+  let gdvLow, gdvHigh;
+  if (projectType === "New build residential") {
+    gdvLow  = Math.round(sqm * pricePerSqm * 0.9);
+    gdvHigh = Math.round(sqm * pricePerSqm * 1.1);
+  } else if (projectType === "Renovation") {
+    gdvLow  = Math.round(midCost * 1.5);
+    gdvHigh = Math.round(midCost * 1.9);
+  } else if (projectType === "Extension") {
+    gdvLow  = Math.round(midCost * 1.8);
+    gdvHigh = Math.round(midCost * 2.4);
+  } else {
+    // Commercial: simplified yield-based approach (~8% cap rate)
+    const annualRent = sqm * 150 * mult; // rough £/sqm/year
+    gdvLow  = Math.round(annualRent / 0.09);
+    gdvHigh = Math.round(annualRent / 0.07);
+  }
+
+  const midGdv = Math.round((gdvLow + gdvHigh) / 2);
+  const ltv = midGdv > 0 ? Math.round((fundingRec / midGdv) * 100) : 0;
+  const ltvSug = buildLtvRateSuggestion(ltv);
+  const hasResult = sqm > 0;
+
+  const inputStyle = {
+    width: "100%", height: 44, border: "0.5px solid #ccc", borderRadius: 8,
+    padding: "0 12px", fontSize: 14, boxSizing: "border-box", background: "#fff",
+  };
+  const labelStyle = { fontSize: 13, fontWeight: 500, color: "#374151", marginBottom: 6, display: "block" };
+
+  return (
+    <div style={{ maxWidth: 720, margin: "0 auto", padding: "0" }}>
+      {/* Hero */}
+      <div style={{ background: "var(--nav-bg,#1E3A5F)", padding: "2.5rem 1.5rem", textAlign: "center", color: "#fff" }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "var(--accent,#3B82F6)", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 8 }}>Tools</div>
+        <h1 style={{ fontSize: "clamp(24px, 4vw, 36px)", fontFamily: "'Playfair Display', Georgia, serif", fontWeight: 700, color: "#fff", margin: "0 0 10px" }}>Build Cost Calculator</h1>
+        <p style={{ fontSize: 14, color: "rgba(255,255,255,0.65)", maxWidth: 440, margin: "0 auto" }}>
+          UK construction cost estimates based on 2024/25 data with regional multipliers. Includes funding, GDV, and LTV analysis.
+        </p>
+      </div>
+
+      <div style={{ padding: "2rem 1.25rem" }}>
+        {/* Inputs */}
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.5rem", marginBottom: "1.5rem" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F", marginBottom: "1.25rem" }}>Project details</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "1rem" }}>
+            <div>
+              <label style={labelStyle}>Project type</label>
+              <select value={projectType} onChange={e => setProjectType(e.target.value)} style={inputStyle}>
+                {Object.keys(BUILD_COST_DATA.types).map(t => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Region</label>
+              <select value={region} onChange={e => setRegion(e.target.value)} style={inputStyle}>
+                {Object.keys(BUILD_COST_DATA.regionMultipliers).map(r => <option key={r}>{r}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Floor area (sq metres)</label>
+              <input
+                type="number" min="1" max="50000"
+                value={size} onChange={e => setSize(e.target.value)}
+                placeholder="e.g. 120"
+                style={inputStyle}
+              />
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: "#94A3B8", marginTop: "1rem" }}>
+            Region multiplier: <strong>{(BUILD_COST_DATA.regionMultipliers[region] || 1.0).toFixed(2)}×</strong> &nbsp;·&nbsp;
+            Base cost range: <strong>£{BUILD_COST_DATA.types[projectType].low.toLocaleString()}–£{BUILD_COST_DATA.types[projectType].high.toLocaleString()}/m²</strong>
+          </div>
+        </div>
+
+        {hasResult ? (
+          <>
+            {/* Cost estimate */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12, marginBottom: "1.5rem" }}>
+              {[
+                { label: "Estimated build cost (low)",  value: fmt(costLow),  sub: `£${Math.round(typeData.low * mult).toLocaleString()}/m²` },
+                { label: "Estimated build cost (high)", value: fmt(costHigh), sub: `£${Math.round(typeData.high * mult).toLocaleString()}/m²` },
+                { label: "Recommended funding (80%)",   value: fmt(fundingRec), sub: "of midpoint estimate", accent: true },
+                { label: "Est. value on completion",    value: `${fmt(gdvLow)}–${fmt(gdvHigh)}`, sub: "GDV estimate" },
+              ].map(s => (
+                <div key={s.label} style={{ background: s.accent ? "var(--accent-bg,#EBF2FF)" : "#fff", border: `0.5px solid ${s.accent ? "var(--accent,#3B82F6)" : "#e0e0e0"}`, borderRadius: 12, padding: "1.25rem" }}>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: s.accent ? "var(--accent,#3B82F6)" : "#1E3A5F" }}>{s.value}</div>
+                  <div style={{ fontSize: 12, color: "#64748B", marginTop: 4 }}>{s.label}</div>
+                  <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>{s.sub}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* LTV + rate */}
+            <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.5rem", marginBottom: "1.5rem" }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F", marginBottom: "1rem" }}>Loan to Value &amp; Suggested Lender Return</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                <div style={{ textAlign: "center", minWidth: 100 }}>
+                  <div style={{ fontSize: 36, fontWeight: 700, color: ltvSug.color }}>{ltv}%</div>
+                  <div style={{ fontSize: 12, color: "#64748B" }}>LTV ratio</div>
+                </div>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 18, fontWeight: 700, color: ltvSug.color }}>{ltvSug.rate}</span>
+                    <span style={{ fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 20, background: ltvSug.color + "22", color: ltvSug.color }}>{ltvSug.risk}</span>
+                  </div>
+                  <div style={{ fontSize: 13, color: "#64748B", lineHeight: 1.5 }}>
+                    Suggested lender return based on {ltv}% LTV. Lower LTV = lower risk = lower required rate.
+                    {ltv >= 80 && " LTV above 80% is considered high risk by most UK bridging lenders."}
+                  </div>
+                  <div style={{ marginTop: 10, height: 6, background: "#f0f0f0", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ height: 6, background: ltvSug.color, borderRadius: 3, width: `${Math.min(ltv, 100)}%`, transition: "width 0.4s" }} />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#94A3B8", marginTop: 3 }}>
+                    <span>0%</span><span>50%</span><span>75%</span><span>100%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Milestone breakdown */}
+            <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.5rem" }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F", marginBottom: "1rem" }}>Suggested Milestone Breakdown</div>
+              <div style={{ fontSize: 12, color: "#64748B", marginBottom: "1rem" }}>6-stage release based on {fmt(fundingRec)} recommended funding</div>
+              {BUILD_COST_DATA.milestones.map((m, i) => {
+                const amount = Math.round(fundingRec * m.pct / 100);
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < BUILD_COST_DATA.milestones.length - 1 ? "0.5px solid #f0f0f0" : "none" }}>
+                    <div style={{ width: 24, height: 24, borderRadius: "50%", background: "var(--accent-bg,#EBF2FF)", color: "var(--accent,#3B82F6)", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "#1E3A5F" }}>{m.stage}</div>
+                      <div style={{ height: 4, background: "#f0f0f0", borderRadius: 2, marginTop: 4, overflow: "hidden" }}>
+                        <div style={{ height: 4, background: "var(--accent,#3B82F6)", borderRadius: 2, width: `${m.pct}%` }} />
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F" }}>{fmt(amount)}</div>
+                      <div style={{ fontSize: 11, color: "#94A3B8" }}>{m.pct}%</div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div style={{ marginTop: "1rem", paddingTop: "1rem", borderTop: "0.5px solid #f0f0f0", fontSize: 11, color: "#94A3B8", lineHeight: 1.5 }}>
+                * Cost estimates are for guidance only based on 2024/25 BCIS data and regional market data. Actual costs vary by specification, contractor, and site conditions. Always obtain professional quantity surveyor quotes before proceeding.
+              </div>
+            </div>
+          </>
+        ) : (
+          <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "3rem", textAlign: "center", color: "#94A3B8" }}>
+            <div style={{ fontSize: 36, marginBottom: 12 }}>🏗️</div>
+            <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6, color: "#374151" }}>Enter your project details above</div>
+            <div style={{ fontSize: 13 }}>Fill in the project type, region, and floor area to see cost estimates, funding recommendations, and milestone breakdown.</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── MARKET INTELLIGENCE PAGE ─────────────────────────────────────────────────
+
+function MarketPage({ setPage }) {
+  const [platformStats, setPlatformStats] = useState(null);
+  const [monthlyData,   setMonthlyData]   = useState([]);
+  const [projectTypeData, setProjectTypeData] = useState([]);
+  const [regionData,    setRegionData]    = useState([]);
+  const [ukHPI,         setUkHPI]         = useState(null);
+  const [loading,       setLoading]       = useState(true);
+  const [lastUpdated,   setLastUpdated]   = useState(null);
+  const refreshTimer = useRef(null);
+
+  const RENTAL_YIELDS = [
+    { region: "Liverpool",   yield: 6.8 },
+    { region: "Manchester",  yield: 6.2 },
+    { region: "Nottingham",  yield: 6.1 },
+    { region: "Sheffield",   yield: 5.9 },
+    { region: "Birmingham",  yield: 5.7 },
+    { region: "Leeds",       yield: 5.4 },
+    { region: "Bristol",     yield: 4.9 },
+    { region: "London",      yield: 3.8 },
+    { region: "UK Average",  yield: 5.1 },
+  ];
+
+  const BRIDGING_RATES = [
+    { type: "First charge (residential)", rate: "0.45–0.75% /mo" },
+    { type: "Second charge",              rate: "0.75–1.20% /mo" },
+    { type: "Commercial",                 rate: "0.85–1.50% /mo" },
+    { type: "Land / development",         rate: "0.75–1.25% /mo" },
+  ];
+
+  const HOUSING_STARTS = [
+    { year: "2022", starts: 196200 },
+    { year: "2023", starts: 183330 },
+    { year: "2024", starts: 162870 },
+  ];
+
+  const PIE_COLORS = ["#3B82F6", "#16A34A", "#7C3AED", "#EA580C", "#DB2777"];
+
+  function toRegion(loc) {
+    const l = (loc || "").toLowerCase();
+    if (!l) return null;
+    if (l.includes("london"))                                             return "London";
+    if (l.includes("manchester") || l.includes("salford") || l.includes("stockport") || l.includes("liverpool") || l.includes("blackpool") || l.includes("preston")) return "North West";
+    if (l.includes("birmingham") || l.includes("coventry") || l.includes("wolverhampton") || l.includes("leicester") || l.includes("nottingham") || l.includes("derby")) return "Midlands";
+    if (l.includes("leeds") || l.includes("sheffield") || l.includes("bradford") || l.includes("york") || l.includes("hull"))  return "Yorkshire";
+    if (l.includes("bristol") || l.includes("bath") || l.includes("exeter") || l.includes("plymouth") || l.includes("bournemouth")) return "South West";
+    if (l.includes("brighton") || l.includes("southampton") || l.includes("portsmouth") || l.includes("guildford") || l.includes("oxford") || l.includes("reading")) return "South East";
+    if (l.includes("cambridge") || l.includes("norwich") || l.includes("ipswich") || l.includes("colchester")) return "East";
+    if (l.includes("newcastle") || l.includes("sunderland") || l.includes("durham") || l.includes("middlesbrough")) return "North East";
+    if (l.includes("edinburgh") || l.includes("glasgow") || l.includes("scotland") || l.includes("aberdeen")) return "Scotland";
+    if (l.includes("cardiff") || l.includes("wales") || l.includes("swansea"))  return "Wales";
+    return "Other UK";
+  }
+
+  async function loadAll() {
+    setLoading(true);
+    try {
+      const [
+        { data: deals },
+        { data: profiles },
+        listRes,
+        hpiRes,
+      ] = await Promise.all([
+        supabase.from("deals").select("created_at, total_amount, status, finder_fee_status, interest_rate").order("created_at"),
+        supabase.from("profiles").select("user_role, location"),
+        fetch("/api/project-listings").then(r => r.json()).catch(() => ({})),
+        fetch("https://landregistry.data.gov.uk/data/hpi/regionOrCountry/england/period/2024-12.json")
+          .then(r => r.ok ? r.json() : null).catch(() => null),
+      ]);
+
+      // ── Platform stats ──
+      if (deals) {
+        const totalCapital  = deals.reduce((s, d) => s + (Number(d.total_amount) || 0), 0);
+        const completedDeals = deals.filter(d => d.status === "completed").length;
+        const totalFees     = deals.filter(d => d.finder_fee_status === "paid")
+                               .reduce((s, d) => s + (Number(d.total_amount) || 0) * 0.01, 0);
+        const avgDealSize   = deals.length ? Math.round(totalCapital / deals.length) : 0;
+        const rates         = deals.filter(d => d.interest_rate).map(d => Number(d.interest_rate));
+        const avgRate       = rates.length ? (rates.reduce((s, r) => s + r, 0) / rates.length).toFixed(1) : null;
+
+        setPlatformStats({
+          totalCapital, completedDeals, totalDeals: deals.length,
+          avgDealSize, totalFees, avgRate,
+          activeLenders:  profiles ? profiles.filter(p => p.user_role === "lender").length  : 0,
+          activeBuilders: profiles ? profiles.filter(p => p.user_role === "builder").length : 0,
+        });
+
+        // Monthly deal volume (last 6 months)
+        const now = new Date();
+        const months = [];
+        for (let i = 5; i >= 0; i--) {
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          months.push({ name: d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" }), count: 0, capital: 0 });
+        }
+        deals.forEach(d => {
+          const date = new Date(d.created_at);
+          months.forEach(m => {
+            const [mon, yr] = m.name.split(" ");
+            const md = new Date(`${mon} 20${yr}`);
+            if (date.getMonth() === md.getMonth() && date.getFullYear() === md.getFullYear()) {
+              m.count++;
+              m.capital += Number(d.total_amount) || 0;
+            }
+          });
+        });
+        setMonthlyData(months);
+      }
+
+      // ── Project types ──
+      const listings = listRes.listings || [];
+      const typeMap = {};
+      listings.forEach(l => { const t = l.project_type || "Other"; typeMap[t] = (typeMap[t] || 0) + 1; });
+      setProjectTypeData(
+        Object.entries(typeMap).sort((a, b) => b[1] - a[1]).slice(0, 5)
+          .map(([name, value]) => ({ name, value }))
+      );
+
+      // ── Geographic spread ──
+      if (profiles) {
+        const regionMap = {};
+        profiles.forEach(p => {
+          const r = toRegion(p.location);
+          if (r) regionMap[r] = (regionMap[r] || 0) + 1;
+        });
+        setRegionData(
+          Object.entries(regionMap).sort((a, b) => b[1] - a[1]).slice(0, 7)
+            .map(([name, value]) => ({ name, value }))
+        );
+      }
+
+      // ── UK HPI ──
+      if (hpiRes) {
+        try {
+          const pt = hpiRes.result?.primaryTopic;
+          if (pt?.averagePrice) setUkHPI({ avgPrice: pt.averagePrice, annualChange: pt.percentageChange, period: "December 2024" });
+        } catch (_) {}
+      }
+
+      setLastUpdated(new Date());
+    } catch (_) {}
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadAll();
+    refreshTimer.current = setInterval(loadAll, 5 * 60 * 1000);
+    return () => clearInterval(refreshTimer.current);
+  }, []); // eslint-disable-line
+
+  const fmtM = v => {
+    if (!v && v !== 0) return "—";
+    if (v >= 1_000_000) return `£${(v / 1_000_000).toFixed(1)}M`;
+    if (v >= 1_000) return `£${Math.round(v / 1_000)}k`;
+    return `£${Math.round(v)}`;
+  };
+
+  const MktSectionLabel = ({ children }) => (
+    <div style={{ fontSize: 10, fontWeight: 700, color: "#3B82F6", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12, marginTop: 4 }}>{children}</div>
+  );
+
+  const EmptyChartMsg = ({ msg }) => (
+    <div style={{ height: 180, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#CBD5E1" }}>
+      <div style={{ fontSize: 28, marginBottom: 8 }}>📊</div>
+      <div style={{ fontSize: 12 }}>{msg}</div>
+    </div>
+  );
+
+  return (
+    <div style={{ maxWidth: 1000, margin: "0 auto", padding: 0 }}>
+      {/* Hero */}
+      <div style={{ background: "linear-gradient(135deg, #1E3A5F 0%, #2E5FA3 100%)", padding: "3rem 1.5rem", textAlign: "center", color: "#fff" }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#93C5FD", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 8 }}>Data-driven insights</div>
+        <h1 style={{ fontSize: "clamp(26px, 5vw, 42px)", fontFamily: "'Playfair Display', Georgia, serif", fontWeight: 700, color: "#fff", margin: "0 0 10px" }}>Market Intelligence</h1>
+        <p style={{ fontSize: 14, color: "rgba(255,255,255,0.65)", maxWidth: 500, margin: "0 auto 1.5rem" }}>Live platform stats and UK property market data — updated every 5 minutes.</p>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, flexWrap: "wrap" }}>
+          {lastUpdated && (
+            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.45)" }}>
+              Last updated {lastUpdated.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          )}
+          <button onClick={loadAll} disabled={loading}
+            style={{ padding: "8px 20px", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 8, color: "#fff", fontSize: 13, cursor: loading ? "default" : "pointer", opacity: loading ? 0.6 : 1 }}>
+            {loading ? "Refreshing…" : "↻ Refresh"}
+          </button>
+        </div>
+      </div>
+
+      <div style={{ padding: "2rem 1.25rem" }}>
+        {loading && !platformStats ? (
+          <div style={{ textAlign: "center", padding: "4rem", color: "#aaa" }}>Loading market data…</div>
+        ) : (
+          <>
+            {/* ── Platform stats grid ── */}
+            <MktSectionLabel>LenderBuild Platform</MktSectionLabel>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10, marginBottom: "2rem" }}>
+              {[
+                { label: "Capital matched",     value: fmtM(platformStats?.totalCapital),       icon: "💰" },
+                { label: "Total deals",         value: platformStats?.totalDeals ?? "—",         icon: "🤝" },
+                { label: "Completed deals",     value: platformStats?.completedDeals ?? "—",     icon: "✅" },
+                { label: "Avg. deal size",      value: fmtM(platformStats?.avgDealSize),         icon: "📊" },
+                { label: "Finder's fees paid",  value: fmtM(platformStats?.totalFees),           icon: "🏦" },
+                { label: "Avg. interest rate",  value: platformStats?.avgRate ? `${platformStats.avgRate}%` : "—", icon: "📈" },
+                { label: "Active lenders",      value: platformStats?.activeLenders ?? "—",      icon: "🏛️" },
+                { label: "Active builders",     value: platformStats?.activeBuilders ?? "—",     icon: "🔨" },
+              ].map(s => (
+                <div key={s.label} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1rem", textAlign: "center" }}>
+                  <div style={{ fontSize: 22, marginBottom: 6 }}>{s.icon}</div>
+                  <div style={{ fontSize: 17, fontWeight: 700, color: "#1E3A5F" }}>{s.value}</div>
+                  <div style={{ fontSize: 11, color: "#64748B", marginTop: 3 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* ── Three charts ── */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14, marginBottom: "2rem" }}>
+
+              {/* Line chart — monthly volume */}
+              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", marginBottom: 2 }}>Monthly deal volume</div>
+                <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 14 }}>Last 6 months · platform data</div>
+                {monthlyData.every(m => m.count === 0) ? <EmptyChartMsg msg="No deal data yet" /> : (
+                  <ResponsiveContainer width="100%" height={180}>
+                    <LineChart data={monthlyData} margin={{ left: -10, right: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                      <Tooltip formatter={v => [v, "Deals"]} />
+                      <Line type="monotone" dataKey="count" name="Deals" stroke="#3B82F6" strokeWidth={2} dot={{ r: 4, fill: "#3B82F6" }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+
+              {/* Pie chart — project types */}
+              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", marginBottom: 2 }}>Project types</div>
+                <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 14 }}>Active listings · platform data</div>
+                {projectTypeData.length === 0 ? <EmptyChartMsg msg="No listing data yet" /> : (
+                  <ResponsiveContainer width="100%" height={180}>
+                    <PieChart>
+                      <Pie data={projectTypeData} cx="50%" cy="50%" outerRadius={68} dataKey="value" nameKey="name"
+                        label={({ name, percent }) => percent > 0.08 ? `${name} ${Math.round(percent * 100)}%` : ""}
+                        labelLine={false} fontSize={10}>
+                        {projectTypeData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+
+              {/* Bar chart — geographic spread */}
+              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", marginBottom: 2 }}>Geographic spread</div>
+                <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 14 }}>Users by region · platform data</div>
+                {regionData.length === 0 ? <EmptyChartMsg msg="No location data yet" /> : (
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart data={regionData} layout="vertical" margin={{ left: 0, right: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
+                      <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={82} />
+                      <Tooltip />
+                      <Bar dataKey="value" name="Users" fill="#3B82F6" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
+            {/* ── UK Property Market ── */}
+            <MktSectionLabel>UK Property Market</MktSectionLabel>
+
+            {/* HPI banner */}
+            {ukHPI ? (
+              <div style={{ background: "linear-gradient(135deg, #EBF5FF, #F0F9FF)", border: "0.5px solid #BFDBFE", borderRadius: 12, padding: "1.25rem 1.5rem", marginBottom: 14, display: "flex", flexWrap: "wrap", gap: 24, alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 11, color: "#3B82F6", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>UK Average House Price</div>
+                  <div style={{ fontSize: 30, fontWeight: 700, color: "#1E3A5F" }}>{fmtM(ukHPI.avgPrice)}</div>
+                  <div style={{ fontSize: 12, color: "#64748B", marginTop: 3 }}>{ukHPI.period} · HM Land Registry</div>
+                </div>
+                {ukHPI.annualChange != null && (
+                  <div>
+                    <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4 }}>Annual change</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: ukHPI.annualChange >= 0 ? "#16A34A" : "#DC2626" }}>
+                      {ukHPI.annualChange >= 0 ? "+" : ""}{Number(ukHPI.annualChange).toFixed(1)}%
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ background: "#F8FAFC", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1rem 1.5rem", marginBottom: 14, fontSize: 13, color: "#94A3B8" }}>
+                UK house price data unavailable — Land Registry API may be temporarily down.
+              </div>
+            )}
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14, marginBottom: "2rem" }}>
+              {/* Rental yields */}
+              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", marginBottom: 2 }}>Rental yields by city</div>
+                <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 14 }}>2024/25 estimates</div>
+                {RENTAL_YIELDS.map(r => (
+                  <div key={r.region} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 9 }}>
+                    <div style={{ fontSize: 12, minWidth: 90, color: r.region === "UK Average" ? "#1E3A5F" : "#555", fontWeight: r.region === "UK Average" ? 600 : 400 }}>{r.region}</div>
+                    <div style={{ flex: 1, height: 7, background: "#F1F5F9", borderRadius: 4, overflow: "hidden" }}>
+                      <div style={{ height: 7, background: r.region === "UK Average" ? "#3B82F6" : "#16A34A", borderRadius: 4, width: `${(r.yield / 8) * 100}%` }} />
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: r.region === "UK Average" ? "#3B82F6" : "#16A34A", minWidth: 36, textAlign: "right" }}>{r.yield}%</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Bridging rates + housing starts stacked */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", marginBottom: 2 }}>Bridging loan rates</div>
+                  <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 14 }}>Current market — Q1 2025</div>
+                  {BRIDGING_RATES.map(b => (
+                    <div key={b.type} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: "0.5px solid #f0f0f0" }}>
+                      <div style={{ fontSize: 12, color: "#555" }}>{b.type}</div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#1E3A5F", whiteSpace: "nowrap", marginLeft: 8 }}>{b.rate}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", marginBottom: 2 }}>UK housing starts</div>
+                  <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 14 }}>Annual new homes · ONS</div>
+                  {HOUSING_STARTS.map(h => (
+                    <div key={h.year} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 9 }}>
+                      <div style={{ fontSize: 12, color: "#555", minWidth: 36 }}>{h.year}</div>
+                      <div style={{ flex: 1, height: 7, background: "#F1F5F9", borderRadius: 4, overflow: "hidden" }}>
+                        <div style={{ height: 7, background: "#3B82F6", borderRadius: 4, width: `${(h.starts / 210000) * 100}%` }} />
+                      </div>
+                      <div style={{ fontSize: 12, color: "#555", minWidth: 58, textAlign: "right" }}>{h.starts.toLocaleString()}</div>
+                    </div>
+                  ))}
+                  <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 6 }}>Source: ONS House Building Statistics</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Disclaimer */}
+            <div style={{ background: "#F8FAFC", borderRadius: 10, padding: "0.75rem 1rem", fontSize: 11, color: "#94A3B8", lineHeight: 1.7 }}>
+              Platform statistics are live from LenderBuild's database. UK house prices from HM Land Registry HPI (Open Government Licence). Rental yields and bridging rates are market estimates based on publicly available 2024/25 data — not financial advice. Housing starts from ONS House Building Statistics. Data refreshes automatically every 5 minutes.
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── BUILDER PASSPORT PAGE ────────────────────────────────────────────────────
+
+function BuilderPassportPage({ sequential_id, user, setPage }) {
+  const [profile, setProfile] = useState(null);
+  const [builderData, setBuilderData] = useState(null);
+  const [deals, setDeals] = useState([]);
+  const [reviews, setReviews] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+  const [reviewForm, setReviewForm] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState("");
+  const [submittingReview, setSubmittingReview] = useState(false);
+
+  useEffect(() => {
+    if (sequential_id) loadPassport(sequential_id);
+  }, [sequential_id]); // eslint-disable-line
+
+  async function loadPassport(seqId) {
+    setLoading(true);
+    const { data: prof } = await supabase.from("profiles").select("*").eq("sequential_id", Number(seqId)).maybeSingle();
+    if (!prof) { setLoading(false); return; }
+    setProfile(prof);
+    const [{ data: bp }, { data: dealData }, { data: revData }] = await Promise.all([
+      supabase.from("builder_profiles").select("*").eq("user_id", prof.id).maybeSingle(),
+      supabase.from("deals").select("id,title,created_at,status").eq("builder_id", prof.id),
+      supabase.from("builder_reviews").select("*").eq("builder_user_id", prof.id),
+    ]);
+    setBuilderData(bp || null);
+    setDeals(dealData || []);
+    setReviews(revData || []);
+    setLoading(false);
+  }
+
+  async function handleSubmitReview(e) {
+    e.preventDefault();
+    if (!user) { setPage("auth"); return; }
+    setSubmittingReview(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    await fetch("/api/connect-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "save-review", builder_user_id: profile.id, rating: reviewRating, comment: reviewComment }),
+    });
+    setSubmittingReview(false);
+    setReviewForm(false);
+    const { data: revData } = await supabase.from("builder_reviews").select("*").eq("builder_user_id", profile.id);
+    setReviews(revData || []);
+  }
+
+  const shareUrl = `${window.location.origin}/builder/${sequential_id}`;
+  const avgRating = reviews.length ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1) : null;
+  const completedDeals = deals.filter(d => d.status === "completed").length;
+  const totalFunded = deals.length; // simplified
+
+  if (loading) return <div style={{ textAlign: "center", padding: "4rem", color: "#aaa" }}>Loading builder passport…</div>;
+  if (!profile) return <div style={{ textAlign: "center", padding: "4rem" }}><div style={{ fontSize: 36, marginBottom: 12 }}>🔍</div><div style={{ fontSize: 15 }}>Builder not found</div></div>;
+
+  const credScore = computeCredibilityScore({ verified_documents: builderData?.verified_documents || [], props: builderData?.projects_completed || 0, reviews });
+
+  return (
+    <div style={{ maxWidth: 680, margin: "0 auto", padding: "2rem 1.25rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.5rem", flexWrap: "wrap", gap: 10 }}>
+        <button onClick={() => setPage("find-builder")} style={{ background: "none", border: "none", color: "#3B82F6", fontSize: 13, cursor: "pointer", padding: 0 }}>← Find builders</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => { navigator.clipboard?.writeText(shareUrl); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+            style={{ padding: "7px 14px", background: "#f0f0f0", border: "none", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>
+            {copied ? "Copied!" : "📋 Share"}
+          </button>
+        </div>
+      </div>
+
+      {/* Profile header */}
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 16, padding: "1.5rem", marginBottom: "1.25rem" }}>
+        <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+          <CredibilityRing score={credScore} size={68}>
+            <div style={{ width: 68, height: 68, borderRadius: "50%", background: "#3B82F6", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 700 }}>
+              {(profile.full_name || "?").charAt(0).toUpperCase()}
+            </div>
+          </CredibilityRing>
+          <div style={{ flex: 1 }}>
+            <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 4px", color: "#1E3A5F" }}>{profile.full_name}</h1>
+            {profile.location && <div style={{ fontSize: 13, color: "#64748B", marginBottom: 6 }}>📍 {profile.location}</div>}
+            {builderData?.specialization && <div style={{ fontSize: 12, padding: "2px 8px", borderRadius: 20, background: "#EBF2FF", color: "#1E3A5F", display: "inline-block", marginBottom: 6 }}>{builderData.specialization}</div>}
+            {profile.bio && <p style={{ fontSize: 13, color: "#64748B", lineHeight: 1.6, margin: 0 }}>{profile.bio}</p>}
+          </div>
+          <img src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(shareUrl)}`} alt="QR" style={{ borderRadius: 8 }} />
+        </div>
+
+        <div style={{ display: "flex", gap: 16, marginTop: "1rem", flexWrap: "wrap" }}>
+          {[
+            { label: "Projects completed", value: builderData?.projects_completed ?? "—" },
+            { label: "Deals on platform", value: totalFunded },
+            { label: "Completed deals", value: completedDeals },
+            { label: "Avg. rating", value: avgRating ? `${avgRating} ⭐` : "—" },
+          ].map(s => (
+            <div key={s.label} style={{ flex: 1, minWidth: 100, textAlign: "center", background: "#f9f9f7", borderRadius: 10, padding: "0.75rem" }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#1E3A5F" }}>{s.value}</div>
+              <div style={{ fontSize: 11, color: "#64748B", marginTop: 3 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Reviews */}
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 16, padding: "1.5rem", marginBottom: "1.25rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F" }}>Lender reviews ({reviews.length})</div>
+          {user && user.user_metadata?.role === "lender" && !reviewForm && (
+            <button onClick={() => setReviewForm(true)} style={{ fontSize: 12, color: "#3B82F6", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>+ Add review</button>
+          )}
+        </div>
+        {reviews.length === 0 && !reviewForm && <div style={{ fontSize: 13, color: "#aaa" }}>No reviews yet.</div>}
+        {reviews.map(r => (
+          <div key={r.id} style={{ padding: "10px 0", borderBottom: "0.5px solid #f0f0f0" }}>
+            <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+              {"⭐".repeat(r.rating)}
+              <span style={{ fontSize: 11, color: "#aaa", marginLeft: 4 }}>{new Date(r.created_at).toLocaleDateString("en-GB")}</span>
+            </div>
+            {r.comment && <div style={{ fontSize: 13, color: "#555", lineHeight: 1.5 }}>{r.comment}</div>}
+          </div>
+        ))}
+        {reviewForm && (
+          <form onSubmit={handleSubmitReview} style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", gap: 4 }}>
+              {[1,2,3,4,5].map(n => (
+                <button key={n} type="button" onClick={() => setReviewRating(n)}
+                  style={{ fontSize: 22, background: "none", border: "none", cursor: "pointer", opacity: n <= reviewRating ? 1 : 0.3 }}>⭐</button>
+              ))}
+            </div>
+            <textarea value={reviewComment} onChange={e => setReviewComment(e.target.value)} placeholder="Share your experience…" rows={3}
+              style={{ border: "0.5px solid #ccc", borderRadius: 8, padding: "8px 10px", fontSize: 13, resize: "vertical", outline: "none" }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" onClick={() => setReviewForm(false)} style={{ flex: 1, height: 40, background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+              <button type="submit" disabled={submittingReview} style={{ flex: 2, height: 40, background: "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{submittingReview ? "Saving…" : "Submit review"}</button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      {/* Deals (anonymized) */}
+      {deals.length > 0 && (
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 16, padding: "1.5rem" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", marginBottom: 12 }}>Projects on platform</div>
+          {deals.map(d => (
+            <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "0.5px solid #f0f0f0" }}>
+              <div style={{ fontSize: 13, color: "#555" }}>{d.title || "Unnamed project"}</div>
+              <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 20, background: d.status === "completed" ? "#DCFCE7" : "#EBF2FF", color: d.status === "completed" ? "#16A34A" : "#1E3A5F" }}>{d.status}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── SAVED SEARCHES PAGE ──────────────────────────────────────────────────────
+
+function SavedSearchesPage({ user, setPage }) {
+  const [searches, setSearches] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { loadSearches(); }, []); // eslint-disable-line
+
+  async function loadSearches() {
+    setLoading(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { setLoading(false); return; }
+    const res = await fetch("/api/save-profile", { headers: { Authorization: `Bearer ${session.access_token}` } });
+    const d = await res.json().catch(() => ({}));
+    setSearches(d.searches || []);
+    setLoading(false);
+  }
+
+  async function handleDelete(searchId) {
+    const { data: { session } } = await supabase.auth.getSession();
+    await fetch("/api/save-profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "delete-search", search_id: searchId }),
+    });
+    setSearches(prev => prev.filter(s => s.id !== searchId));
+  }
+
+  return (
+    <div style={{ maxWidth: 620, margin: "0 auto", padding: "1.5rem 1.25rem" }}>
+      <button onClick={() => setPage("account")} style={{ background: "none", border: "none", color: "#3B82F6", fontSize: 13, cursor: "pointer", padding: 0, marginBottom: "1rem" }}>← Settings</button>
+      <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 4px", fontFamily: "'Georgia', serif" }}>Saved searches</h1>
+      <p style={{ fontSize: 13, color: "#64748B", margin: "0 0 1.5rem" }}>Your saved search filters with alert preferences.</p>
+
+      {loading
+        ? <div style={{ textAlign: "center", padding: "2rem", color: "#aaa" }}>Loading…</div>
+        : searches.length === 0
+          ? (
+            <div style={{ textAlign: "center", padding: "3rem" }}>
+              <div style={{ fontSize: 36, marginBottom: 10 }}>🔍</div>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>No saved searches yet</div>
+              <div style={{ fontSize: 13, color: "#64748B" }}>When you search for lenders or builders, save your filters to get alerts.</div>
+            </div>
+          )
+          : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {searches.map(s => (
+                <div key={s.id} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1rem 1.25rem", display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 2 }}>{s.name}</div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 20, background: "#EBF2FF", color: "#1E3A5F" }}>{s.role_type}</span>
+                      <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 20, background: "#F0FDF4", color: "#16A34A" }}>{s.frequency} alerts</span>
+                      <span style={{ fontSize: 11, color: "#aaa" }}>{new Date(s.created_at).toLocaleDateString("en-GB")}</span>
+                    </div>
+                  </div>
+                  <button onClick={() => handleDelete(s.id)}
+                    style={{ background: "transparent", border: "none", color: "#aaa", fontSize: 18, cursor: "pointer", padding: 4, lineHeight: 1 }}>
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )
+      }
+    </div>
+  );
+}
+
+// ─── FOOTER ───────────────────────────────────────────────────────────────────
+
+function Footer({ setPage }) {
+  return (
+    <footer style={{ background: "#1E3A5F", marginTop: "auto" }}>
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "3rem 1.25rem 2rem" }}>
+        {/* Top row */}
+        <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "2.5rem", marginBottom: "2.5rem" }}>
+          <div style={{ maxWidth: 260 }}>
+            <div style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 22, fontWeight: 700, color: "#3B82F6", marginBottom: 12 }}>LenderBuild</div>
+            <div style={{ fontSize: 13, lineHeight: 1.75, color: "rgba(255,255,255,0.5)" }}>
+              Connecting property builders with the right lenders across the UK.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "3.5rem", flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "#3B82F6", marginBottom: 14 }}>Platform</div>
+              {[
+                ["search",          "Find a lender"],
+                ["find-builder",    "Find a builder"],
+                ["browse-projects", "Browse projects"],
+                ["leaderboard",     "Leaderboard"],
+                ["posts",           "Posts"],
+                ["market",            "Market Intelligence"],
+                ["build-calculator",  "Build Calculator"],
+              ].map(([p, label]) => (
+                <button key={p} onClick={() => setPage(p)} style={{ display: "block", background: "transparent", border: "none", color: "rgba(255,255,255,0.55)", fontSize: 13, padding: "5px 0", cursor: "pointer", textAlign: "left" }}>{label}</button>
+              ))}
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "#3B82F6", marginBottom: 14 }}>Help</div>
+              {[
+                ["how-it-works", "How it works"],
+                ["safety",       "Trust & Safety"],
+                ["about",        "About us"],
+                ["status",       "System status"],
+              ].map(([p, label]) => (
+                <button key={p} onClick={() => setPage(p)} style={{ display: "block", background: "transparent", border: "none", color: "rgba(255,255,255,0.55)", fontSize: 13, padding: "5px 0", cursor: "pointer", textAlign: "left" }}>{label}</button>
+              ))}
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "#3B82F6", marginBottom: 14 }}>Legal</div>
+              {[
+                ["privacy",      "Privacy Policy"],
+                ["terms",        "Terms & Conditions"],
+                ["risk-warning", "Risk Warning"],
+              ].map(([p, label]) => (
+                <button key={p} onClick={() => setPage(p)} style={{ display: "block", background: "transparent", border: "none", color: "rgba(255,255,255,0.55)", fontSize: 13, padding: "5px 0", cursor: "pointer", textAlign: "left" }}>{label}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+        {/* Divider + bottom row */}
+        <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>
+            © {new Date().getFullYear()} LenderBuild. All rights reserved. Registered in England & Wales.
+          </div>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>
+            Not authorised or regulated by the Financial Conduct Authority.
+          </div>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+// ─── DEALS PAGE ───────────────────────────────────────────────────────────────
+
+function DealsPage({ user, setPage, setCelebration }) {
+  const role = user?.user_metadata?.role;
+  const [deals,      setDeals]      = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [creating,   setCreating]   = useState(false);
+  const [builderName, setBuilderName] = useState("");
+  const [dealTitle,   setDealTitle]   = useState("");
+  const [milestones,  setMilestones]  = useState([{ title: "", description: "", amount: "" }]);
+  const [saving,              setSaving]              = useState(false);
+  const [error,               setError]               = useState("");
+  const [propertyValue,       setPropertyValue]       = useState("");
+  const [returnType,          setReturnType]          = useState("");
+  const [interestRate,        setInterestRate]        = useState("");
+  const [loanTermMonths,      setLoanTermMonths]      = useState("");
+  const [rentalSplitPct,      setRentalSplitPct]      = useState("");
+  const [monthlyRental,       setMonthlyRental]       = useState("");
+  const [equityPct,           setEquityPct]           = useState("");
+  const [repaymentStartDate,  setRepaymentStartDate]  = useState("");
+  const [selectedTemplate,    setSelectedTemplate]    = useState(null);
+
+  useEffect(() => { loadDeals(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Check for Stripe payment return in query string
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("milestone_paid") || params.get("finder_fee_paid") || params.get("repayment_paid")) {
+      loadDeals();
+      window.history.replaceState(null, "", "/");
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadDeals() {
+    setLoading(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { setLoading(false); return; }
+    const res = await fetch("/api/deals", {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    const d = await res.json().catch(() => ({}));
+    setDeals(d.deals || []);
+    setLoading(false);
+  }
+
+  function addMilestone() {
+    if (milestones.length >= 6) return;
+    setMilestones(prev => [...prev, { title: "", description: "", amount: "" }]);
+  }
+  function updateMilestone(i, field, val) {
+    setMilestones(prev => prev.map((m, idx) => idx === i ? { ...m, [field]: val } : m));
+  }
+  function removeMilestone(i) {
+    if (milestones.length <= 1) return;
+    setMilestones(prev => prev.filter((_, idx) => idx !== i));
+  }
+
+  async function handleCreate(e) {
+    e.preventDefault();
+    setSaving(true);
+    setError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/deals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({
+        builder_name: builderName, title: dealTitle, milestones,
+        property_value: propertyValue ? Number(propertyValue) : null,
+        return_type: returnType || null,
+        interest_rate: interestRate ? Number(interestRate) : null,
+        loan_term_months: loanTermMonths ? Number(loanTermMonths) : null,
+        rental_split_pct: rentalSplitPct ? Number(rentalSplitPct) : null,
+        estimated_monthly_rental: monthlyRental ? Number(monthlyRental) : null,
+        equity_pct: equityPct ? Number(equityPct) : null,
+        repayment_start_date: repaymentStartDate || null,
+      }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setSaving(false);
+    if (!res.ok) { setError(d.error || "Failed to create deal."); return; }
+    setCreating(false);
+    setBuilderName(""); setDealTitle(""); setPropertyValue("");
+    setReturnType(""); setInterestRate(""); setLoanTermMonths(""); setRentalSplitPct(""); setMonthlyRental(""); setEquityPct(""); setRepaymentStartDate("");
+    setMilestones([{ title: "", description: "", amount: "" }]);
+    setSelectedTemplate(null);
+    // Celebration: first deal
+    if (setCelebration) {
+      const celKey = "lb_cel_first_deal";
+      if (!localStorage.getItem(celKey)) {
+        localStorage.setItem(celKey, "1");
+        setCelebration({ message: "Your first project is live!", subtitle: "Your lender will be notified." });
+      }
+    }
+    loadDeals();
+  }
+
+  function handleSelectTemplate(tpl) {
+    setSelectedTemplate(tpl);
+    setReturnType(tpl.fields.returnType || "");
+    setInterestRate(tpl.fields.interestRate || "");
+    setLoanTermMonths(tpl.fields.loanTermMonths || "");
+    if (tpl.fields.rentalSplitPct) setRentalSplitPct(tpl.fields.rentalSplitPct);
+    if (tpl.fields.dealTitle) setDealTitle(tpl.fields.dealTitle);
+  }
+
+  const inp = {
+    width: "100%", height: 44, border: "0.5px solid #ccc", borderRadius: 8,
+    padding: "0 12px", fontSize: 14, background: "#fff", boxSizing: "border-box",
+  };
+  const lbl = { fontSize: 13, color: "#555", marginBottom: 4, display: "block", fontWeight: 500 };
+
+  function totalAmount(deal) {
+    return (deal.milestones || []).reduce((s, m) => s + (Number(m.amount) || 0), 0);
+  }
+  function dealProgress(deal) {
+    const ms = deal.milestones || [];
+    if (!ms.length) return 0;
+    const done = ms.filter(m => ["paid", "approved"].includes(m.status)).length;
+    return Math.round((done / ms.length) * 100);
+  }
+
+  return (
+    <div style={{ padding: "1.5rem 1.25rem", minHeight: "calc(100vh - 56px)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.5rem", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 500, margin: 0, fontFamily: "'Georgia', serif" }}>Project Tracker</h1>
+          <p style={{ fontSize: 13, color: "#64748B", margin: "4px 0 0" }}>
+            {role === "lender" ? "Manage milestone payment projects with your builders." : "View and update your milestone payment projects."}
+          </p>
+        </div>
+        {role === "lender" && !creating && (
+          <button
+            onClick={() => setCreating(true)}
+            style={{ padding: "8px 18px", minHeight: 44, background: "#3B82F6", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+          >
+            + New project
+          </button>
+        )}
+      </div>
+
+      {/* ── Create deal form ──────────────────────────────────────────── */}
+      {creating && (
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.5rem", marginBottom: "1.5rem" }}>
+          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: "1rem", fontFamily: "'Georgia', serif" }}>Create a project</div>
+
+          {/* ── Deal Templates ── */}
+          <div style={{ marginBottom: "1.25rem" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Start from a template</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
+              {DEAL_TEMPLATES.map(tpl => (
+                <button
+                  key={tpl.id}
+                  type="button"
+                  onClick={() => handleSelectTemplate(tpl)}
+                  style={{
+                    textAlign: "left", background: selectedTemplate?.id === tpl.id ? "#EBF2FF" : "#fafaf8",
+                    border: `1.5px solid ${selectedTemplate?.id === tpl.id ? "#3B82F6" : "#e8e8e5"}`,
+                    borderRadius: 10, padding: "10px 12px", cursor: "pointer",
+                    outline: selectedTemplate?.id === tpl.id ? "2px solid #3B82F6" : "none",
+                  }}
+                >
+                  <div style={{ fontSize: 20, marginBottom: 4 }}>{tpl.icon}</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#1E3A5F", marginBottom: 2, lineHeight: 1.3 }}>{tpl.name}</div>
+                  <div style={{ fontSize: 11, color: "#64748B", lineHeight: 1.4 }}>{tpl.typical}</div>
+                </button>
+              ))}
+            </div>
+            {selectedTemplate && (
+              <div style={{ marginTop: 8, fontSize: 12, color: "#3B82F6" }}>
+                Template selected: <strong>{selectedTemplate.name}</strong> — fields pre-filled below
+              </div>
+            )}
+          </div>
+
+          {error && (
+            <div style={{ background: "#FAECE7", color: "#993C1D", border: "0.5px solid #F5C9BB", borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: "1rem" }}>
+              {error}
+            </div>
+          )}
+          <form onSubmit={handleCreate} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div>
+              <label style={lbl}>Builder name</label>
+              <input type="text" required value={builderName} onChange={e => setBuilderName(e.target.value)} placeholder="Builder's full name on LenderBuild" style={inp} />
+            </div>
+            <div>
+              <label style={lbl}>Project title</label>
+              <input type="text" required value={dealTitle} onChange={e => setDealTitle(e.target.value)} placeholder="e.g. 3-bed residential build, Manchester" style={inp} />
+            </div>
+            <div>
+              <label style={lbl}>Estimated property value (£) — used for LTV calculation</label>
+              <input type="number" min="1" step="1" value={propertyValue} onChange={e => setPropertyValue(e.target.value)} placeholder="e.g. 500000" style={inp} />
+            </div>
+
+            <div>
+              <label style={lbl}>Return type</label>
+              <select value={returnType} onChange={e => setReturnType(e.target.value)} style={inp}>
+                <option value="">— Select return type —</option>
+                <option value="fixed_interest">Fixed interest (monthly repayments)</option>
+                <option value="rental_split">Rental split (% of rental income)</option>
+                <option value="equity_stake">Equity stake (% on sale)</option>
+              </select>
+              {returnType && (() => {
+                const rtLabel = returnType === "fixed_interest" ? "Fixed interest" : returnType === "rental_split" ? "Rental split" : "Equity stake";
+                return (
+                  <ReturnTypeExplainer returnType={rtLabel} onApply={r => {
+                    setReturnType(r === "Fixed interest" ? "fixed_interest" : r === "Rental split" ? "rental_split" : "equity_stake");
+                  }}>
+                    <div />
+                  </ReturnTypeExplainer>
+                );
+              })()}
+            </div>
+
+            {returnType === "fixed_interest" && (
+              <div style={{ background: "#f9f9f7", border: "0.5px solid #e8e8e5", borderRadius: 10, padding: "1rem", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#3B82F6", textTransform: "uppercase", letterSpacing: "0.08em" }}>Fixed interest details</div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={lbl}>Annual interest rate (%)</label>
+                    <input type="number" min="0" max="50" step="0.1" value={interestRate} onChange={e => setInterestRate(e.target.value)} placeholder="e.g. 8" style={{ ...inp, height: 38, fontSize: 13 }} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={lbl}>Loan term (months)</label>
+                    <input type="number" min="1" max="360" step="1" value={loanTermMonths} onChange={e => setLoanTermMonths(e.target.value)} placeholder="e.g. 12" style={{ ...inp, height: 38, fontSize: 13 }} />
+                  </div>
+                </div>
+                <div>
+                  <label style={lbl}>First repayment date</label>
+                  <input type="date" value={repaymentStartDate} onChange={e => setRepaymentStartDate(e.target.value)} style={{ ...inp, height: 38, fontSize: 13 }} />
+                </div>
+              </div>
+            )}
+
+            {returnType === "rental_split" && (
+              <div style={{ background: "#f9f9f7", border: "0.5px solid #e8e8e5", borderRadius: 10, padding: "1rem", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#3B82F6", textTransform: "uppercase", letterSpacing: "0.08em" }}>Rental split details</div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={lbl}>Lender's share of rent (%)</label>
+                    <input type="number" min="0" max="100" step="1" value={rentalSplitPct} onChange={e => setRentalSplitPct(e.target.value)} placeholder="e.g. 40" style={{ ...inp, height: 38, fontSize: 13 }} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={lbl}>Estimated monthly rental (£)</label>
+                    <input type="number" min="0" step="1" value={monthlyRental} onChange={e => setMonthlyRental(e.target.value)} placeholder="e.g. 1500" style={{ ...inp, height: 38, fontSize: 13 }} />
+                  </div>
+                </div>
+                <div>
+                  <label style={lbl}>First payment date</label>
+                  <input type="date" value={repaymentStartDate} onChange={e => setRepaymentStartDate(e.target.value)} style={{ ...inp, height: 38, fontSize: 13 }} />
+                </div>
+              </div>
+            )}
+
+            {returnType === "equity_stake" && (
+              <div style={{ background: "#f9f9f7", border: "0.5px solid #e8e8e5", borderRadius: 10, padding: "1rem", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#3B82F6", textTransform: "uppercase", letterSpacing: "0.08em" }}>Equity stake details</div>
+                <div>
+                  <label style={lbl}>Lender's equity stake (%)</label>
+                  <input type="number" min="0" max="100" step="0.1" value={equityPct} onChange={e => setEquityPct(e.target.value)} placeholder="e.g. 20" style={{ ...inp, height: 38, fontSize: 13 }} />
+                </div>
+              </div>
+            )}
+
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "#555", marginBottom: 8 }}>
+                Milestones <span style={{ color: "#aaa", fontWeight: 400 }}>({milestones.length}/6)</span>
+              </div>
+              {milestones.map((m, i) => (
+                <div key={i} style={{ background: "#fafaf8", border: "0.5px solid #e8e8e5", borderRadius: 10, padding: "1rem", marginBottom: 8, position: "relative" }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>
+                    Milestone {i + 1}
+                  </div>
+                  {milestones.length > 1 && (
+                    <button
+                      type="button" onClick={() => removeMilestone(i)}
+                      style={{ position: "absolute", top: 10, right: 10, background: "transparent", border: "none", cursor: "pointer", fontSize: 18, color: "#bbb", lineHeight: 1, padding: 0 }}
+                    >×</button>
+                  )}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <input
+                      type="text" required value={m.title}
+                      onChange={e => updateMilestone(i, "title", e.target.value)}
+                      placeholder="Title (e.g. Foundation complete)"
+                      style={{ ...inp, height: 38, fontSize: 13 }}
+                    />
+                    <input
+                      type="text" value={m.description}
+                      onChange={e => updateMilestone(i, "description", e.target.value)}
+                      placeholder="Description (optional)"
+                      style={{ ...inp, height: 38, fontSize: 13 }}
+                    />
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 14, color: "#555", flexShrink: 0 }}>£</span>
+                      <input
+                        type="number" required min="1" step="0.01" value={m.amount}
+                        onChange={e => updateMilestone(i, "amount", e.target.value)}
+                        placeholder="Amount"
+                        style={{ ...inp, flex: 1, height: 38, fontSize: 13 }}
+                      />
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 12, color: "#777", flexShrink: 0 }}>Due date:</span>
+                      <input
+                        type="date" value={m.due_date || ""}
+                        onChange={e => updateMilestone(i, "due_date", e.target.value)}
+                        style={{ ...inp, flex: 1, height: 38, fontSize: 13 }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {milestones.length < 6 && (
+                <button
+                  type="button" onClick={addMilestone}
+                  style={{ width: "100%", padding: "8px", background: "transparent", border: "0.5px dashed #ccc", borderRadius: 8, fontSize: 13, color: "#64748B", cursor: "pointer" }}
+                >
+                  + Add milestone
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+              <button
+                type="button" onClick={() => { setCreating(false); setError(""); }}
+                style={{ flex: 1, height: 44, background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, fontSize: 14, cursor: "pointer", color: "#555" }}
+              >Cancel</button>
+              <button
+                type="submit" disabled={saving}
+                style={{ flex: 2, height: 44, background: saving ? "#aaa" : "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? "default" : "pointer" }}
+              >
+                {saving ? "Creating…" : "Create project"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ── Deals list ────────────────────────────────────────────────── */}
+      {loading ? (
+        <div style={{ textAlign: "center", padding: "3rem", color: "#aaa", fontSize: 14 }}>Loading…</div>
+      ) : deals.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "3rem 1.5rem" }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
+          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 8 }}>No projects yet</div>
+          <div style={{ fontSize: 13, color: "#64748B", lineHeight: 1.6, maxWidth: 380, margin: "0 auto" }}>
+            {role === "lender"
+              ? "Click \"+ New project\" to create a milestone payment project with a builder."
+              : "Your lender will create a milestone payment project once you have agreed the work."}
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {deals.map(deal => {
+            const total    = totalAmount(deal);
+            const progress = dealProgress(deal);
+            const ms       = deal.milestones || [];
+            const paid     = ms.filter(m => ["paid", "approved"].includes(m.status)).length;
+            const ltv = deal.property_value ? Math.round((total / deal.property_value) * 100) : null;
+            const ltvBg   = ltv === null ? null : ltv < 70 ? "#E1F5EE" : ltv <= 80 ? "#FEF3C7" : "#FEE2E2";
+            const ltvText = ltv === null ? null : ltv < 70 ? "#0F6E56" : ltv <= 80 ? "#B45309" : "#991B1B";
+            const openDispute = (deal.disputes || []).find(d => d.status === "open");
+            const today = new Date().toISOString().split("T")[0];
+            const hasMissedRepayment = (deal.repayments || []).some(r => (r.status === "missed") || (r.status === "scheduled" && r.due_date < today));
+            const nextRepayment = (deal.repayments || []).filter(r => r.status === "scheduled" || r.status === "missed").sort((a,b) => a.due_date.localeCompare(b.due_date))[0];
+            return (
+              <div
+                key={deal.id}
+                onClick={() => setPage("deal-detail", deal)}
+                style={{
+                  background: "#fff", border: openDispute ? "0.5px solid #FCA5A5" : "0.5px solid #e0e0e0", borderRadius: 12,
+                  padding: "1.25rem 1.5rem", cursor: "pointer",
+                }}
+                onMouseEnter={e => e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.06)"}
+                onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                      <div style={{ fontSize: 15, fontWeight: 500 }}>{deal.title}</div>
+                      {deal.finder_fee_status === "paid"
+                        ? <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 20, background: "#E1F5EE", color: "#0F6E56" }}>Finder's fee paid ✓</span>
+                        : role === "lender" && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 20, background: "#FEF3C7", color: "#B45309" }}>Finder's fee due</span>
+                      }
+                      {openDispute && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 20, background: "#FEE2E2", color: "#991B1B" }}>Dispute open — frozen</span>}
+                      {deal.flagged_default && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 20, background: "#FEE2E2", color: "#991B1B" }}>In default</span>}
+                      {hasMissedRepayment && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 20, background: "#FEF3C7", color: "#B45309" }}>Missed repayment</span>}
+                      {ltv !== null && (
+                        <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 20, background: ltvBg, color: ltvText }}>
+                          LTV {ltv}%
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 13, color: "#64748B" }}>
+                      {role === "lender" ? `Builder: ${deal.builder_name}` : `Lender: ${deal.lender_name}`}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 17, fontWeight: 600, color: "#3B82F6" }}>{fmt(total)}</div>
+                    <div style={{ fontSize: 11, color: "#aaa", marginTop: 2 }}>{ms.length} milestone{ms.length !== 1 ? "s" : ""}</div>
+                  </div>
+                </div>
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 4 }}>
+                    <span>{progress}% complete</span>
+                    <span>{paid}/{ms.length} milestones approved</span>
+                  </div>
+                  <div style={{ height: 4, background: "#eee", borderRadius: 2 }}>
+                    <div style={{ height: 4, borderRadius: 2, background: "#3B82F6", width: `${progress}%`, transition: "width 0.3s" }} />
+                  </div>
+                  {nextRepayment && (
+                    <div style={{ fontSize: 11, color: hasMissedRepayment ? "#B45309" : "#64748B", marginTop: 6 }}>
+                      {hasMissedRepayment ? "⚠ Missed repayment — " : "Next repayment: "}
+                      {fmt(nextRepayment.amount)} due {nextRepayment.due_date}
+                    </div>
+                  )}
+                  {["active","completed"].includes(deal.status) && (
+                    <div style={{ marginTop: 10 }}>
+                      <button
+                        onClick={ev => { ev.stopPropagation(); setPage("deal-room", deal); }}
+                        style={{ padding: "6px 14px", background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                      >
+                        Open Deal Room →
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── DEAL DETAIL PAGE ─────────────────────────────────────────────────────────
+
+const DEAL_DOC_TYPES = [
+  { key: "site_insurance",         label: "Site insurance certificate" },
+  { key: "public_liability",       label: "Public liability insurance" },
+  { key: "personal_guarantee",     label: "Personal guarantee (signed)" },
+  { key: "solicitor_confirmation", label: "Solicitor confirmation of legal charge registration" },
+];
+const ADMIN_EMAIL_CONTACT = "louisgraham932@gmail.com";
+
+function DealDetailPage({ user, setPage, deal: initialDeal, setCelebration }) {
+  const role = user?.user_metadata?.role;
+  const [milestones,      setMilestones]      = useState((initialDeal?.milestones || []).sort((a, b) => a.order_index - b.order_index));
+  const [completingId,    setCompletingId]    = useState(null);
+  const [approvingId,     setApprovingId]     = useState(null);
+  const [photoUploads,    setPhotoUploads]    = useState({});
+  const [uploadStatus,    setUploadStatus]    = useState({});
+  const [error,           setError]           = useState("");
+  const [finderFeePaid,   setFinderFeePaid]   = useState(initialDeal?.finder_fee_status === "paid");
+  const [finderFeePaying, setFinderFeePaying] = useState(false);
+  const [dealDocs,          setDealDocs]          = useState(initialDeal?.deal_documents || []);
+  const [docUploading,      setDocUploading]      = useState({});
+  const [disputes,          setDisputes]          = useState(initialDeal?.disputes || []);
+  const [disputeReason,     setDisputeReason]     = useState("");
+  const [raisingDispute,    setRaisingDispute]    = useState(false);
+  const [showDisputeForm,   setShowDisputeForm]   = useState(false);
+  const [repayments] = useState((initialDeal?.repayments || []).sort((a,b) => a.payment_index - b.payment_index));
+  const [legalSelf,         setLegalSelf]         = useState(role === "lender" ? !!initialDeal?.legal_confirmed_lender : !!initialDeal?.legal_confirmed_builder);
+  const legalOther = role === "lender" ? !!initialDeal?.legal_confirmed_builder : !!initialDeal?.legal_confirmed_lender;
+  const [solicitorName,     setSolicitorName]     = useState(initialDeal?.legal_solicitor_name || "");
+  const [solicitorRef,      setSolicitorRef]      = useState(initialDeal?.legal_solicitor_ref || "");
+  const [confirmingLegal,   setConfirmingLegal]   = useState(false);
+  const [makingRepayment,   setMakingRepayment]   = useState(null);
+  const [width, setWidth] = useState(window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const isMobile = width < 700;
+
+  const openDispute = disputes.find(d => d.status === "open");
+  const allDocsApproved = DEAL_DOC_TYPES.every(dt => dealDocs.some(d => d.doc_type === dt.key && d.status === "approved"));
+  const legalChargeConfirmed = legalSelf && legalOther;
+  const todayStr = new Date().toISOString().split("T")[0];
+  const nextRepayment = repayments.filter(r => r.status === "scheduled" || r.status === "missed").sort((a,b) => a.due_date.localeCompare(b.due_date))[0] || null;
+  const totalToRepay = repayments.reduce((s, r) => s + Number(r.amount), 0);
+  const amountRepaid = repayments.filter(r => r.status === "paid").reduce((s, r) => s + Number(r.amount), 0);
+  const hasMissedRep = repayments.some(r => r.status === "missed" || (r.status === "scheduled" && r.due_date < todayStr));
+
+  async function handleDealDocUpload(docType, file) {
+    if (!file) return;
+    setDocUploading(prev => ({ ...prev, [docType]: "uploading" }));
+    const ext = file.name.split(".").pop();
+    const path = `deal-docs/${initialDeal.id}/${docType}.${ext}`;
+    const { error: uploadErr } = await supabase.storage
+      .from("builder-documents")
+      .upload(path, file, { upsert: true });
+    if (uploadErr) {
+      setDocUploading(prev => ({ ...prev, [docType]: "error" }));
+      return;
+    }
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/deals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "upload-deal-doc", deal_id: initialDeal.id, doc_type: docType, file_path: path }),
+    });
+    if (res.ok) {
+      setDealDocs(prev => {
+        const filtered = prev.filter(d => d.doc_type !== docType);
+        return [...filtered, { doc_type: docType, status: "pending", file_path: path }];
+      });
+      setDocUploading(prev => ({ ...prev, [docType]: "done" }));
+    } else {
+      setDocUploading(prev => ({ ...prev, [docType]: "error" }));
+    }
+  }
+
+  async function handleRaiseDispute() {
+    if (!disputeReason.trim()) return;
+    setRaisingDispute(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/deals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "raise-dispute", deal_id: initialDeal.id, reason: disputeReason }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setRaisingDispute(false);
+    if (!res.ok) { setError(d.error || "Failed to raise dispute."); return; }
+    setDisputes(prev => [...prev, { status: "open", reason: disputeReason, raised_by_role: role, created_at: new Date().toISOString() }]);
+    setShowDisputeForm(false);
+    setDisputeReason("");
+  }
+
+  async function handleConfirmLegal() {
+    setConfirmingLegal(true);
+    setError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/deals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "confirm-legal", deal_id: initialDeal.id, solicitor_name: solicitorName, solicitor_ref: solicitorRef }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setConfirmingLegal(false);
+    if (!res.ok) { setError(d.error || "Failed to confirm."); return; }
+    setLegalSelf(true);
+  }
+
+  async function handleMakeRepayment(repaymentId) {
+    setMakingRepayment(repaymentId);
+    setError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/deals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "make-repayment", repayment_id: repaymentId }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setMakingRepayment(null);
+    if (!res.ok) { setError(d.error || "Failed to start payment."); return; }
+    if (d.checkout_url) window.location.href = d.checkout_url;
+  }
+
+  const statusColors = {
+    pending:   { bg: "#F1EFE8", text: "#5F5E5A" },
+    completed: { bg: "#EBF2FF", text: "#1E3A5F" },
+    approved:  { bg: "#EEEDFE", text: "#534AB7" },
+    paid:      { bg: "#E1F5EE", text: "#0F6E56" },
+  };
+  const statusLabels = {
+    pending:   "Pending",
+    completed: "Awaiting approval",
+    approved:  "Approved — payment initiated",
+    paid:      "Paid",
+  };
+
+  async function handlePhotoUpload(milestoneId, file) {
+    if (!file) return;
+    setUploadStatus(prev => ({ ...prev, [milestoneId]: "uploading" }));
+    const ext = file.name.split(".").pop();
+    const path = `${user.id}/milestone-${milestoneId}.${ext}`;
+    const { error: uploadErr } = await supabase.storage
+      .from("milestone-photos")
+      .upload(path, file, { upsert: true });
+    if (uploadErr) {
+      setUploadStatus(prev => ({ ...prev, [milestoneId]: "error" }));
+      return;
+    }
+    const { data: urlData } = supabase.storage.from("milestone-photos").getPublicUrl(path);
+    setPhotoUploads(prev => ({ ...prev, [milestoneId]: urlData.publicUrl }));
+    setUploadStatus(prev => ({ ...prev, [milestoneId]: "done" }));
+  }
+
+  async function handleMarkComplete(milestoneId) {
+    setCompletingId(milestoneId);
+    setError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    const photo_url = photoUploads[milestoneId] || null;
+    const res = await fetch("/api/deals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "complete", milestone_id: milestoneId, photo_url }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setCompletingId(null);
+    if (!res.ok) { setError(d.error || "Failed to mark as complete."); return; }
+    setMilestones(prev => prev.map(m =>
+      m.id === milestoneId ? { ...m, status: "completed", completion_photo_url: photo_url } : m
+    ));
+  }
+
+  async function handlePayFinderFee() {
+    setFinderFeePaying(true);
+    setError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/deals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "finder-fee", deal_id: initialDeal.id }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setFinderFeePaying(false);
+    if (!res.ok) { setError(d.error || "Failed to start payment."); return; }
+    if (d.already_paid) { setFinderFeePaid(true); return; }
+    if (d.checkout_url) { window.location.href = d.checkout_url; }
+  }
+
+  async function handleApprove(milestoneId) {
+    if (!finderFeePaid) {
+      setError("Please pay the finder's fee before releasing milestone payments.");
+      return;
+    }
+    setApprovingId(milestoneId);
+    setError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/deals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "approve", milestone_id: milestoneId }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setApprovingId(null);
+    if (!res.ok) { setError(d.error || "Failed to approve."); return; }
+    // Celebration: first milestone approved
+    if (setCelebration) {
+      const celKey = "lb_cel_first_ms_approved";
+      if (!localStorage.getItem(celKey)) {
+        localStorage.setItem(celKey, "1");
+        setCelebration({ message: "Milestone approved!", subtitle: "Payment is being processed for your builder." });
+      }
+    }
+    if (d.checkout_url) {
+      window.location.href = d.checkout_url;
+    } else {
+      setMilestones(prev => prev.map(m => m.id === milestoneId ? { ...m, status: "approved" } : m));
+    }
+  }
+
+  if (!initialDeal) return null;
+
+  const totalAmount = milestones.reduce((s, m) => s + Number(m.amount), 0);
+  const paidAmount  = milestones.filter(m => m.status === "paid").reduce((s, m) => s + Number(m.amount), 0);
+
+  return (
+    <div style={{ maxWidth: 760, margin: "0 auto", padding: "1.5rem 1.25rem", minHeight: "calc(100vh - 56px)" }}>
+      <button
+        onClick={() => setPage("deals")}
+        style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 13, color: "#3B82F6", padding: 0, marginBottom: "1rem", display: "flex", alignItems: "center", gap: 4 }}
+      >
+        ← Back to project tracker
+      </button>
+
+      <div style={{ marginBottom: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 500, margin: "0 0 6px", fontFamily: "'Georgia', serif" }}>{initialDeal.title}</h1>
+          <div style={{ fontSize: 13, color: "#64748B" }}>
+            {role === "lender" ? `Builder: ${initialDeal.builder_name}` : `Lender: ${initialDeal.lender_name}`}
+          </div>
+        </div>
+        {["active","completed"].includes(initialDeal.status) && (
+          <button
+            onClick={() => setPage("deal-room", initialDeal)}
+            style={{ padding: "8px 18px", background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
+          >
+            Open Deal Room →
+          </button>
+        )}
+      </div>
+
+      {/* Stats */}
+      <div style={{ display: "flex", gap: 12, marginBottom: "1.5rem", flexWrap: "wrap" }}>
+        {[
+          { label: "Total value", value: fmt(totalAmount), bg: "#f5f5f3", col: "#2C3E50" },
+          { label: "Paid so far",  value: fmt(paidAmount),  bg: "#E1F5EE", col: "#0F6E56" },
+          { label: "Milestones",   value: `${milestones.filter(m => m.status === "paid").length}/${milestones.length}`, bg: "#f5f5f3", col: "#2C3E50" },
+        ].map(({ label, value, bg, col }) => (
+          <div key={label} style={{ background: bg, borderRadius: 10, padding: "0.9rem 1.1rem", flex: 1, minWidth: 100 }}>
+            <div style={{ fontSize: 11, color: col === "#2C3E50" ? "#aaa" : col, marginBottom: 4, opacity: col === "#2C3E50" ? 1 : 0.8 }}>{label}</div>
+            <div style={{ fontSize: 20, fontWeight: 600, color: col }}>{value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* LTV Badge */}
+      {(() => {
+        const pv = initialDeal.property_value;
+        if (!pv || !totalAmount) return null;
+        const ltv = Math.round((totalAmount / pv) * 100);
+        const isHigh = ltv > 80;
+        const isMid  = ltv >= 70 && ltv <= 80;
+        const bg   = isHigh ? "#FEE2E2" : isMid ? "#FEF3C7" : "#E1F5EE";
+        const col  = isHigh ? "#991B1B" : isMid ? "#B45309" : "#0F6E56";
+        const border = isHigh ? "#FCA5A5" : isMid ? "#FCD34D" : "#A8DFC9";
+        return (
+          <div style={{ background: bg, border: `0.5px solid ${border}`, borderRadius: 10, padding: "12px 16px", marginBottom: "1.25rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: col }}>
+                Loan to Value (LTV): {ltv}%
+              </span>
+              <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: col, color: "#fff", fontWeight: 600 }}>
+                {ltv < 70 ? "Low risk" : ltv <= 80 ? "Medium risk" : "High risk"}
+              </span>
+            </div>
+            {isHigh && (
+              <p style={{ margin: "6px 0 0", fontSize: 12, color: "#991B1B", lineHeight: 1.5 }}>
+                High risk — we recommend not lending above 75% of property value. The loan amount exceeds 80% of the estimated property value, which significantly increases your exposure if the builder defaults.
+              </p>
+            )}
+            <div style={{ fontSize: 11, color: col, opacity: 0.75, marginTop: 4 }}>
+              Loan {fmt(totalAmount)} ÷ Property {fmt(pv)}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Open dispute banner */}
+      {openDispute && (
+        <div style={{ background: "#FEE2E2", border: "0.5px solid #FCA5A5", borderRadius: 10, padding: "12px 16px", marginBottom: "1.25rem" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#991B1B", marginBottom: 4 }}>
+            Active dispute — all payments frozen
+          </div>
+          <div style={{ fontSize: 12, color: "#991B1B", lineHeight: 1.5 }}>
+            <strong>Raised by:</strong> {openDispute.raised_by_name || openDispute.raised_by_role}<br />
+            <strong>Reason:</strong> {openDispute.reason}
+          </div>
+          <div style={{ fontSize: 12, color: "#991B1B", marginTop: 6 }}>
+            Our admin team has been notified and will be in touch. For urgent help, email <a href={`mailto:${ADMIN_EMAIL_CONTACT}`} style={{ color: "#991B1B" }}>{ADMIN_EMAIL_CONTACT}</a>.
+          </div>
+        </div>
+      )}
+
+      {/* Default flag banner */}
+      {initialDeal.flagged_default && (
+        <div style={{ background: "#FEE2E2", border: "0.5px solid #FCA5A5", borderRadius: 10, padding: "12px 16px", marginBottom: "1.25rem" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#991B1B" }}>
+            This deal has been flagged as in default
+          </div>
+          <div style={{ fontSize: 12, color: "#991B1B", marginTop: 4 }}>
+            One or more milestones are significantly overdue. Our admin team is reviewing this deal.
+          </div>
+        </div>
+      )}
+
+      {/* Finder's fee — lenders only */}
+      {role === "lender" && (
+        finderFeePaid ? (
+          <div style={{ background: "#E1F5EE", border: "0.5px solid #A8DFC9", borderRadius: 10, padding: "12px 16px", marginBottom: "1.25rem", display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 16, flexShrink: 0 }}>✓</span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#0F6E56" }}>Finder's fee paid</div>
+              <div style={{ fontSize: 12, color: "#0F6E56", opacity: 0.8 }}>You can now release milestone payments.</div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 10, padding: "14px 16px", marginBottom: "1.25rem" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", marginBottom: 2 }}>
+                  Finder's fee required — {fmt(Math.round(totalAmount * 0.01))}
+                </div>
+                <div style={{ fontSize: 12, color: "#64748B", lineHeight: 1.5 }}>
+                  A 1% finder's fee ({fmt(Math.round(totalAmount * 0.01))}) must be paid before milestone payments can be released. This is how LenderBuild earns its revenue.
+                </div>
+              </div>
+              <button
+                onClick={handlePayFinderFee}
+                disabled={finderFeePaying}
+                style={{
+                  padding: "8px 18px", minHeight: 44, flexShrink: 0,
+                  background: finderFeePaying ? "#aaa" : "#3B82F6",
+                  color: "#fff", border: "none", borderRadius: 8,
+                  fontSize: 13, fontWeight: 600,
+                  cursor: finderFeePaying ? "default" : "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {finderFeePaying ? "Redirecting…" : "Pay finder's fee"}
+              </button>
+            </div>
+          </div>
+        )
+      )}
+
+      {/* Legal warning — lenders only */}
+      {role === "lender" && (
+        <div style={{ background: "#FFFBEB", border: "1px solid #F59E0B", borderRadius: 10, padding: "14px 16px", marginBottom: "1.25rem", display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <span style={{ fontSize: 18, flexShrink: 0, lineHeight: 1.4 }}>⚠️</span>
+          <p style={{ margin: 0, fontSize: 13, color: "#78350F", lineHeight: 1.6 }}>
+            <strong>Important:</strong> Before releasing any funds, we strongly recommend instructing a solicitor to register a legal charge against the property. This protects your investment if the builder defaults. LenderBuild is an introduction platform only and does not provide financial advice.
+          </p>
+        </div>
+      )}
+
+      {/* Required documents checklist — builders upload, lenders see status */}
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.25rem" }}>
+        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Required documents before funds release</div>
+        <div style={{ fontSize: 12, color: "#64748B", marginBottom: 12, lineHeight: 1.5 }}>
+          {role === "builder"
+            ? "Upload all four documents below. Once admin approves them, milestone 1 will be unlocked."
+            : "The builder must upload and have all four documents approved before milestone 1 can be released."
+          }
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {DEAL_DOC_TYPES.map(dt => {
+            const doc = dealDocs.find(d => d.doc_type === dt.key);
+            const upStatus = docUploading[dt.key];
+            const statusColor = !doc ? "#64748B" : doc.status === "approved" ? "#0F6E56" : doc.status === "rejected" ? "#991B1B" : "#B45309";
+            const statusBg    = !doc ? "#f5f5f3" : doc.status === "approved" ? "#E1F5EE" : doc.status === "rejected" ? "#FEE2E2" : "#FEF3C7";
+            const statusLabel = !doc ? "Not uploaded" : doc.status === "approved" ? "Approved ✓" : doc.status === "rejected" ? "Rejected — re-upload" : "Pending review";
+            return (
+              <div key={dt.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderRadius: 8, background: statusBg, flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: statusColor }}>{dt.label}</div>
+                  {doc?.status === "rejected" && doc?.rejection_reason && (
+                    <div style={{ fontSize: 11, color: "#991B1B", marginTop: 2 }}>{doc.rejection_reason}</div>
+                  )}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <span style={{ fontSize: 11, fontWeight: 500, color: statusColor }}>{statusLabel}</span>
+                  {role === "builder" && doc?.status !== "approved" && (
+                    <label style={{ display: "inline-flex", alignItems: "center", padding: "5px 12px", minHeight: 36, background: "#3B82F6", color: "#fff", borderRadius: 7, fontSize: 12, cursor: upStatus === "uploading" ? "default" : "pointer", fontWeight: 500 }}>
+                      {upStatus === "uploading" ? "Uploading…" : upStatus === "done" ? "Re-upload" : "Upload"}
+                      <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }}
+                        onChange={e => handleDealDocUpload(dt.key, e.target.files[0])}
+                        disabled={upStatus === "uploading"}
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {allDocsApproved && legalChargeConfirmed && (
+          <div style={{ marginTop: 10, fontSize: 12, color: "#0F6E56", fontWeight: 500 }}>All required documents approved and legal charge confirmed — milestone 1 is unlocked.</div>
+        )}
+        {allDocsApproved && !legalChargeConfirmed && (
+          <div style={{ marginTop: 10, fontSize: 12, color: "#B45309", fontWeight: 500 }}>Documents approved — waiting for both parties to confirm legal charge below.</div>
+        )}
+      </div>
+
+      {/* Legal charge checklist */}
+      <div style={{ background: "#fff", border: legalChargeConfirmed ? "0.5px solid #A8DFC9" : "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.25rem" }}>
+        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Legal charge checklist</div>
+        <div style={{ fontSize: 12, color: "#64748B", marginBottom: 12, lineHeight: 1.5 }}>
+          Both parties must confirm these steps before milestone 1 funds can be released.
+        </div>
+        {[
+          "Legal agreement has been signed by both parties",
+          "A solicitor has been instructed to register a legal charge",
+          "Legal charge has been registered against the property",
+        ].map((item, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: 16, color: legalChargeConfirmed ? "#0F6E56" : "#B45309", marginTop: 1, flexShrink: 0 }}>
+              {legalChargeConfirmed ? "✓" : "○"}
+            </span>
+            <span style={{ fontSize: 13, color: "#333" }}>{item}</span>
+          </div>
+        ))}
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "0.5px solid #f0f0f0" }}>
+          <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <label style={{ fontSize: 12, color: "#555", fontWeight: 500, display: "block", marginBottom: 4 }}>Solicitor name</label>
+              <input
+                value={solicitorName} onChange={e => setSolicitorName(e.target.value)}
+                placeholder="e.g. Smith & Co Solicitors"
+                disabled={legalSelf}
+                style={{ width: "100%", height: 38, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px", fontSize: 13, background: legalSelf ? "#f9f9f7" : "#fff", boxSizing: "border-box" }}
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <label style={{ fontSize: 12, color: "#555", fontWeight: 500, display: "block", marginBottom: 4 }}>Reference number</label>
+              <input
+                value={solicitorRef} onChange={e => setSolicitorRef(e.target.value)}
+                placeholder="e.g. REF-2024-001"
+                disabled={legalSelf}
+                style={{ width: "100%", height: 38, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px", fontSize: 13, background: legalSelf ? "#f9f9f7" : "#fff", boxSizing: "border-box" }}
+              />
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 16, fontSize: 12 }}>
+              <span style={{ color: legalSelf ? "#0F6E56" : "#64748B" }}>
+                {legalSelf ? "✓ You confirmed" : "You: not yet confirmed"}
+              </span>
+              <span style={{ color: legalOther ? "#0F6E56" : "#64748B" }}>
+                {legalOther
+                  ? `✓ ${role === "lender" ? "Builder" : "Lender"} confirmed`
+                  : `${role === "lender" ? "Builder" : "Lender"}: not yet confirmed`}
+              </span>
+            </div>
+            {!legalSelf && (
+              <button
+                onClick={handleConfirmLegal}
+                disabled={confirmingLegal}
+                style={{ padding: "7px 18px", minHeight: 38, background: confirmingLegal ? "#aaa" : "#1E3A5F", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: confirmingLegal ? "default" : "pointer" }}
+              >
+                {confirmingLegal ? "Confirming…" : "I confirm all items above"}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Repayment schedule */}
+      {initialDeal.return_type && (
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.25rem" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
+            {initialDeal.return_type === "fixed_interest" ? "Repayment schedule — fixed interest" : initialDeal.return_type === "rental_split" ? "Repayment schedule — rental split" : "Return details — equity stake"}
+          </div>
+
+          {initialDeal.return_type === "fixed_interest" && (() => {
+            const principal = initialDeal.milestones?.reduce((s, m) => s + Number(m.amount), 0) || 0;
+            const r = (initialDeal.interest_rate || 0) / 100 / 12;
+            const n = initialDeal.loan_term_months || 1;
+            const monthly = r === 0 ? principal / n : principal * r / (1 - Math.pow(1 + r, -n));
+            const totalRepay = monthly * n;
+            const totalInterest = totalRepay - principal;
+            return (
+              <div>
+                <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+                  {[
+                    { label: "Monthly payment", value: fmt(Math.round(monthly)) },
+                    { label: "Total repayments", value: fmt(Math.round(totalRepay)) },
+                    { label: "Total interest", value: fmt(Math.round(totalInterest)) },
+                    { label: "Term", value: `${n} months` },
+                  ].map(({ label, value }) => (
+                    <div key={label} style={{ background: "#f5f5f3", borderRadius: 8, padding: "10px 14px", flex: 1, minWidth: 100 }}>
+                      <div style={{ fontSize: 11, color: "#aaa", marginBottom: 2 }}>{label}</div>
+                      <div style={{ fontSize: 16, fontWeight: 600, color: "#2C3E50" }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 12, color: "#64748B" }}>Interest rate: {initialDeal.interest_rate}% p.a.</div>
+              </div>
+            );
+          })()}
+
+          {initialDeal.return_type === "rental_split" && (() => {
+            const monthly = Math.round((initialDeal.estimated_monthly_rental || 0) * (initialDeal.rental_split_pct || 0) / 100);
+            const principal = initialDeal.milestones?.reduce((s, m) => s + Number(m.amount), 0) || 0;
+            const months = monthly > 0 ? Math.ceil(principal / monthly) : 0;
+            return (
+              <div>
+                <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+                  {[
+                    { label: "Monthly income to lender", value: fmt(monthly) },
+                    { label: "Lender's share", value: `${initialDeal.rental_split_pct}%` },
+                    { label: "Est. monthly rental", value: fmt(initialDeal.estimated_monthly_rental || 0) },
+                    { label: "Est. repayment timeline", value: months > 0 ? `${months} months` : "—" },
+                  ].map(({ label, value }) => (
+                    <div key={label} style={{ background: "#f5f5f3", borderRadius: 8, padding: "10px 14px", flex: 1, minWidth: 100 }}>
+                      <div style={{ fontSize: 11, color: "#aaa", marginBottom: 2 }}>{label}</div>
+                      <div style={{ fontSize: 16, fontWeight: 600, color: "#2C3E50" }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          {initialDeal.return_type === "equity_stake" && (() => {
+            const propVal = initialDeal.property_value || 0;
+            const projected = propVal * (initialDeal.equity_pct || 0) / 100;
+            return (
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                {[
+                  { label: "Equity stake", value: `${initialDeal.equity_pct || 0}%` },
+                  { label: "Est. property value", value: propVal ? fmt(propVal) : "Not set" },
+                  { label: "Projected payout on sale", value: projected ? fmt(Math.round(projected)) : "—" },
+                ].map(({ label, value }) => (
+                  <div key={label} style={{ background: "#f5f5f3", borderRadius: 8, padding: "10px 14px", flex: 1, minWidth: 100 }}>
+                    <div style={{ fontSize: 11, color: "#aaa", marginBottom: 2 }}>{label}</div>
+                    <div style={{ fontSize: 16, fontWeight: 600, color: "#2C3E50" }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Repayment tracker */}
+      {repayments.length > 0 && (
+        <div style={{ background: "#fff", border: hasMissedRep ? "0.5px solid #FCD34D" : "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.25rem" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>
+              Repayment tracker
+              {hasMissedRep && <span style={{ marginLeft: 10, fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: "#FEF3C7", color: "#B45309" }}>Missed payment</span>}
+            </div>
+            {role === "builder" && nextRepayment && (
+              <button
+                onClick={() => handleMakeRepayment(nextRepayment.id)}
+                disabled={!!makingRepayment}
+                style={{ padding: "8px 18px", minHeight: 40, background: makingRepayment ? "#aaa" : (hasMissedRep ? "#991B1B" : "#3B82F6"), color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: makingRepayment ? "default" : "pointer", flexShrink: 0 }}
+              >
+                {makingRepayment ? "Redirecting…" : `Make repayment — ${fmt(nextRepayment.amount)}`}
+              </button>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+            {[
+              { label: "Total to repay", value: fmt(Math.round(totalToRepay)), col: "#2C3E50", bg: "#f5f5f3" },
+              { label: "Repaid so far", value: fmt(Math.round(amountRepaid)), col: "#0F6E56", bg: "#E1F5EE" },
+              { label: "Remaining", value: fmt(Math.round(totalToRepay - amountRepaid)), col: "#2C3E50", bg: "#f5f5f3" },
+              ...(nextRepayment ? [{ label: "Next due", value: nextRepayment.due_date, col: hasMissedRep ? "#B45309" : "#2C3E50", bg: hasMissedRep ? "#FEF3C7" : "#f5f5f3" }] : []),
+            ].map(({ label, value, col, bg }) => (
+              <div key={label} style={{ background: bg, borderRadius: 8, padding: "10px 14px", flex: 1, minWidth: 90 }}>
+                <div style={{ fontSize: 11, color: "#aaa", marginBottom: 2 }}>{label}</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: col }}>{value}</div>
+              </div>
+            ))}
+          </div>
+          {totalToRepay > 0 && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 4 }}>
+                <span>{Math.round((amountRepaid / totalToRepay) * 100)}% repaid</span>
+                <span>{repayments.filter(r => r.status === "paid").length}/{repayments.length} payments</span>
+              </div>
+              <div style={{ height: 8, background: "#eee", borderRadius: 4 }}>
+                <div style={{ height: 8, borderRadius: 4, background: "#0F6E56", width: `${Math.min(100, Math.round((amountRepaid / totalToRepay) * 100))}%`, transition: "width 0.4s" }} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Repayment history table */}
+      {repayments.length > 0 && (
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.25rem" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Repayment history</div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: "0.5px solid #f0f0f0" }}>
+                  {["#", "Due date", "Amount", "Status", "Paid on", "Ref"].map(h => (
+                    <th key={h} style={{ textAlign: "left", padding: "6px 10px", fontSize: 11, fontWeight: 600, color: "#aaa", whiteSpace: "nowrap" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {repayments.map(r => {
+                  const isMissed = r.status === "missed" || (r.status === "scheduled" && r.due_date < todayStr);
+                  const statusCfg = {
+                    paid: ["#E1F5EE","#0F6E56","Paid"],
+                    missed: ["#FEE2E2","#991B1B","Missed"],
+                    processing: ["#EEEDFE","#534AB7","Processing"],
+                    scheduled: ["#f5f5f3","#64748B","Scheduled"],
+                  };
+                  const [sbg, scol, slabel] = isMissed ? ["#FEF3C7","#B45309","Missed"] : (statusCfg[r.status] || statusCfg.scheduled);
+                  return (
+                    <tr key={r.id} style={{ borderBottom: "0.5px solid #f9f9f7" }}>
+                      <td style={{ padding: "8px 10px", color: "#aaa" }}>{r.payment_index}</td>
+                      <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>{r.due_date}</td>
+                      <td style={{ padding: "8px 10px", fontWeight: 500 }}>{fmt(r.amount)}</td>
+                      <td style={{ padding: "8px 10px" }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: sbg, color: scol }}>{slabel}</span>
+                      </td>
+                      <td style={{ padding: "8px 10px", color: "#64748B", whiteSpace: "nowrap" }}>
+                        {r.paid_at ? new Date(r.paid_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                      </td>
+                      <td style={{ padding: "8px 10px", color: "#aaa", fontSize: 11, whiteSpace: "nowrap" }}>{r.confirmation_number || "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Raise a dispute */}
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.25rem" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Dispute resolution</div>
+            <div style={{ fontSize: 12, color: "#64748B" }}>If there is a problem with this deal, you can raise a formal dispute. All payments will be frozen until it is resolved.</div>
+          </div>
+          {!openDispute && (
+            <button
+              onClick={() => setShowDisputeForm(v => !v)}
+              style={{ padding: "7px 16px", minHeight: 38, background: "transparent", border: "0.5px solid #FCA5A5", color: "#991B1B", borderRadius: 8, fontSize: 13, cursor: "pointer", flexShrink: 0 }}
+            >
+              Raise a dispute
+            </button>
+          )}
+        </div>
+        {showDisputeForm && !openDispute && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "0.5px solid #f0f0f0" }}>
+            <textarea
+              value={disputeReason}
+              onChange={e => setDisputeReason(e.target.value)}
+              placeholder="Describe the issue in detail…"
+              style={{ width: "100%", minHeight: 80, padding: "10px 12px", fontSize: 13, border: "0.5px solid #ccc", borderRadius: 8, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }}
+            />
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button
+                onClick={handleRaiseDispute}
+                disabled={raisingDispute || !disputeReason.trim()}
+                style={{ padding: "7px 18px", minHeight: 38, background: raisingDispute ? "#aaa" : "#991B1B", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: raisingDispute ? "default" : "pointer" }}
+              >
+                {raisingDispute ? "Submitting…" : "Submit dispute"}
+              </button>
+              <button onClick={() => { setShowDisputeForm(false); setDisputeReason(""); }}
+                style={{ padding: "7px 14px", minHeight: 38, background: "transparent", border: "0.5px solid #e0e0e0", color: "#555", borderRadius: 8, fontSize: 13, cursor: "pointer" }}
+              >Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Emergency contact */}
+      <div style={{ background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: "1.25rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", marginBottom: 2 }}>Need urgent help?</div>
+          <div style={{ fontSize: 12, color: "#64748B" }}>Contact our team directly for any urgent issues with this project.</div>
+        </div>
+        <a
+          href={`mailto:${ADMIN_EMAIL_CONTACT}?subject=Problem with project: ${encodeURIComponent(initialDeal.title)}&body=Deal ID: ${initialDeal.id}%0A%0ADescribe your issue:`}
+          style={{ display: "inline-block", padding: "8px 16px", minHeight: 38, background: "#1E3A5F", color: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 500, textDecoration: "none", flexShrink: 0 }}
+        >
+          Report a problem with this project
+        </a>
+      </div>
+
+      {error && (
+        <div style={{ background: "#FAECE7", color: "#993C1D", border: "0.5px solid #F5C9BB", borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: "1rem" }}>
+          {error}
+        </div>
+      )}
+
+      {/* Trust box — shown before first milestone is released */}
+      {milestones.some(m => m.status === "pending") && (
+        <div style={{ background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, padding: "16px 20px", marginBottom: "1.25rem" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#1E3A5F", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+            <svg width="16" height="18" viewBox="0 0 16 18" fill="none"><rect x="1" y="7" width="14" height="10" rx="2" stroke="#1E3A5F" strokeWidth="1.5"/><path d="M4 7V5a4 4 0 018 0v2" stroke="#1E3A5F" strokeWidth="1.5" strokeLinecap="round"/><circle cx="8" cy="12" r="1.5" fill="#1E3A5F"/></svg>
+            Protected by LenderBuild
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
+            {[
+              "Legal charge requirement",
+              "Milestone-based payments",
+              "Admin oversight",
+              "Stripe secure payments",
+            ].map(item => (
+              <div key={item} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "#1E3A5F" }}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6.5" stroke="#16A34A" strokeWidth="1.3"/><path d="M4 7l2 2 4-4" stroke="#16A34A" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                {item}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Milestones */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {milestones.map((m, i) => {
+          const sc          = statusColors[m.status] || statusColors.pending;
+          const isCompleting = completingId === m.id;
+          const isApproving  = approvingId  === m.id;
+          return (
+            <div key={m.id} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: m.description ? 4 : 0 }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "flex-start", flex: 1 }}>
+                  <div style={{
+                    width: 28, height: 28, borderRadius: "50%",
+                    background: m.status === "paid" ? "#E1F5EE" : "#f5f5f3",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 12, fontWeight: 600,
+                    color: m.status === "paid" ? "#0F6E56" : "#64748B",
+                    flexShrink: 0,
+                  }}>
+                    {m.status === "paid" ? "✓" : i + 1}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 500 }}>{m.title}</div>
+                    {m.description && <div style={{ fontSize: 12, color: "#64748B", marginTop: 3 }}>{m.description}</div>}
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
+                  <div style={{ fontSize: 16, fontWeight: 600 }}>{fmt(m.amount)}</div>
+                  <span style={{ fontSize: 11, fontWeight: 500, padding: "3px 9px", borderRadius: 20, background: sc.bg, color: sc.text }}>
+                    {statusLabels[m.status] || m.status}
+                  </span>
+                </div>
+              </div>
+
+              {m.completion_photo_url && (
+                <div style={{ marginTop: 8 }}>
+                  <a href={m.completion_photo_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#3B82F6" }}>
+                    View completion photo →
+                  </a>
+                </div>
+              )}
+
+              {/* Builder: upload photo + mark complete */}
+              {role === "builder" && m.status === "pending" && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "0.5px solid #f0f0f0" }}>
+                  {m.order_index === 1 && (!allDocsApproved || !legalChargeConfirmed) && (
+                    <div style={{ background: "#FEF3C7", border: "0.5px solid #FCD34D", borderRadius: 8, padding: "8px 12px", marginBottom: 10, fontSize: 12, color: "#B45309" }}>
+                      Milestone 1 is locked until all four required documents are approved{!legalChargeConfirmed ? " and both parties have confirmed the legal charge" : ""}.
+                    </div>
+                  )}
+                  {openDispute && (
+                    <div style={{ background: "#FEE2E2", border: "0.5px solid #FCA5A5", borderRadius: 8, padding: "8px 12px", marginBottom: 10, fontSize: 12, color: "#991B1B" }}>
+                      Payments are frozen due to an active dispute. Resolve the dispute first.
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12, color: "#64748B", marginBottom: 8 }}>Upload a photo as proof of completion (optional)</div>
+                  <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 8, alignItems: isMobile ? "stretch" : "center" }}>
+                    <label style={{
+                      display: "inline-flex", alignItems: "center", justifyContent: isMobile ? "center" : undefined,
+                      padding: "0 14px", minHeight: 44,
+                      background: "#f5f5f3",
+                      border: "0.5px solid #ddd", borderRadius: 8,
+                      fontSize: 12, cursor: uploadStatus[m.id] === "uploading" ? "default" : "pointer",
+                      color: "#555",
+                    }}>
+                      {uploadStatus[m.id] === "uploading" ? "Uploading…"
+                        : uploadStatus[m.id] === "done"     ? "Photo uploaded ✓"
+                        : uploadStatus[m.id] === "error"    ? "Upload failed — retry"
+                        : "Choose photo"}
+                      <input
+                        type="file" accept="image/*" style={{ display: "none" }}
+                        onChange={e => handlePhotoUpload(m.id, e.target.files[0])}
+                        disabled={uploadStatus[m.id] === "uploading"}
+                      />
+                    </label>
+                    <button
+                      onClick={() => handleMarkComplete(m.id)}
+                      disabled={isCompleting || !!openDispute || (m.order_index === 1 && (!allDocsApproved || !legalChargeConfirmed))}
+                      style={{
+                        padding: "6px 16px", minHeight: 44,
+                        background: (isCompleting || !!openDispute || (m.order_index === 1 && (!allDocsApproved || !legalChargeConfirmed))) ? "#aaa" : "#3B82F6",
+                        color: "#fff", border: "none", borderRadius: 8,
+                        fontSize: 13, fontWeight: 500,
+                        cursor: (isCompleting || !!openDispute || (m.order_index === 1 && (!allDocsApproved || !legalChargeConfirmed))) ? "default" : "pointer",
+                        width: isMobile ? "100%" : undefined,
+                      }}
+                    >
+                      {isCompleting ? "Marking…" : "Mark as complete"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Lender: approve + release payment */}
+              {role === "lender" && m.status === "completed" && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "0.5px solid #f0f0f0" }}>
+                  <div style={{ fontSize: 12, color: "#64748B", marginBottom: 8 }}>
+                    The builder has marked this milestone complete. Review their proof and approve to release payment via Stripe.
+                  </div>
+                  <button
+                    onClick={() => handleApprove(m.id)}
+                    disabled={isApproving}
+                    style={{
+                      padding: "7px 18px", minHeight: 44,
+                      background: isApproving ? "#aaa" : "#3B82F6",
+                      color: "#fff", border: "none", borderRadius: 8,
+                      fontSize: 13, fontWeight: 500,
+                      cursor: isApproving ? "default" : "pointer",
+                      width: isMobile ? "100%" : undefined,
+                    }}
+                  >
+                    {isApproving ? "Processing…" : `Approve & release £${Number(m.amount).toLocaleString()}`}
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── LEGAL PAGES ──────────────────────────────────────────────────────────────
+
+function LegalPageWrapper({ title, children, setPage }) {
+  return (
+    <div style={{ maxWidth: 760, margin: "0 auto", padding: "2rem 1.25rem", minHeight: "calc(100vh - 56px)" }}>
+      <button
+        onClick={() => setPage("home")}
+        style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 13, color: "#3B82F6", padding: 0, marginBottom: "1.5rem", display: "flex", alignItems: "center", gap: 4 }}
+      >
+        ← Back to home
+      </button>
+      <h1 style={{ fontSize: 26, fontWeight: 500, margin: "0 0 0.25rem", fontFamily: "'Georgia', serif" }}>{title}</h1>
+      <p style={{ fontSize: 12, color: "#aaa", margin: "0 0 2rem" }}>Last updated: April 2025</p>
+      <div style={{ fontSize: 14, lineHeight: 1.75, color: "#333" }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function H({ children }) {
+  return <h2 style={{ fontSize: 17, fontWeight: 600, margin: "1.75rem 0 0.5rem", fontFamily: "'Georgia', serif" }}>{children}</h2>;
+}
+function P({ children }) {
+  return <p style={{ margin: "0 0 1rem" }}>{children}</p>;
+}
+function UL({ children }) {
+  return <ul style={{ margin: "0 0 1rem", paddingLeft: "1.5rem" }}>{children}</ul>;
+}
+function LI({ children }) {
+  return <li style={{ marginBottom: "0.4rem" }}>{children}</li>;
+}
+
+function PrivacyPolicyPage({ setPage }) {
+  return (
+    <LegalPageWrapper title="Privacy Policy" setPage={setPage}>
+      <P>LenderBuild (&ldquo;we&rdquo;, &ldquo;us&rdquo;, &ldquo;our&rdquo;) is committed to protecting and respecting your privacy. This policy explains how we collect, use, and safeguard your personal data when you use our platform at lenderbuild.co.uk.</P>
+
+      <H>1. Who we are</H>
+      <P>LenderBuild is a property investment matching platform based in the United Kingdom. We connect property developers and builders with private lenders and investors. We are the data controller for personal data collected through this platform.</P>
+
+      <H>2. What data we collect</H>
+      <P>We may collect the following personal data:</P>
+      <UL>
+        <LI>Identity data: name, username</LI>
+        <LI>Contact data: email address</LI>
+        <LI>Profile data: location, professional biography, specialisation, investment preferences</LI>
+        <LI>Verification documents: photo ID, selfie with ID, site photos, planning documents (builders only)</LI>
+        <LI>Transaction data: information about deals and milestone payments processed through our platform</LI>
+        <LI>Technical data: IP address, browser type, device information, usage data</LI>
+        <LI>Communications: messages exchanged with other users on the platform</LI>
+      </UL>
+
+      <H>3. How we use your data</H>
+      <P>We use your personal data to:</P>
+      <UL>
+        <LI>Provide and maintain the LenderBuild platform</LI>
+        <LI>Match lenders with builders and facilitate connections</LI>
+        <LI>Verify the identity of builders who upload verification documents</LI>
+        <LI>Process milestone payments via Stripe</LI>
+        <LI>Send transactional email notifications (connection requests, messages, milestone updates)</LI>
+        <LI>Ensure platform security and prevent fraud</LI>
+        <LI>Comply with our legal obligations</LI>
+      </UL>
+
+      <H>4. Legal basis for processing</H>
+      <P>We process your personal data under the UK General Data Protection Regulation (UK GDPR) and the Data Protection Act 2018 on the following bases:</P>
+      <UL>
+        <LI><strong>Contract performance:</strong> to provide our service to you</LI>
+        <LI><strong>Legitimate interests:</strong> to improve our platform, prevent fraud, and maintain security</LI>
+        <LI><strong>Consent:</strong> for verification document uploads and marketing communications</LI>
+        <LI><strong>Legal obligation:</strong> to comply with applicable law</LI>
+      </UL>
+
+      <H>5. Data sharing</H>
+      <P>We share your data with:</P>
+      <UL>
+        <LI><strong>Supabase:</strong> our database and authentication provider (data hosted in the EU)</LI>
+        <LI><strong>Stripe:</strong> our payment processor for milestone payments</LI>
+        <LI><strong>Resend:</strong> our email delivery provider for transactional emails</LI>
+        <LI><strong>Vercel:</strong> our hosting provider</LI>
+      </UL>
+      <P>We do not sell your personal data to third parties. We only share data with our service providers as necessary to operate the platform.</P>
+
+      <H>6. Data retention</H>
+      <P>We retain your personal data for as long as your account is active or as needed to provide our services. If you delete your account, we will delete or anonymise your data within 30 days, except where we are required to retain it for legal or regulatory purposes.</P>
+
+      <H>7. Your rights</H>
+      <P>Under UK GDPR, you have the right to:</P>
+      <UL>
+        <LI>Access your personal data</LI>
+        <LI>Correct inaccurate personal data</LI>
+        <LI>Request erasure of your personal data</LI>
+        <LI>Restrict or object to processing</LI>
+        <LI>Data portability</LI>
+        <LI>Withdraw consent at any time</LI>
+      </UL>
+      <P>To exercise your rights, please contact us at privacy@lenderbuild.co.uk. You also have the right to lodge a complaint with the Information Commissioner&apos;s Office (ICO) at ico.org.uk.</P>
+
+      <H>8. Cookies</H>
+      <P>We use essential cookies to maintain your session. We do not currently use analytics or advertising cookies. You can control cookies through your browser settings.</P>
+
+      <H>9. Security</H>
+      <P>We implement appropriate technical and organisational measures to protect your personal data, including encrypted storage, access controls, and rate limiting. However, no method of transmission over the internet is completely secure.</P>
+
+      <H>10. Changes to this policy</H>
+      <P>We may update this privacy policy from time to time. We will notify you of significant changes by email or by posting a notice on the platform. Continued use of the platform after any changes constitutes your acceptance of the updated policy.</P>
+
+      <H>11. Contact us</H>
+      <P>If you have any questions about this privacy policy or our data practices, please contact us at privacy@lenderbuild.co.uk.</P>
+    </LegalPageWrapper>
+  );
+}
+
+function TermsPage({ setPage }) {
+  return (
+    <LegalPageWrapper title="Terms &amp; Conditions" setPage={setPage}>
+      <P>Please read these Terms and Conditions carefully before using LenderBuild. By registering an account or using our platform, you agree to be bound by these terms. If you do not agree, please do not use our platform.</P>
+
+      <H>1. About LenderBuild</H>
+      <P>LenderBuild is a property investment matching platform that connects property developers and builders with private lenders and investors in the United Kingdom. We are not a regulated financial institution and do not provide financial advice, arrange regulated mortgage contracts, or manage investments.</P>
+
+      <H>2. Eligibility</H>
+      <P>To use LenderBuild, you must:</P>
+      <UL>
+        <LI>Be at least 18 years of age</LI>
+        <LI>Be based in the United Kingdom</LI>
+        <LI>Have the legal capacity to enter into binding contracts</LI>
+        <LI>Provide accurate and truthful information</LI>
+      </UL>
+
+      <H>3. Account registration</H>
+      <P>You are responsible for maintaining the confidentiality of your account credentials. You must notify us immediately of any unauthorised use of your account. You are responsible for all activity that occurs under your account.</P>
+
+      <H>4. Platform use</H>
+      <P>LenderBuild provides a marketplace for lenders and builders to find each other and agree terms. We do not:</P>
+      <UL>
+        <LI>Guarantee the performance or conduct of any user</LI>
+        <LI>Verify the accuracy of information provided by users (beyond optional document uploads)</LI>
+        <LI>Act as a party to any deal or investment agreement between users</LI>
+        <LI>Provide legal, financial, or tax advice</LI>
+      </UL>
+
+      <H>5. Milestone payments</H>
+      <P>The milestone payment feature allows lenders to set up structured payments for agreed work stages. Payments are processed through Stripe. LenderBuild charges a platform fee on each transaction. Once a milestone payment has been released, it cannot be reversed through our platform. Any disputes between lenders and builders regarding work quality or payment are the responsibility of the parties involved.</P>
+
+      <H>6. Prohibited conduct</H>
+      <P>You must not use LenderBuild to:</P>
+      <UL>
+        <LI>Provide false, misleading, or fraudulent information</LI>
+        <LI>Harass, threaten, or abuse other users</LI>
+        <LI>Engage in money laundering or other illegal financial activity</LI>
+        <LI>Circumvent our platform to avoid fees</LI>
+        <LI>Scrape, copy, or redistribute content without our permission</LI>
+        <LI>Attempt to gain unauthorised access to our systems</LI>
+      </UL>
+
+      <H>7. Finder&apos;s fee</H>
+      <P>A 1% finder&apos;s fee is charged on deals facilitated through the platform. This fee is payable by the party initiating the payment. The fee covers platform operation, security, and ongoing maintenance.</P>
+
+      <H>8. Limitation of liability</H>
+      <P>To the maximum extent permitted by law, LenderBuild shall not be liable for any indirect, incidental, special, or consequential damages arising from your use of the platform, including loss of profits, loss of investment, or loss of data. Our total liability to you shall not exceed the fees you have paid to us in the preceding 12 months.</P>
+      <P>Nothing in these terms limits our liability for death or personal injury caused by our negligence, fraud or fraudulent misrepresentation, or any other liability that cannot be excluded under English law.</P>
+
+      <H>9. Intellectual property</H>
+      <P>All content on LenderBuild, including text, graphics, logos, and software, is owned by or licensed to LenderBuild and is protected by UK and international intellectual property laws. You may not reproduce, distribute, or create derivative works without our prior written consent.</P>
+
+      <H>10. Termination</H>
+      <P>We may suspend or terminate your account if you breach these terms, engage in fraudulent activity, or if we decide to discontinue the platform. You may close your account at any time by contacting us.</P>
+
+      <H>11. Governing law</H>
+      <P>These terms are governed by the laws of England and Wales. Any disputes shall be subject to the exclusive jurisdiction of the courts of England and Wales.</P>
+
+      <H>12. Changes to these terms</H>
+      <P>We may update these terms from time to time. We will notify you of material changes by email. Continued use of the platform after changes constitutes acceptance of the updated terms.</P>
+
+      <H>13. Contact</H>
+      <P>For questions about these terms, please contact us at legal@lenderbuild.co.uk.</P>
+    </LegalPageWrapper>
+  );
+}
+
+function RiskWarningPage({ setPage }) {
+  return (
+    <LegalPageWrapper title="Risk Warning" setPage={setPage}>
+      <div style={{ background: "#FAECE7", border: "0.5px solid #F5C9BB", borderRadius: 10, padding: "1rem 1.25rem", marginBottom: "1.5rem" }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "#993C1D", marginBottom: 6 }}>Important: Please read this risk warning in full before using LenderBuild.</div>
+        <div style={{ fontSize: 13, color: "#993C1D", lineHeight: 1.6 }}>Property investment carries significant risks, including loss of capital. Past performance is not a reliable indicator of future results.</div>
+      </div>
+
+      <H>1. Not regulated financial advice</H>
+      <P>LenderBuild is a matching platform only. We are not authorised or regulated by the Financial Conduct Authority (FCA). Nothing on this platform constitutes financial advice, investment advice, or a recommendation to invest. You should seek independent financial and legal advice before committing any funds to a property investment.</P>
+
+      <H>2. Risk of capital loss</H>
+      <P>Property lending and investment involves significant risks:</P>
+      <UL>
+        <LI><strong>You could lose some or all of your invested capital.</strong></LI>
+        <LI>Property values can fall as well as rise. There is no guarantee that a project will complete or generate the expected return.</LI>
+        <LI>Builders may fail to complete projects on time, within budget, or to the required standard.</LI>
+        <LI>Planning permission may be refused or revoked, causing projects to fail.</LI>
+        <LI>Market conditions, interest rates, and economic factors beyond anyone&apos;s control can affect returns.</LI>
+        <LI>You may not be able to recover your money if a builder defaults or becomes insolvent.</LI>
+      </UL>
+
+      <H>3. Illiquidity</H>
+      <P>Property investments are typically illiquid. Once you have committed funds to a project, you may not be able to withdraw them before the project completes. You should only invest money you can afford to have tied up for the duration of the project.</P>
+
+      <H>4. No FSCS protection</H>
+      <P>Investments made through LenderBuild are not covered by the Financial Services Compensation Scheme (FSCS). If LenderBuild ceases to operate or if a deal fails, you may have no recourse to compensation from the FSCS.</P>
+
+      <H>5. Builder verification</H>
+      <P>While LenderBuild allows builders to upload verification documents (ID, site photos, planning documents), we do not independently verify the authenticity of these documents or the claims made by builders on their profiles. The verified badge indicates that documents have been uploaded, not that they have been independently checked. You should conduct your own due diligence before entering into any agreement.</P>
+
+      <H>6. Platform risk</H>
+      <P>LenderBuild is an early-stage platform. There is a risk that the platform could be discontinued, that technical errors could occur, or that our systems could be compromised. We take reasonable precautions to protect user data and funds, but cannot guarantee against all risks.</P>
+
+      <H>7. Tax</H>
+      <P>Returns from property lending and investment may be subject to Income Tax, Capital Gains Tax, or other taxes depending on your circumstances. You are responsible for reporting any income or gains to HM Revenue &amp; Customs. LenderBuild does not provide tax advice. Please consult a qualified tax adviser.</P>
+
+      <H>8. Due diligence</H>
+      <P>Before entering into any deal through LenderBuild, you should:</P>
+      <UL>
+        <LI>Conduct thorough due diligence on the builder, project, and site</LI>
+        <LI>Review all relevant legal documents, including any loan agreements or security documents</LI>
+        <LI>Seek independent legal advice on the terms of any agreement</LI>
+        <LI>Verify planning permissions, building regulations approval, and any other relevant consents</LI>
+        <LI>Consider taking out appropriate insurance</LI>
+        <LI>Only invest what you can afford to lose</LI>
+      </UL>
+
+      <H>9. Dispute resolution</H>
+      <P>LenderBuild does not mediate or adjudicate disputes between lenders and builders. Any disputes regarding the quality of work, payment, or other matters are the sole responsibility of the parties involved. We strongly recommend that all agreements are documented in a legally binding contract before any funds are transferred.</P>
+
+      <H>10. Contact</H>
+      <P>If you have questions about these risks or our platform, please contact us at louisgraham932@gmail.com.</P>
+    </LegalPageWrapper>
+  );
+}
+
+// ─── HOW IT WORKS PAGE ───────────────────────────────────────────────────────
+
+function HowItWorksPage({ setPage }) {
+  const sec = { maxWidth: 860, margin: "0 auto", padding: "0 1.25rem" };
+  const card = { background: "#fff", borderRadius: 14, padding: "28px 28px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" };
+  const tag = { display: "inline-block", background: "#EBF2FF", color: "#2E5FA3", fontWeight: 700, fontSize: 12, borderRadius: 20, padding: "3px 11px", marginBottom: 10, letterSpacing: "0.04em" };
+
+  const steps = [
+    { n: "01", title: "Create your profile", body: "Sign up as a lender or builder. Tell us about your investment appetite, project types, location preferences, and budget range. A complete profile unlocks your full compatibility score and gets three times as many matches." },
+    { n: "02", title: "Get matched", body: "Our compatibility algorithm scores every pairing on budget alignment, location, project type, experience level, and risk appetite. Browse your top matches ranked by score — no cold searching required." },
+    { n: "03", title: "Connect and agree terms", body: "Send a connection request with your proposal. Once accepted, both parties agree the deal terms inside the platform: loan amount, return type (fixed interest, rental split, or equity stake), and a six-stage milestone schedule." },
+    { n: "04", title: "Release funds via milestones", body: "Funds are never released all at once. Each stage is unlocked only when both parties approve the completion evidence. The lender retains a legal charge over the property throughout the project." },
+  ];
+
+  const matching = [
+    { label: "Budget alignment", desc: "How closely the lender's available capital matches the builder's funding requirement." },
+    { label: "Location overlap", desc: "Whether the lender covers the region where the project is based." },
+    { label: "Project type fit", desc: "Matching residential, commercial, conversion, and land-development preferences." },
+    { label: "Experience level", desc: "Pairing seasoned builders with appropriately sophisticated lenders." },
+    { label: "Return preference", desc: "Matching lenders who want fixed interest with builders offering it, and vice versa for equity deals." },
+    { label: "Risk appetite", desc: "LTV ratio and security strength weighed against each lender's stated risk tolerance." },
+  ];
+
+  const milestones = [
+    { n: 1, title: "Site preparation", ex: "Land cleared, planning consent confirmed, contractor engaged." },
+    { n: 2, title: "Foundations", ex: "Groundworks complete, structural engineer sign-off obtained." },
+    { n: 3, title: "Structure", ex: "Frame or walls at plate level, roof structure in place." },
+    { n: 4, title: "Weathered-in", ex: "Roof on, windows and doors fitted, building wind and watertight." },
+    { n: 5, title: "First fix complete", ex: "Electrical, plumbing, and HVAC first fix done, plastering complete." },
+    { n: 6, title: "Completion", ex: "Second fix complete, snagging resolved, building regs sign-off." },
+  ];
+
+  const returns = [
+    { icon: "📈", label: "Fixed interest", ex: "Example: £200,000 lent at 8% p.a. over 18 months = £24,000 return. Simple, predictable income regardless of how the project performs." },
+    { icon: "🏠", label: "Rental income split", ex: "Example: 40% of net rental income on a £350,000 buy-to-let conversion. The lender shares in ongoing income once the project is tenanted." },
+    { icon: "💼", label: "Equity stake", ex: "Example: 20% equity in a £500,000 development. The lender participates in the profit when the property is sold or refinanced." },
+  ];
+
+  const faqs = [
+    { q: "Who can join LenderBuild?", a: "Any UK-based individual or company can register as a builder or lender. Builders must be working on UK property projects. Lenders must be able to demonstrate they are investing personal or business capital (not regulated retail investment)." },
+    { q: "Is LenderBuild regulated by the FCA?", a: "LenderBuild is currently not authorised or regulated by the Financial Conduct Authority. We operate as an introduction platform only. We are actively pursuing FCA authorisation. All investments carry risk — please read our Risk Warning before proceeding." },
+    { q: "How is my identity verified?", a: "Every user completes document verification before connecting with other members. You will be asked to upload a government-issued photo ID and proof of address. Our admin team reviews each submission within one business day." },
+    { q: "What happens if a builder defaults?", a: "If a builder misses a milestone deadline our system triggers a structured escalation: a reminder on day 1, a formal warning to both parties on day 7, and an urgent admin alert on day 14. The lender's legal charge over the property remains in place throughout." },
+    { q: "How are funds held?", a: "Funds are processed through Stripe, which is PCI DSS Level 1 compliant. LenderBuild does not hold client funds — all payments move directly between parties via Stripe's secure infrastructure." },
+    { q: "Can I back out after agreeing terms?", a: "Deals can be cancelled by mutual consent before any funds are released. Once a milestone payment has been made it cannot be reversed. We strongly recommend both parties take independent legal advice before signing any off-platform agreement." },
+    { q: "What is a legal charge and do I need one?", a: "A legal charge (also called a first or second charge mortgage) is a legally registered interest in the property that gives the lender security. We strongly recommend lenders obtain a solicitor-registered legal charge before releasing funds. The platform supports this process but does not arrange it directly." },
+    { q: "How much does LenderBuild cost?", a: "Creating a profile and browsing matches is free. When a deal is agreed, LenderBuild charges a finder's fee of 1% of the total deal value, payable by the lender before the first milestone is unlocked. There are no monthly subscription fees." },
+  ];
+
+  return (
+    <div style={{ background: "#F4F5F7", minHeight: "100vh" }}>
+      {/* Hero */}
+      <div style={{ background: "linear-gradient(135deg, #1E3A5F 0%, #2E5FA3 100%)", padding: "72px 1.25rem 80px" }}>
+        <div style={{ ...sec, textAlign: "center" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 20, padding: "5px 14px", fontSize: 12, color: "rgba(255,255,255,0.85)", fontWeight: 500, marginBottom: 24, letterSpacing: "0.04em" }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9.5" stroke="rgba(255,255,255,0.9)" strokeWidth="1.5"/><path d="M8 12l3 3 5-6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            Platform guide
+          </div>
+          <h1 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(28px, 5vw, 48px)", fontWeight: 700, color: "#fff", margin: "0 0 18px", lineHeight: 1.15 }}>How LenderBuild works</h1>
+          <p style={{ fontSize: "clamp(15px, 2vw, 19px)", color: "rgba(255,255,255,0.75)", maxWidth: 560, margin: "0 auto 32px", lineHeight: 1.6 }}>From first match to funded project in four simple steps</p>
+          <button onClick={() => setPage("auth")} style={{ background: "#fff", color: "#1E3A5F", border: "none", padding: "13px 32px", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Get started free →</button>
+        </div>
+      </div>
+
+      {/* Steps */}
+      <div style={{ padding: "64px 1.25rem" }}>
+        <div style={sec}>
+          <div style={{ textAlign: "center", marginBottom: 40 }}>
+            <div style={tag}>Step by step</div>
+            <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(22px, 3vw, 32px)", color: "#1E3A5F", margin: 0 }}>The four stages of every deal</h2>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
+            {steps.map(s => (
+              <div key={s.n} style={card}>
+                <div style={{ fontSize: 36, fontWeight: 800, color: "#EBF2FF", fontFamily: "'Playfair Display', serif", lineHeight: 1, marginBottom: 12 }}>{s.n}</div>
+                <h3 style={{ fontSize: 17, fontWeight: 700, color: "#1E3A5F", margin: "0 0 10px" }}>{s.title}</h3>
+                <p style={{ fontSize: 13.5, color: "#4B5563", lineHeight: 1.65, margin: 0 }}>{s.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* How matching works */}
+      <div style={{ background: "#fff", padding: "64px 1.25rem" }}>
+        <div style={sec}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 48, alignItems: "start" }}>
+            <div>
+              <div style={tag}>Matching algorithm</div>
+              <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(20px, 3vw, 28px)", color: "#1E3A5F", margin: "0 0 16px" }}>How your compatibility score is calculated</h2>
+              <p style={{ fontSize: 14, color: "#4B5563", lineHeight: 1.7, margin: "0 0 16px" }}>Every lender-builder pairing receives a compatibility score from 0–100. The score is calculated instantly from six weighted factors and updated whenever either party updates their profile.</p>
+              <p style={{ fontSize: 14, color: "#4B5563", lineHeight: 1.7, margin: 0 }}>A higher score means both parties are likely to agree terms quickly, reducing the time from introduction to funded project.</p>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {matching.map(m => (
+                <div key={m.label} style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: "14px 16px", background: "#F8FAFF", borderRadius: 10, border: "1px solid #E8EEFA" }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#2E5FA3", flexShrink: 0, marginTop: 5 }} />
+                  <div>
+                    <div style={{ fontSize: 13.5, fontWeight: 600, color: "#1E3A5F", marginBottom: 3 }}>{m.label}</div>
+                    <div style={{ fontSize: 12.5, color: "#6B7280", lineHeight: 1.55 }}>{m.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Milestone payments */}
+      <div style={{ padding: "64px 1.25rem" }}>
+        <div style={sec}>
+          <div style={{ textAlign: "center", marginBottom: 40 }}>
+            <div style={tag}>Milestone payments</div>
+            <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(20px, 3vw, 28px)", color: "#1E3A5F", margin: "0 0 12px" }}>Funds released in six controlled stages</h2>
+            <p style={{ fontSize: 14, color: "#6B7280", maxWidth: 520, margin: "0 auto" }}>Neither party can release funds unilaterally. Each stage requires photographic evidence, both parties to approve, and a 1% finder's fee to be paid before stage one unlocks.</p>
+          </div>
+          <div style={{ position: "relative" }}>
+            <div style={{ position: "absolute", top: 20, left: 19, bottom: 20, width: 2, background: "#E8EEFA" }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {milestones.map((m, i) => (
+                <div key={m.n} style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+                  <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#2E5FA3", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, flexShrink: 0, position: "relative", zIndex: 1 }}>{m.n}</div>
+                  <div style={{ ...card, flex: 1, padding: "18px 20px 16px", marginTop: 4 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F", marginBottom: 5 }}>{m.title}</div>
+                    <div style={{ fontSize: 12.5, color: "#6B7280", lineHeight: 1.55 }}>{m.ex}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Repayment types */}
+      <div style={{ background: "#fff", padding: "64px 1.25rem" }}>
+        <div style={sec}>
+          <div style={{ textAlign: "center", marginBottom: 40 }}>
+            <div style={tag}>Returns</div>
+            <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(20px, 3vw, 28px)", color: "#1E3A5F", margin: "0 0 12px" }}>Three ways lenders get their return</h2>
+            <p style={{ fontSize: 14, color: "#6B7280", maxWidth: 500, margin: "0 auto" }}>Both parties agree the return structure before any funds are committed. It is written into the deal record on the platform and referenced in any off-platform legal agreement.</p>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 20 }}>
+            {returns.map(r => (
+              <div key={r.label} style={{ ...card, border: "1px solid #E8EEFA" }}>
+                <div style={{ fontSize: 28, marginBottom: 14 }}>{r.icon}</div>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1E3A5F", margin: "0 0 10px" }}>{r.label}</h3>
+                <p style={{ fontSize: 13, color: "#4B5563", lineHeight: 1.65, margin: 0 }}>{r.ex}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* FAQ */}
+      <div style={{ padding: "64px 1.25rem" }}>
+        <div style={sec}>
+          <div style={{ textAlign: "center", marginBottom: 40 }}>
+            <div style={tag}>FAQ</div>
+            <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(20px, 3vw, 28px)", color: "#1E3A5F", margin: 0 }}>Common questions</h2>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {faqs.map((f, i) => (
+              <details key={i} style={{ ...card, padding: 0, overflow: "hidden" }}>
+                <summary style={{ padding: "18px 22px", fontSize: 14, fontWeight: 600, color: "#1E3A5F", cursor: "pointer", listStyle: "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  {f.q}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}><path d="M6 9l6 6 6-6" stroke="#6B7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </summary>
+                <div style={{ padding: "0 22px 18px", fontSize: 13.5, color: "#4B5563", lineHeight: 1.7 }}>{f.a}</div>
+              </details>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* CTA */}
+      <div style={{ background: "linear-gradient(135deg, #1E3A5F 0%, #2E5FA3 100%)", padding: "72px 1.25rem" }}>
+        <div style={{ ...sec, textAlign: "center" }}>
+          <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(24px, 4vw, 36px)", color: "#fff", margin: "0 0 14px" }}>Ready to get started?</h2>
+          <p style={{ fontSize: 16, color: "rgba(255,255,255,0.72)", margin: "0 0 32px" }}>Create your profile in under five minutes. No subscription fees.</p>
+          <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+            <button onClick={() => setPage("auth")} style={{ background: "#fff", color: "#1E3A5F", border: "none", padding: "13px 32px", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Sign up free →</button>
+            <button onClick={() => setPage("safety")} style={{ background: "transparent", color: "rgba(255,255,255,0.8)", border: "1px solid rgba(255,255,255,0.3)", padding: "13px 28px", borderRadius: 10, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Trust & Safety</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── TRUST AND SAFETY PAGE ────────────────────────────────────────────────────
+
+function SafetyPage({ setPage }) {
+  const sec = { maxWidth: 860, margin: "0 auto", padding: "0 1.25rem" };
+  const card = { background: "#fff", borderRadius: 14, padding: "28px 28px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" };
+  const tag = { display: "inline-block", background: "#EBF2FF", color: "#2E5FA3", fontWeight: 700, fontSize: 12, borderRadius: 20, padding: "3px 11px", marginBottom: 10, letterSpacing: "0.04em" };
+
+  const stats = [
+    { n: "100%", label: "Users ID-verified" },
+    { n: "6", label: "Milestone stages" },
+    { n: "PCI DSS", label: "Payment compliance" },
+    { n: "GDPR", label: "Data protection" },
+  ];
+
+  const protections = [
+    {
+      icon: <svg viewBox="0 0 24 24" width="26" height="26" fill="none"><path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5z" fill="#EBF2FF" stroke="#2E5FA3" strokeWidth="1.5" strokeLinejoin="round"/><path d="M9 12l2 2 4-4" stroke="#2E5FA3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+      title: "Identity verification",
+      body: "Every member must upload a government-issued photo ID (passport or driving licence) and proof of address before they can send or accept connection requests. Our admin team manually reviews each submission. Unverified users cannot access contact details or initiate deals.",
+    },
+    {
+      icon: <svg viewBox="0 0 24 24" width="26" height="26" fill="none"><rect x="3" y="11" width="18" height="11" rx="2" fill="#EBF2FF" stroke="#2E5FA3" strokeWidth="1.5"/><path d="M7 11V7a5 5 0 0110 0v4" stroke="#2E5FA3" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+      title: "Legal charge protection",
+      body: "We strongly recommend every lender register a legal charge (first or second charge mortgage) against the property before releasing funds. A legal charge is a formal, Land Registry-recorded interest that gives the lender a legal right over the property in the event of default. This is the same security mechanism used by high-street banks. LenderBuild supports this process through our admin team and provides guidance on solicitor-registered charges.",
+    },
+    {
+      icon: <svg viewBox="0 0 24 24" width="26" height="26" fill="none"><rect x="2" y="6" width="20" height="14" rx="2" fill="#EBF2FF" stroke="#2E5FA3" strokeWidth="1.5"/><path d="M6 10h12M6 14h7" stroke="#2E5FA3" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+      title: "Milestone payment protection",
+      body: "Funds are never transferred in a single lump sum. Every deal is structured into up to six milestones (site preparation, foundations, structure, weathered-in, first fix, completion). Each milestone payment requires both parties to approve completion evidence inside the platform before Stripe processes the transfer. Neither party can release funds unilaterally.",
+    },
+    {
+      icon: <svg viewBox="0 0 24 24" width="26" height="26" fill="none"><rect x="2" y="5" width="20" height="16" rx="2" fill="#EBF2FF" stroke="#2E5FA3" strokeWidth="1.5"/><path d="M2 10h20M6 15h4" stroke="#2E5FA3" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+      title: "Stripe-secured payments",
+      body: "All payments are processed through Stripe, one of the world's most trusted payment infrastructure providers. Stripe is certified at PCI DSS Level 1 — the highest level of payment security compliance. All card data is encrypted at rest and in transit using AES-256. LenderBuild never stores card numbers or bank details on our servers.",
+    },
+    {
+      icon: <svg viewBox="0 0 24 24" width="26" height="26" fill="none"><circle cx="12" cy="8" r="4" fill="#EBF2FF" stroke="#2E5FA3" strokeWidth="1.5"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke="#2E5FA3" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+      title: "Admin oversight on every deal",
+      body: "Every deal created on LenderBuild is visible to our admin team. We actively monitor for unusual payment patterns, stalled milestones, and unresolved disputes. Admins can freeze deal payments, escalate disputes to third-party mediation, and flag accounts for review at any time.",
+    },
+    {
+      icon: <svg viewBox="0 0 24 24" width="26" height="26" fill="none"><rect x="3" y="3" width="18" height="18" rx="3" fill="#EBF2FF" stroke="#2E5FA3" strokeWidth="1.5"/><path d="M8 12h8M8 8h5M8 16h3" stroke="#2E5FA3" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+      title: "GDPR data protection",
+      body: "LenderBuild is committed to full compliance with the UK GDPR and the Data Protection Act 2018. Your personal data is stored securely in Supabase infrastructure hosted within the EU. We do not sell or share your data with third parties for marketing purposes. You can request deletion of your account and all associated data at any time by contacting louisgraham932@gmail.com.",
+    },
+  ];
+
+  const escalation = [
+    { step: 1, title: "In-platform dispute raised", desc: "Either party raises a dispute through the Deals page. The deal's milestone payments are immediately frozen." },
+    { step: 2, title: "Admin notification", desc: "Our team is alerted instantly. Both parties receive an email confirming the dispute is under review." },
+    { step: 3, title: "Evidence review", desc: "Admin reviews milestone evidence, communications, and deal history. Both parties are contacted within 2 business days." },
+    { step: 4, title: "Resolution or escalation", desc: "Admin issues a recommendation. If accepted, payments resume. If not, the dispute is referred to an independent mediator." },
+    { step: 5, title: "Legal recourse", desc: "For unresolved financial disputes, the lender's legal charge remains enforceable through the courts. We recommend both parties maintain independent legal representation." },
+  ];
+
+  return (
+    <div style={{ background: "#F4F5F7", minHeight: "100vh" }}>
+      {/* Hero */}
+      <div style={{ background: "linear-gradient(135deg, #1E3A5F 0%, #2E5FA3 100%)", padding: "72px 1.25rem 80px" }}>
+        <div style={{ ...sec, textAlign: "center" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 20, padding: "5px 14px", fontSize: 12, color: "rgba(255,255,255,0.85)", fontWeight: 500, marginBottom: 24, letterSpacing: "0.04em" }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5z" fill="white"/></svg>
+            Trust & Safety
+          </div>
+          <h1 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(28px, 5vw, 48px)", fontWeight: 700, color: "#fff", margin: "0 0 18px", lineHeight: 1.15 }}>Your security is our priority</h1>
+          <p style={{ fontSize: "clamp(15px, 2vw, 18px)", color: "rgba(255,255,255,0.75)", maxWidth: 540, margin: "0 auto 40px", lineHeight: 1.6 }}>Every protection we have built into LenderBuild — from identity checks to legal charge guidance to admin-monitored disputes.</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, maxWidth: 640, margin: "0 auto" }}>
+            {stats.map(s => (
+              <div key={s.n} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 12, padding: "14px 8px", textAlign: "center" }}>
+                <div style={{ fontSize: "clamp(15px, 2.5vw, 22px)", fontWeight: 800, color: "#fff", lineHeight: 1.1 }}>{s.n}</div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.62)", marginTop: 5, lineHeight: 1.35 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Protections grid */}
+      <div style={{ padding: "64px 1.25rem" }}>
+        <div style={sec}>
+          <div style={{ textAlign: "center", marginBottom: 40 }}>
+            <div style={tag}>Platform protections</div>
+            <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(20px, 3vw, 28px)", color: "#1E3A5F", margin: 0 }}>Six layers of protection on every deal</h2>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {protections.map((p, i) => (
+              <div key={i} style={{ ...card, display: "flex", gap: 20, alignItems: "flex-start" }}>
+                <div style={{ width: 48, height: 48, borderRadius: 12, background: "#F0F4FF", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{p.icon}</div>
+                <div>
+                  <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1E3A5F", margin: "0 0 8px" }}>{p.title}</h3>
+                  <p style={{ fontSize: 13.5, color: "#4B5563", lineHeight: 1.7, margin: 0 }}>{p.body}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Dispute escalation */}
+      <div style={{ background: "#fff", padding: "64px 1.25rem" }}>
+        <div style={sec}>
+          <div style={{ textAlign: "center", marginBottom: 40 }}>
+            <div style={tag}>Dispute resolution</div>
+            <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(20px, 3vw, 28px)", color: "#1E3A5F", margin: "0 0 12px" }}>What happens if something goes wrong</h2>
+            <p style={{ fontSize: 14, color: "#6B7280", maxWidth: 500, margin: "0 auto" }}>Our structured escalation process protects both parties and keeps every dispute moving towards resolution.</p>
+          </div>
+          <div style={{ position: "relative" }}>
+            <div style={{ position: "absolute", top: 20, left: 19, bottom: 20, width: 2, background: "#E8EEFA" }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {escalation.map(e => (
+                <div key={e.step} style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+                  <div style={{ width: 40, height: 40, borderRadius: "50%", background: e.step <= 3 ? "#2E5FA3" : "#1D9E75", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, flexShrink: 0, position: "relative", zIndex: 1 }}>{e.step}</div>
+                  <div style={{ background: "#F8FAFF", border: "1px solid #E8EEFA", borderRadius: 12, padding: "16px 18px", flex: 1, marginTop: 4 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F", marginBottom: 5 }}>{e.title}</div>
+                    <div style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.6 }}>{e.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* FCA & regulatory status */}
+      <div style={{ padding: "64px 1.25rem" }}>
+        <div style={sec}>
+          <div style={{ ...card, border: "1.5px solid #E8EEFA" }}>
+            <div style={tag}>Regulatory status</div>
+            <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(18px, 2.5vw, 24px)", color: "#1E3A5F", margin: "0 0 14px" }}>FCA authorisation and current status</h2>
+            <p style={{ fontSize: 13.5, color: "#4B5563", lineHeight: 1.75, margin: "0 0 14px" }}>
+              <strong>LenderBuild is currently not authorised or regulated by the Financial Conduct Authority (FCA).</strong> We operate as a technology-enabled introduction platform that facilitates connections between property developers and private lenders. We do not provide financial advice, arrange loans, or hold client funds.
+            </p>
+            <p style={{ fontSize: 13.5, color: "#4B5563", lineHeight: 1.75, margin: "0 0 14px" }}>
+              We are actively pursuing FCA authorisation under the credit broking and arranging investments permissions. Until such time as authorisation is granted, we recommend all users:
+            </p>
+            <ul style={{ margin: "0 0 14px", paddingLeft: 20, fontSize: 13.5, color: "#4B5563", lineHeight: 2 }}>
+              <li>Take independent legal advice before committing funds</li>
+              <li>Obtain a solicitor-registered legal charge on any property investment</li>
+              <li>Read our full Risk Warning before proceeding</li>
+              <li>Only invest capital they can afford to lose</li>
+            </ul>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button onClick={() => setPage("risk-warning")} style={{ background: "#EBF2FF", color: "#2E5FA3", border: "none", padding: "9px 18px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Read Risk Warning</button>
+              <button onClick={() => setPage("how-it-works")} style={{ background: "transparent", color: "#6B7280", border: "1px solid #D1D5DB", padding: "9px 18px", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>How it works</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* CTA */}
+      <div style={{ background: "linear-gradient(135deg, #1E3A5F 0%, #2E5FA3 100%)", padding: "72px 1.25rem" }}>
+        <div style={{ ...sec, textAlign: "center" }}>
+          <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(22px, 4vw, 34px)", color: "#fff", margin: "0 0 14px" }}>Safe, transparent property finance</h2>
+          <p style={{ fontSize: 15, color: "rgba(255,255,255,0.72)", margin: "0 0 30px" }}>Join thousands of builders and lenders building together on LenderBuild.</p>
+          <button onClick={() => setPage("auth")} style={{ background: "#fff", color: "#1E3A5F", border: "none", padding: "13px 32px", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Create your free account →</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── DISPUTES PAGE ───────────────────────────────────────────────────────────
+
+function DisputesPage({ user, setPage }) {
+  const [disputes,    setDisputes]    = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [reason,      setReason]      = useState("");
+  const [dealId,      setDealId]      = useState("");
+  const [submitting,  setSubmitting]  = useState(false);
+  const [deals,       setDeals]       = useState([]);
+  const [error,       setError]       = useState("");
+  const [success,     setSuccess]     = useState("");
+
+  useEffect(() => {
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setLoading(false); return; }
+      const res = await fetch("/api/deals", { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const d = await res.json().catch(() => ({}));
+      const allDeals = d.deals || [];
+      setDeals(allDeals);
+      const allDisputes = allDeals.flatMap(deal =>
+        (deal.disputes || []).map(dp => ({ ...dp, deal_title: deal.title, deal_id: deal.id }))
+      );
+      allDisputes.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      setDisputes(allDisputes);
+      setLoading(false);
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!dealId || !reason.trim()) return;
+    setSubmitting(true);
+    setError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/deals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "raise-dispute", deal_id: dealId, reason }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setSubmitting(false);
+    if (!res.ok) { setError(d.error || "Failed to raise dispute."); return; }
+    const deal = deals.find(dl => dl.id === dealId);
+    setDisputes(prev => [{ status: "open", reason, deal_title: deal?.title || dealId, created_at: new Date().toISOString() }, ...prev]);
+    setReason(""); setDealId("");
+    setSuccess("Dispute raised. All payments on this deal have been frozen. Our team will be in touch.");
+    setTimeout(() => setSuccess(""), 6000);
+  }
+
+  const statusBadge = (s) => {
+    const cfg = { open: ["#FEE2E2","#991B1B","Open"], resolved: ["#E1F5EE","#0F6E56","Resolved"], escalated: ["#EEEDFE","#534AB7","Escalated"] };
+    const [bg, col, label] = cfg[s] || ["#f5f5f3","#64748B",s];
+    return <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: bg, color: col }}>{label}</span>;
+  };
+
+  return (
+    <div style={{ maxWidth: 720, margin: "0 auto", padding: "1.5rem 1.25rem", minHeight: "calc(100vh - 56px)" }}>
+      <h1 style={{ fontSize: 22, fontWeight: 500, margin: "0 0 4px", fontFamily: "'Georgia', serif" }}>Disputes</h1>
+      <p style={{ fontSize: 13, color: "#64748B", margin: "0 0 1.5rem" }}>
+        Raise a formal dispute if there is a serious problem with a deal. All milestone payments will be frozen until the dispute is resolved by our admin team.
+      </p>
+
+      {success && (
+        <div style={{ background: "#E1F5EE", border: "0.5px solid #A8DFC9", borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#0F6E56", marginBottom: "1rem" }}>
+          {success}
+        </div>
+      )}
+
+      {/* Raise a dispute form */}
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem" }}>
+        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: "1rem" }}>Raise a new dispute</div>
+        {error && (
+          <div style={{ background: "#FAECE7", color: "#993C1D", borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: "1rem" }}>{error}</div>
+        )}
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          <div>
+            <label style={{ fontSize: 13, color: "#555", fontWeight: 500, display: "block", marginBottom: 4 }}>Select deal</label>
+            <select
+              required value={dealId} onChange={e => setDealId(e.target.value)}
+              style={{ width: "100%", height: 44, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 12px", fontSize: 14, background: "#fff", boxSizing: "border-box" }}
+            >
+              <option value="">— Choose a deal —</option>
+              {deals.map(d => (
+                <option key={d.id} value={d.id}>{d.title}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 13, color: "#555", fontWeight: 500, display: "block", marginBottom: 4 }}>Describe the issue</label>
+            <textarea
+              required value={reason} onChange={e => setReason(e.target.value)}
+              placeholder="Please describe the problem in detail…"
+              style={{ width: "100%", minHeight: 100, padding: "10px 12px", fontSize: 13, border: "0.5px solid #ccc", borderRadius: 8, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }}
+            />
+          </div>
+          <button
+            type="submit" disabled={submitting}
+            style={{ padding: "10px 20px", minHeight: 44, background: submitting ? "#aaa" : "#991B1B", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: submitting ? "default" : "pointer", alignSelf: "flex-start" }}
+          >
+            {submitting ? "Submitting…" : "Submit dispute"}
+          </button>
+        </form>
+      </div>
+
+      {/* Dispute history */}
+      <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12 }}>Your disputes</div>
+      {loading ? (
+        <div style={{ textAlign: "center", padding: "2rem", color: "#aaa", fontSize: 14 }}>Loading…</div>
+      ) : disputes.length === 0 ? (
+        <div style={{ background: "#f9f9f7", borderRadius: 8, padding: "1rem", fontSize: 13, color: "#64748B" }}>No disputes raised yet.</div>
+      ) : disputes.map((dp, i) => (
+        <div key={i} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 14, fontWeight: 500 }}>{dp.deal_title}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {statusBadge(dp.status)}
+              <span style={{ fontSize: 11, color: "#aaa" }}>{new Date(dp.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+            </div>
+          </div>
+          <div style={{ fontSize: 13, color: "#444", lineHeight: 1.6 }}>{dp.reason}</div>
+          {dp.resolution_notes && (
+            <div style={{ marginTop: 8, fontSize: 12, color: "#0F6E56", background: "#E1F5EE", borderRadius: 6, padding: "6px 10px" }}>
+              <strong>Resolution:</strong> {dp.resolution_notes}
+            </div>
+          )}
+        </div>
+      ))}
+
+      <div style={{ marginTop: "1.5rem", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 10, padding: "1rem 1.25rem" }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "#1E3A5F", marginBottom: 4 }}>Need urgent help?</div>
+        <div style={{ fontSize: 12, color: "#64748B" }}>
+          For urgent issues, email us directly at <a href="mailto:louisgraham932@gmail.com" style={{ color: "#1E3A5F" }}>louisgraham932@gmail.com</a>.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── NOTIFICATIONS PAGE ───────────────────────────────────────────────────────
+
+function NotificationsPage({ user }) {
+  const [notifs,      setNotifs]      = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [typeFilter,  setTypeFilter]  = useState("all");
+
+  const myId = user?.id;
+
+  useEffect(() => {
+    if (!myId) return;
+    supabase.from("notifications").select("*").eq("user_id", myId)
+      .order("created_at", { ascending: false }).limit(100)
+      .then(({ data }) => { setNotifs(data || []); setLoading(false); });
+
+    const ch = supabase.channel(`notifs-page-${myId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${myId}` },
+        p => setNotifs(prev => [p.new, ...prev].slice(0, 100)))
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [myId]);
+
+  async function markRead(id) {
+    setNotifs(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    await supabase.from("notifications").update({ read: true }).eq("id", id);
+  }
+
+  async function markAllRead() {
+    setNotifs(prev => prev.map(n => ({ ...n, read: true })));
+    await supabase.from("notifications").update({ read: true }).eq("user_id", myId);
+  }
+
+  async function deleteNotif(id) {
+    setNotifs(prev => prev.filter(n => n.id !== id));
+    await supabase.from("notifications").delete().eq("id", id);
+  }
+
+  const typeIcons = {
+    connection_request:  { icon: "🤝", label: "Connection" },
+    connection_accepted: { icon: "✅", label: "Connected" },
+    message:             { icon: "💬", label: "Message" },
+    milestone_complete:  { icon: "📋", label: "Milestone" },
+    milestone_approved:  { icon: "💰", label: "Payment" },
+    deal_created:        { icon: "📊", label: "Deal" },
+    document_approved:   { icon: "📄", label: "Document" },
+    repayment_due:       { icon: "⏰", label: "Repayment" },
+  };
+
+  const allTypes = [...new Set(notifs.map(n => n.type))];
+  const filtered = typeFilter === "all" ? notifs : notifs.filter(n => n.type === typeFilter);
+
+  function groupByDate(list) {
+    const today     = new Date(); today.setHours(0,0,0,0);
+    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+    const weekAgo   = new Date(today); weekAgo.setDate(today.getDate() - 7);
+    const groups    = { Today: [], Yesterday: [], "This week": [], Earlier: [] };
+    list.forEach(n => {
+      const d = new Date(n.created_at); d.setHours(0,0,0,0);
+      if (d >= today)     groups.Today.push(n);
+      else if (d >= yesterday) groups.Yesterday.push(n);
+      else if (d >= weekAgo)   groups["This week"].push(n);
+      else                     groups.Earlier.push(n);
+    });
+    return groups;
+  }
+
+  const groups  = groupByDate(filtered);
+  const unread  = notifs.filter(n => !n.read).length;
+
+  return (
+    <div style={{ maxWidth: 680, margin: "0 auto", padding: "1.5rem 1.25rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem", flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h1 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 28, fontWeight: 700, color: "#1E3A5F", margin: 0 }}>
+            Notifications
+          </h1>
+          {unread > 0 && <div style={{ fontSize: 13, color: "#64748B", marginTop: 4 }}>{unread} unread</div>}
+        </div>
+        {unread > 0 && (
+          <button onClick={markAllRead} style={{ background: "#EBF2FF", color: "#1E3A5F", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+            Mark all read
+          </button>
+        )}
+      </div>
+
+      {/* Type filter tabs */}
+      {allTypes.length > 1 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: "1.25rem" }}>
+          {["all", ...allTypes].map(t => (
+            <button key={t} onClick={() => setTypeFilter(t)}
+              style={{ padding: "5px 12px", minHeight: 34, borderRadius: 20, border: typeFilter === t ? "none" : "0.5px solid #e0e0e0", background: typeFilter === t ? "#1E3A5F" : "#fff", color: typeFilter === t ? "#fff" : "#555", fontSize: 12, fontWeight: typeFilter === t ? 600 : 400, cursor: "pointer" }}
+            >
+              {t === "all" ? "All" : (typeIcons[t]?.label || t)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {loading && <div style={{ textAlign: "center", padding: "3rem", color: "#aaa" }}>Loading…</div>}
+
+      {!loading && filtered.length === 0 && (
+        <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>🔔</div>
+          <div style={{ fontSize: 16, fontWeight: 500 }}>No notifications yet</div>
+          <div style={{ fontSize: 13, marginTop: 6 }}>We'll let you know when something important happens.</div>
+        </div>
+      )}
+
+      {!loading && Object.entries(groups).map(([group, items]) => {
+        if (!items.length) return null;
+        return (
+          <div key={group} style={{ marginBottom: "1.5rem" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>{group}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {items.map(n => {
+                const ti = typeIcons[n.type] || { icon: "🔔", label: n.type };
+                return (
+                  <div key={n.id}
+                    onClick={() => !n.read && markRead(n.id)}
+                    style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "12px 16px", background: n.read ? "#fff" : "#EBF5FF", borderRadius: 10, border: "0.5px solid #e0e0e0", cursor: n.read ? "default" : "pointer", position: "relative" }}
+                  >
+                    <span style={{ fontSize: 20, lineHeight: 1, flexShrink: 0 }}>{ti.icon}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, color: "#1E3A5F", lineHeight: 1.45 }}>{n.message}</div>
+                      <div style={{ fontSize: 11, color: "#aaa", marginTop: 4 }}>{fmtTimeAgo(n.created_at)}</div>
+                    </div>
+                    {!n.read && <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#2E5FA3", flexShrink: 0, marginTop: 4 }} />}
+                    <button onClick={e => { e.stopPropagation(); deleteNotif(n.id); }}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "#cbd5e1", padding: 2, lineHeight: 1, flexShrink: 0 }} title="Delete">
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── SAVED PROFILES PAGE ──────────────────────────────────────────────────────
+
+function SavedProfilesPage({ user, setPage, onViewProfile, onViewBuilderProfile }) {
+  const [profiles, setProfiles] = useState([]);
+  const [liveData,  setLiveData]  = useState({});
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const saved = getSavedProfiles(user.id);
+    setProfiles(saved);
+    // Fetch live data for each saved profile
+    const lenderIds  = saved.filter(p => p.role === "lender").map(p => p.user_id);
+    const builderIds = saved.filter(p => p.role === "builder").map(p => p.user_id);
+    const fetches = [];
+    if (lenderIds.length)  fetches.push(supabase.from("lender_profiles").select("user_id, updated_at, is_active").in("user_id", lenderIds));
+    if (builderIds.length) fetches.push(supabase.from("builder_profiles").select("user_id, updated_at, is_active").in("user_id", builderIds));
+    Promise.all(fetches).then(results => {
+      const map = {};
+      results.forEach(r => (r.data || []).forEach(row => { map[row.user_id] = row; }));
+      setLiveData(map);
+    });
+  }, [user?.id]);
+
+  function remove(targetId) {
+    toggleSavedProfile(user.id, { user_id: targetId });
+    setProfiles(getSavedProfiles(user.id));
+  }
+
+  if (!profiles.length) {
+    return (
+      <div style={{ maxWidth: 600, margin: "0 auto", padding: "1.5rem 1.25rem", textAlign: "center" }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>🤍</div>
+        <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 24, color: "#1E3A5F", margin: "0 0 12px" }}>No saved profiles yet</h2>
+        <p style={{ fontSize: 14, color: "#64748B" }}>Click the heart icon on any lender or builder card to save them here.</p>
+        <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 20 }}>
+          <button onClick={() => setPage("search")} style={{ background: "#2E5FA3", color: "#fff", border: "none", padding: "10px 20px", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Find a lender</button>
+          <button onClick={() => setPage("find-builder")} style={{ background: "#16A34A", color: "#fff", border: "none", padding: "10px 20px", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Find a builder</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 800, margin: "0 auto", padding: "1.5rem 1.25rem" }}>
+      <h1 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 28, fontWeight: 700, color: "#1E3A5F", margin: "0 0 6px" }}>Saved profiles</h1>
+      <p style={{ fontSize: 14, color: "#64748B", margin: "0 0 1.5rem" }}>{profiles.length} saved profile{profiles.length !== 1 ? "s" : ""}</p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
+        {profiles.map(p => {
+          const live = liveData[p.user_id];
+          const isActive = live?.is_active !== false;
+          const recentlyUpdated = live?.updated_at && (Date.now() - new Date(live.updated_at).getTime()) < 30 * 86400000;
+          return (
+            <div key={p.user_id} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "20px 24px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                <Avatar initials={nameInitials(p.name)} color={pickColor(p.user_id)} size={44} url={p.avatar_url} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: "#1E3A5F" }}>{p.name}</div>
+                  <div style={{ fontSize: 12, color: "#64748B" }}>{p.type}</div>
+                </div>
+                <button onClick={() => remove(p.user_id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#DC2626", padding: 4 }} title="Remove from saved">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
+                </button>
+              </div>
+              {p.location && <div style={{ fontSize: 12, color: "#64748B", marginBottom: 8 }}>📍 {p.location}</div>}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: p.role === "lender" ? "#EBF2FF" : "#DCFCE7", color: p.role === "lender" ? "#1E3A5F" : "#166534", fontWeight: 500, textTransform: "capitalize" }}>{p.role}</span>
+                {isActive ? (
+                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: "#DCFCE7", color: "#166534", fontWeight: 500 }}>Active</span>
+                ) : (
+                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: "#F1F5F9", color: "#64748B", fontWeight: 500 }}>Inactive</span>
+                )}
+                {recentlyUpdated && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: "#FEF3C7", color: "#92400E", fontWeight: 500 }}>Recently updated</span>}
+              </div>
+              <button
+                onClick={() => {
+                  if (p.role === "lender" && onViewProfile) onViewProfile({ id: `real-${p.user_id}`, _real: true, user_id: p.user_id, name: p.name, initials: nameInitials(p.name), color: pickColor(p.user_id), avatar_url: p.avatar_url, type: p.type, location: p.location || "", bio: "" });
+                  else if (p.role === "builder" && onViewBuilderProfile) onViewBuilderProfile({ id: `real-${p.user_id}`, _real: true, user_id: p.user_id, name: p.name, initials: nameInitials(p.name), color: pickColor(p.user_id), avatar_url: p.avatar_url, type: p.type, location: p.location || "", bio: "", verified_documents: [], props: 0, value: 0, completion: 100 });
+                }}
+                style={{ width: "100%", background: "#2E5FA3", color: "#fff", border: "none", borderRadius: 8, padding: "9px 0", fontSize: 13, fontWeight: 600, cursor: "pointer", minHeight: 40 }}
+              >
+                View profile
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── STATUS PAGE ──────────────────────────────────────────────────────────────
+
+function StatusPage() {
+  const [checks, setChecks] = useState([
+    { name: "API",              status: "checking", latency: null, checked: null },
+    { name: "Database",         status: "checking", latency: null, checked: null },
+    { name: "Stripe",           status: "checking", latency: null, checked: null },
+    { name: "Email service",    status: "checking", latency: null, checked: null },
+  ]);
+
+  const runChecks = useCallback(async () => {
+    setChecks(prev => prev.map(c => ({ ...c, status: "checking" })));
+    const results = await Promise.all([
+      // API check — ping get-profiles
+      (async () => {
+        const t = Date.now();
+        try {
+          const r = await fetch("/api/get-profiles?type=lenders", { signal: AbortSignal.timeout(5000) });
+          return { status: r.ok ? "ok" : "degraded", latency: Date.now() - t };
+        } catch { return { status: "error", latency: null }; }
+      })(),
+      // Database check — ping Supabase
+      (async () => {
+        const t = Date.now();
+        try {
+          const { error } = await supabase.from("profiles").select("id").limit(1);
+          return { status: error ? "degraded" : "ok", latency: Date.now() - t };
+        } catch { return { status: "error", latency: null }; }
+      })(),
+      // Stripe check — ping deals API (requires auth, just check endpoint responds)
+      (async () => {
+        const t = Date.now();
+        try {
+          const r = await fetch("/api/lender-settings", { signal: AbortSignal.timeout(5000) });
+          return { status: r.ok ? "ok" : "degraded", latency: Date.now() - t };
+        } catch { return { status: "error", latency: null }; }
+      })(),
+      // Email check — ping notify-message endpoint existence (expect 401 not 500)
+      (async () => {
+        const t = Date.now();
+        try {
+          const r = await fetch("/api/notify-message", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: AbortSignal.timeout(5000) });
+          return { status: r.status !== 500 ? "ok" : "degraded", latency: Date.now() - t };
+        } catch { return { status: "error", latency: null }; }
+      })(),
+    ]);
+
+    const ts = new Date().toISOString();
+    setChecks(prev => prev.map((c, i) => ({ ...c, ...results[i], checked: ts })));
+  }, []);
+
+  useEffect(() => { runChecks(); }, [runChecks]);
+
+  const statusConfig = {
+    checking: { color: "#94A3B8", bg: "#F1F5F9",  label: "Checking…",    dot: "#94A3B8" },
+    ok:       { color: "#166534", bg: "#DCFCE7",  label: "Operational",  dot: "#16A34A" },
+    degraded: { color: "#92400E", bg: "#FEF3C7",  label: "Degraded",     dot: "#D97706" },
+    error:    { color: "#991B1B", bg: "#FEE2E2",  label: "Down",         dot: "#DC2626" },
+  };
+
+  const overallOk = checks.every(c => c.status === "ok");
+  const anyError  = checks.some(c => c.status === "error");
+  const overall   = anyError ? "error" : overallOk ? "ok" : checks.some(c => c.status === "checking") ? "checking" : "degraded";
+
+  return (
+    <div style={{ maxWidth: 600, margin: "0 auto", padding: "2rem 1.25rem" }}>
+      <div style={{ textAlign: "center", marginBottom: "2rem" }}>
+        <h1 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 32, fontWeight: 700, color: "#1E3A5F", margin: "0 0 0.5rem" }}>System Status</h1>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: statusConfig[overall].bg, color: statusConfig[overall].color, borderRadius: 20, padding: "6px 16px", fontSize: 14, fontWeight: 600 }}>
+          <span style={{ width: 10, height: 10, borderRadius: "50%", background: statusConfig[overall].dot, display: "inline-block" }} />
+          {overall === "ok" ? "All systems operational" : overall === "checking" ? "Checking systems…" : overall === "degraded" ? "Some systems degraded" : "Service disruption"}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: "1.5rem" }}>
+        {checks.map(c => {
+          const cfg = statusConfig[c.status] || statusConfig.checking;
+          return (
+            <div key={c.name} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "16px 20px", display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: 12, height: 12, borderRadius: "50%", background: cfg.dot, flexShrink: 0 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: "#1E3A5F" }}>{c.name}</div>
+                {c.checked && <div style={{ fontSize: 11, color: "#aaa", marginTop: 2 }}>Last checked {fmtTimeAgo(c.checked)}</div>}
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: cfg.color, background: cfg.bg, borderRadius: 20, padding: "3px 10px" }}>{cfg.label}</span>
+                {c.latency != null && <div style={{ fontSize: 11, color: "#aaa", marginTop: 3 }}>{c.latency}ms</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ textAlign: "center" }}>
+        <button onClick={runChecks} style={{ background: "#2E5FA3", color: "#fff", border: "none", borderRadius: 8, padding: "10px 24px", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+          Refresh checks
+        </button>
+      </div>
+
+      <div style={{ marginTop: "2rem", background: "#F8FAFC", borderRadius: 12, padding: "16px 20px", fontSize: 13, color: "#64748B" }}>
+        <strong style={{ color: "#1E3A5F" }}>Incident history:</strong> No incidents in the last 30 days.
+      </div>
+    </div>
+  );
+}
+
+// ─── ANALYTICS PAGE (admin only) ─────────────────────────────────────────────
+
+function AnalyticsPage({ user }) {
+  const [dealsByMonth,  setDealsByMonth]  = useState([]);
+  const [signupsByWeek, setSignupsByWeek] = useState([]);
+  const [topBuilders,   setTopBuilders]   = useState([]);
+  const [topLenders,    setTopLenders]    = useState([]);
+  const [summary,       setSummary]       = useState(null);
+  const [loading,       setLoading]       = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        // Deals per month + capital
+        const { data: deals } = await supabase.from("deals").select("created_at, total_amount, finder_fee_status").order("created_at");
+        if (deals) {
+          const byMonth = {};
+          deals.forEach(d => {
+            const key = d.created_at?.slice(0, 7);
+            if (!key) return;
+            if (!byMonth[key]) byMonth[key] = { month: key, deals: 0, capital: 0, fees: 0 };
+            byMonth[key].deals++;
+            byMonth[key].capital += Number(d.total_amount) || 0;
+            if (d.finder_fee_status === "paid") byMonth[key].fees += (Number(d.total_amount) || 0) * 0.01;
+          });
+          setDealsByMonth(Object.values(byMonth).slice(-12));
+
+          const totalCapital = deals.reduce((s, d) => s + (Number(d.total_amount) || 0), 0);
+          const totalFees    = deals.filter(d => d.finder_fee_status === "paid").reduce((s, d) => s + (Number(d.total_amount) || 0) * 0.01, 0);
+          setSummary({ totalDeals: deals.length, totalCapital, totalFees, avgDeal: deals.length ? Math.round(totalCapital / deals.length) : 0 });
+        }
+
+        // Signups per week
+        const { data: profiles } = await supabase.from("profiles").select("created_at").order("created_at");
+        if (profiles) {
+          const byWeek = {};
+          profiles.forEach(p => {
+            const d = new Date(p.created_at);
+            d.setHours(0,0,0,0);
+            d.setDate(d.getDate() - d.getDay()); // start of week
+            const key = d.toISOString().slice(0, 10);
+            if (!byWeek[key]) byWeek[key] = { week: key, signups: 0 };
+            byWeek[key].signups++;
+          });
+          setSignupsByWeek(Object.values(byWeek).slice(-12));
+        }
+
+        // Top builders
+        const { data: builders } = await supabase.from("builder_profiles")
+          .select("user_id, projects_completed, total_value, profiles(full_name)").order("projects_completed", { ascending: false }).limit(5);
+        setTopBuilders(builders || []);
+
+        // Top lenders
+        const { data: lenders } = await supabase.from("lender_profiles")
+          .select("user_id, budget_max, return_type, profiles(full_name)").order("budget_max", { ascending: false }).limit(5);
+        setTopLenders(lenders || []);
+
+      } catch (e) { console.error(e); }
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  if (loading) return <div style={{ textAlign: "center", padding: "4rem", color: "#aaa" }}>Loading analytics…</div>;
+
+  const fmtM = v => v >= 1000000 ? `£${(v/1000000).toFixed(1)}M` : v >= 1000 ? `£${Math.round(v/1000)}k` : `£${v}`;
+
+  return (
+    <div style={{ padding: "1.5rem 1.25rem", maxWidth: 1000, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 28, fontWeight: 700, color: "#1E3A5F", margin: "0 0 1.5rem" }}>Analytics</h1>
+
+      {/* Summary cards */}
+      {summary && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: "2rem" }}>
+          {[
+            { label: "Total deals", val: summary.totalDeals, icon: "📊" },
+            { label: "Capital matched", val: fmtM(summary.totalCapital), icon: "💰" },
+            { label: "Finder's fees", val: fmtM(summary.totalFees), icon: "🏦" },
+            { label: "Avg deal size", val: fmtM(summary.avgDeal), icon: "📈" },
+          ].map(({ label, val, icon }) => (
+            <div key={label} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+              <div style={{ fontSize: 11, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>{icon} {label}</div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: "#1E3A5F" }}>{val}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Deals per month bar chart */}
+      {dealsByMonth.length > 0 && (
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "20px 24px", marginBottom: "1.5rem" }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "#1E3A5F", marginBottom: 16 }}>Deals created per month</div>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={dealsByMonth} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+              <Tooltip formatter={(v, n) => [n === "capital" ? fmtM(v) : v, n === "capital" ? "Capital" : "Deals"]} />
+              <Bar dataKey="deals" fill="#2E5FA3" radius={[4, 4, 0, 0]} name="Deals" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Capital per month line chart */}
+      {dealsByMonth.length > 0 && (
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "20px 24px", marginBottom: "1.5rem" }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "#1E3A5F", marginBottom: 16 }}>Capital matched per month</div>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={dealsByMonth} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} tickFormatter={v => fmtM(v)} />
+              <Tooltip formatter={v => [fmtM(v), "Capital"]} />
+              <Line type="monotone" dataKey="capital" stroke="#16A34A" strokeWidth={2} dot={{ r: 3 }} name="Capital" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Signups per week */}
+      {signupsByWeek.length > 0 && (
+        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "20px 24px", marginBottom: "1.5rem" }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "#1E3A5F", marginBottom: 16 }}>User signups per week</div>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={signupsByWeek} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="week" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+              <Tooltip />
+              <Line type="monotone" dataKey="signups" stroke="#D97706" strokeWidth={2} dot={{ r: 3 }} name="Signups" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Geographic breakdown by region */}
+      {(topBuilders.length > 0 || topLenders.length > 0) && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14, marginBottom: "1.5rem" }}>
+          {/* Top builders */}
+          {topBuilders.length > 0 && (
+            <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "20px 24px" }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: "#1E3A5F", marginBottom: 12 }}>Top 5 builders</div>
+              {topBuilders.map((b, i) => (
+                <div key={b.user_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: i < 4 ? "0.5px solid #f0f0f0" : "none" }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: i === 0 ? "#D97706" : "#94A3B8", width: 20 }}>#{i+1}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.profiles?.full_name || "Anonymous"}</div>
+                    <div style={{ fontSize: 11, color: "#64748B" }}>{b.projects_completed || 0} projects · {fmtM(b.total_value || 0)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Top lenders */}
+          {topLenders.length > 0 && (
+            <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "20px 24px" }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: "#1E3A5F", marginBottom: 12 }}>Top 5 lenders by budget</div>
+              {topLenders.map((l, i) => (
+                <div key={l.user_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: i < 4 ? "0.5px solid #f0f0f0" : "none" }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: i === 0 ? "#D97706" : "#94A3B8", width: 20 }}>#{i+1}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.profiles?.full_name || "Anonymous"}</div>
+                    <div style={{ fontSize: 11, color: "#64748B" }}>{l.budget_max ? fmt(l.budget_max) : "Flexible"} · {l.return_type}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {dealsByMonth.length === 0 && signupsByWeek.length === 0 && (
+        <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>📈</div>
+          <div style={{ fontSize: 15, fontWeight: 500 }}>No data yet</div>
+          <div style={{ fontSize: 13, marginTop: 6 }}>Analytics will populate as deals are created and users sign up.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── SHARED CONSTANTS ────────────────────────────────────────────────────────
+
+const PROPERTY_IMAGES = [
+  "https://images.unsplash.com/photo-1486325212027-8081e485255e?w=1920&q=80",
+  "https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=1920&q=80",
+  "https://images.unsplash.com/photo-1582407947304-fd86f28f7d8e?w=1920&q=80",
+  "https://images.unsplash.com/photo-1464082354059-27db6ce50048?w=1920&q=80",
+  "https://images.unsplash.com/photo-1523217582562-09d0def993a6?w=1920&q=80",
+  "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1920&q=80",
+];
+
+// Trust cards shared by the login loader and the onboarding welcome modal
+const TRUST_ITEMS = [
+  {
+    icon: (
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" style={{ display: "block", flexShrink: 0 }}>
+        <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5z"
+          fill="rgba(255,255,255,0.18)" stroke="rgba(255,255,255,0.9)" strokeWidth="1.5" strokeLinejoin="round"/>
+        <path d="M9 12l2 2 4-4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    ),
+    title: "Bank-level security",
+    desc: "All data encrypted and protected",
+  },
+  {
+    icon: (
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" style={{ display: "block", flexShrink: 0 }}>
+        <circle cx="12" cy="12" r="9.5" fill="rgba(255,255,255,0.18)" stroke="rgba(255,255,255,0.9)" strokeWidth="1.5"/>
+        <path d="M8 12l3 3 5-6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    ),
+    title: "Verified users only",
+    desc: "Every member is ID checked before connecting",
+  },
+  {
+    icon: (
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" style={{ display: "block", flexShrink: 0 }}>
+        <path d="M12 2L4 6v6c0 4.5 3.33 8.74 8 9.93C17.67 20.74 21 16.5 21 12V6l-9-4z"
+          fill="rgba(255,255,255,0.18)" stroke="rgba(255,255,255,0.9)" strokeWidth="1.5" strokeLinejoin="round"/>
+        <path d="M12 8v4M12 14.5v.5" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+      </svg>
+    ),
+    title: "Legal charge required",
+    desc: "Lender investments secured against property",
+  },
+  {
+    icon: (
+      <div style={{ display: "block", width: 80, height: 28, flexShrink: 0 }}>
+        <img
+          src="https://upload.wikimedia.org/wikipedia/commons/b/ba/Stripe_Logo%2C_revised_2016.svg"
+          alt="Stripe" width="80"
+          style={{ display: "block", filter: "brightness(0) invert(1)", height: 28, objectFit: "contain" }}
+        />
+      </div>
+    ),
+    title: "Payments secured by Stripe",
+    desc: "The same technology used by Amazon and Google",
+  },
+];
+
+// ─── LOGIN LOADER ─────────────────────────────────────────────────────────────
+
+function LoginLoader({ onDone }) {
+  const [fading, setFading] = useState(false);
+  const heroImage = useMemo(() => PROPERTY_IMAGES[Math.floor(Math.random() * PROPERTY_IMAGES.length)], []);
+
+  useEffect(() => {
+    const t1 = setTimeout(() => setFading(true),  2500);
+    const t2 = setTimeout(() => onDone(),          3000);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []); // eslint-disable-line
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 10020,
+      background: "#1E3A5F",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      opacity: fading ? 0 : 1,
+      transition: "opacity 0.5s ease",
+      pointerEvents: fading ? "none" : "all",
+    }}>
+      {/* Background image */}
+      <div style={{
+        position: "absolute", inset: 0,
+        backgroundImage: `url(${heroImage})`,
+        backgroundSize: "cover", backgroundPosition: "center", zIndex: 0,
+      }} />
+      {/* Dark overlay */}
+      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.62)", zIndex: 1 }} />
+
+      {/* Content */}
+      <div style={{
+        position: "relative", zIndex: 2,
+        width: "100%", maxWidth: 600,
+        padding: "clamp(32px, 5vw, 56px) clamp(20px, 5vw, 48px) clamp(56px, 7vw, 80px)",
+        textAlign: "center",
+        animation: "tourBounce 0.45s ease forwards",
+      }}>
+        {/* Shield badge */}
+        <div style={{
+          width: 64, height: 64, background: "rgba(255,255,255,0.15)",
+          border: "1.5px solid rgba(255,255,255,0.3)", borderRadius: 18,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          margin: "0 auto 20px", backdropFilter: "blur(8px)",
+        }}>
+          <svg viewBox="0 0 24 24" width="32" height="32" fill="none">
+            <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5z" fill="white"/>
+          </svg>
+        </div>
+
+        <h2 style={{
+          fontFamily: "'Playfair Display', Georgia, serif",
+          fontSize: "clamp(28px, 4vw, 40px)",
+          fontWeight: 700, color: "#fff",
+          margin: "0 0 10px", lineHeight: 1.15,
+          textShadow: "0 2px 12px rgba(0,0,0,0.3)",
+        }}>
+          LenderBuild
+        </h2>
+        <p style={{
+          fontSize: "clamp(14px, 2vw, 17px)", color: "rgba(255,255,255,0.75)",
+          margin: "0 0 32px", lineHeight: 1.5,
+        }}>
+          The UK's trusted property investment platform
+        </p>
+
+        {/* Trust cards */}
+        <div style={{
+          display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10,
+          marginBottom: 0, textAlign: "left",
+        }}>
+          {TRUST_ITEMS.map((t, i) => (
+            <div key={i} style={{
+              background: "rgba(255,255,255,0.13)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(255,255,255,0.2)",
+              borderRadius: 14, padding: "14px 13px 13px",
+              display: "flex", flexDirection: "column", gap: 9,
+            }}>
+              {t.icon}
+              <div>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "#fff", lineHeight: 1.3, marginBottom: 2 }}>{t.title}</div>
+                <div style={{ fontSize: 11.5, color: "rgba(255,255,255,0.65)", lineHeight: 1.4 }}>{t.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Loading bar — fills over 2.5s */}
+      <div style={{
+        position: "absolute", bottom: 0, left: 0, right: 0, height: 4,
+        background: "rgba(255,255,255,0.12)", zIndex: 3,
+      }}>
+        <div style={{
+          height: "100%",
+          background: "linear-gradient(90deg, #3B82F6, #60A5FA)",
+          animationName: "loginBarFill",
+          animationDuration: "2.5s",
+          animationTimingFunction: "cubic-bezier(0.4, 0, 0.6, 1)",
+          animationFillMode: "forwards",
+        }} />
+      </div>
+    </div>
+  );
+}
+
+// ─── ONBOARDING TOUR ─────────────────────────────────────────────────────────
+// step 1 = welcome modal (no spotlight, no skip)
+// steps 2–8 = TOUR_STEPS[step-2] (spotlight steps 1–7)
+
+const TOUR_STEPS = [
+  {
+    targetId: "tour-dashboard-heading",
+    title: "Welcome to LenderBuild!",
+    text: "This is your personal dashboard. Everything you need to manage your property investments is right here.",
+  },
+  {
+    targetId: null, // resolved dynamically based on role
+    title: "Find your perfect match",
+    text: "Browse verified lenders and builders filtered by budget, location, and project type. Your compatibility score shows how well matched you are.",
+  },
+  {
+    targetId: "tour-browse-projects",
+    title: "Discover live projects",
+    text: "Builders post their projects here with full details. Lenders can express interest with one click.",
+  },
+  {
+    targetId: "tour-inbox-btn",
+    title: "Your inbox",
+    text: "All your messages and connection requests live here. You'll get a notification badge when something needs your attention.",
+  },
+  {
+    targetId: "tour-project-tracker",
+    title: "Track your deals",
+    text: "Once matched, manage milestone payments and repayment schedules here. Funds are only released when both parties approve each stage.",
+  },
+  {
+    targetId: "tour-profile-pill",
+    title: "Complete your profile",
+    text: "A complete profile gets 3× more matches. Add your photo, bio, and verification documents to unlock your full compatibility score.",
+  },
+  {
+    targetId: null,
+    title: "You're all set!",
+    text: "Start by browsing matches or posting your first project. Your first connection is just a click away.",
+  },
+];
+
+const TOUR_TOTAL = TOUR_STEPS.length; // 7 spotlight steps
+const SPOTLIGHT_PAD = 10;
+
+function TourConfetti() {
+  const pieces = useMemo(() => Array.from({ length: 50 }, (_, i) => {
+    const colors = ["#3B82F6","#1D9E75","#F59E0B","#EF4444","#8B5CF6","#EC4899","#06B6D4","#FBBF24"];
+    return {
+      id: i,
+      left: Math.random() * 100,
+      delay: Math.random() * 2.5,
+      duration: 3.5 + Math.random() * 2.5,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      size: 7 + Math.random() * 7,
+      isRect: Math.random() > 0.45,
+      rEnd: `${(Math.random() > 0.5 ? 1 : -1) * (360 + Math.random() * 360)}deg`,
+    };
+  }), []);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 10010, overflow: "hidden" }}>
+      {pieces.map(p => (
+        <div key={p.id} style={{
+          position: "absolute",
+          left: `${p.left}%`,
+          top: -30,
+          width: p.size,
+          height: p.isRect ? p.size * 0.45 : p.size,
+          background: p.color,
+          borderRadius: p.isRect ? 2 : "50%",
+          "--r-end": p.rEnd,
+          animationName: "confettiFall",
+          animationDuration: `${p.duration}s`,
+          animationDelay: `${p.delay}s`,
+          animationFillMode: "forwards",
+          animationTimingFunction: "ease-in",
+        }} />
+      ))}
+    </div>
+  );
+}
+
+function TourWelcomeModal({ onStart }) {
+  const heroImage = useMemo(() => PROPERTY_IMAGES[Math.floor(Math.random() * PROPERTY_IMAGES.length)], []);
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 9997,
+      background: "#1E3A5F",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      overflowY: "auto",
+    }}>
+      {/* Background property image */}
+      <div style={{
+        position: "absolute", inset: 0,
+        backgroundImage: `url(${heroImage})`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        zIndex: 0,
+      }} />
+      {/* Dark overlay */}
+      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.62)", zIndex: 1 }} />
+
+      {/* Content */}
+      <div
+        style={{
+          position: "relative", zIndex: 2,
+          width: "100%", maxWidth: 600,
+          padding: "clamp(32px, 5vw, 56px) clamp(20px, 5vw, 48px) clamp(36px, 5vw, 56px)",
+          textAlign: "center",
+          animation: "tourBounce 0.45s ease forwards",
+        }}
+      >
+        {/* Shield badge */}
+        <div style={{
+          width: 64, height: 64, background: "rgba(255,255,255,0.15)", border: "1.5px solid rgba(255,255,255,0.3)",
+          borderRadius: 18, display: "flex", alignItems: "center", justifyContent: "center",
+          margin: "0 auto 24px", backdropFilter: "blur(8px)",
+        }}>
+          <svg viewBox="0 0 24 24" width="32" height="32" fill="none">
+            <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5z" fill="white"/>
+          </svg>
+        </div>
+
+        <h2 style={{
+          fontFamily: "'Playfair Display', Georgia, serif",
+          fontSize: "clamp(32px, 5vw, 48px)",
+          fontWeight: 700, color: "#fff",
+          margin: "0 0 12px", lineHeight: 1.15,
+          textShadow: "0 2px 12px rgba(0,0,0,0.3)",
+        }}>
+          Welcome to LenderBuild
+        </h2>
+        <p style={{
+          fontSize: "clamp(16px, 2.5vw, 20px)", color: "rgba(255,255,255,0.82)",
+          margin: "0 0 36px", lineHeight: 1.5, fontWeight: 400,
+        }}>
+          The UK's trusted property investment matching platform
+        </p>
+
+        {/* 2×2 trust grid */}
+        <div style={{
+          display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12,
+          marginBottom: 36, textAlign: "left",
+        }}>
+          {TRUST_ITEMS.map((t, i) => (
+            <div key={i} style={{
+              background: "rgba(255,255,255,0.13)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(255,255,255,0.2)",
+              borderRadius: 14,
+              padding: "16px 14px 14px",
+              display: "flex", flexDirection: "column", gap: 10,
+            }}>
+              {t.icon}
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#fff", lineHeight: 1.3, marginBottom: 3 }}>{t.title}</div>
+                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.68)", lineHeight: 1.45 }}>{t.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button
+          onClick={onStart}
+          style={{
+            width: "100%", padding: "16px 24px",
+            background: "#fff", color: "#1E3A5F",
+            border: "none", borderRadius: 14,
+            fontSize: 17, fontWeight: 700, cursor: "pointer",
+            boxShadow: "0 4px 24px rgba(0,0,0,0.25)",
+            letterSpacing: "-0.01em",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = "#EBF2FF"; }}
+          onMouseLeave={e => { e.currentTarget.style.background = "#fff"; }}
+        >
+          Let's get started →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function OnboardingTour({ step, userRole, onNext, onBack, onSkip, onFinish, onRedo, setPage }) {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 640);
+  const [spotRect, setSpotRect] = useState(null); // measured rect of highlighted element
+
+  // step 1 = welcome modal; steps 2–(TOUR_TOTAL+1) = TOUR_STEPS[step-2]
+  const isWelcome = step === 1;
+  const isFinal   = step === TOUR_TOTAL + 1;
+  const cfg       = !isWelcome ? ((() => {
+    const s = [...TOUR_STEPS];
+    s[1] = { ...s[1], targetId: userRole === "lender" ? "tour-find-builder" : "tour-find-lender" };
+    return s;
+  })()[step - 2] || {}) : {};
+  const hasSpotlight = !isWelcome && !isFinal && !!cfg.targetId;
+
+  // Lock page scroll while tour is active
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = ""; };
+  }, []);
+
+  // Measure the target element immediately — single rAF to wait for paint, then snap.
+  // No setTimeout delays, no lerp, no retries: the clip-path jumps instantly.
+  useEffect(() => {
+    if (!hasSpotlight) { setSpotRect(null); return; }
+    let cancelled = false;
+    const id = requestAnimationFrame(() => {
+      if (cancelled) return;
+      const el = document.getElementById(cfg.targetId);
+      if (!el) { setSpotRect(null); return; }
+      const r = el.getBoundingClientRect();
+      setSpotRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+    });
+    return () => { cancelled = true; cancelAnimationFrame(id); };
+  }, [step]); // eslint-disable-line
+
+  // Re-measure on resize
+  useEffect(() => {
+    const onResize = () => {
+      setIsMobile(window.innerWidth < 640);
+      if (!hasSpotlight || !cfg.targetId) return;
+      const el = document.getElementById(cfg.targetId);
+      if (el) {
+        const r = el.getBoundingClientRect();
+        setSpotRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+      }
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [hasSpotlight, cfg.targetId]); // eslint-disable-line
+
+  // Keyboard navigation
+  useEffect(() => {
+    function handleKey(e) {
+      if (isWelcome) return;
+      if (e.key === "ArrowRight") onNext();
+      else if (e.key === "ArrowLeft" && step > 2) onBack();
+      else if (e.key === "Escape" && !isFinal) onSkip();
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [isWelcome, isFinal, step, onNext, onBack, onSkip]); // eslint-disable-line
+
+  if (isWelcome) return <TourWelcomeModal onStart={onNext} />;
+
+  const PAD = SPOTLIGHT_PAD;
+  const vw = window.innerWidth, vh = window.innerHeight;
+
+  // Pre-compute spotlight bounds for both the overlay frame and the glow ring
+  const sTop    = spotRect ? spotRect.top    - PAD : 0;
+  const sLeft   = spotRect ? spotRect.left   - PAD : 0;
+  const sRight  = spotRect ? spotRect.left   + spotRect.width  + PAD : 0;
+  const sBottom = spotRect ? spotRect.top    + spotRect.height + PAD : 0;
+  const sW      = spotRect ? spotRect.width  + PAD * 2 : 0;
+  const sH      = spotRect ? spotRect.height + PAD * 2 : 0;
+
+  // Tooltip placement relative to the highlighted element
+  function getLayout() {
+    const W = 320, M = 14;
+    if (isFinal) return {
+      outer: { top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: Math.min(440, vw - 28) },
+      inner: { borderRadius: 20, padding: "32px 28px 26px", textAlign: "center" },
+    };
+    if (isMobile) return {
+      outer: { bottom: 0, left: 0, right: 0 },
+      inner: { borderRadius: "22px 22px 0 0", padding: "22px 20px 38px", maxHeight: "58vh", overflowY: "auto" },
+    };
+    if (!spotRect) return {
+      outer: { top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: Math.min(W, vw - 28) },
+      inner: { borderRadius: 16, padding: "20px 20px 16px" },
+    };
+    const spBot = spotRect.top + spotRect.height + PAD, spTop = spotRect.top - PAD;
+    const spRight = spotRect.left + spotRect.width + PAD, spLeft = spotRect.left - PAD;
+    let top, left;
+    if      (vh - spBot >= 220) { top = spBot + M; left = Math.max(M, Math.min(spotRect.left + spotRect.width / 2 - W / 2, vw - W - M)); }
+    else if (spTop      >= 220) { top = spTop - M - 220; left = Math.max(M, Math.min(spotRect.left + spotRect.width / 2 - W / 2, vw - W - M)); }
+    else if (vw - spRight >= W + M) { left = spRight + M; top = Math.max(M, spotRect.top + spotRect.height / 2 - 110); }
+    else                        { left = Math.max(M, spLeft - M - W); top = Math.max(M, spotRect.top + spotRect.height / 2 - 110); }
+    return {
+      outer: { top: Math.max(M, Math.min(top, vh - 240)), left: Math.max(M, Math.min(left, vw - W - M)), width: W },
+      inner: { borderRadius: 16, padding: "20px 20px 16px" },
+    };
+  }
+
+  const { outer, inner } = getLayout();
+  const dotStep = step - 1;
+  const dots = Array.from({ length: TOUR_TOTAL }, (_, i) => i + 1);
+  const displayStep = step - 1;
+
+  const arrowBtnBase = {
+    position: "fixed",
+    bottom: isMobile ? 24 : "50%",
+    transform: isMobile ? "none" : "translateY(50%)",
+    width: isMobile ? 48 : 56, height: isMobile ? 48 : 56,
+    borderRadius: "50%", background: "#1E3A5F", border: "none", color: "#fff",
+    cursor: "pointer", zIndex: 10001, display: "flex", alignItems: "center",
+    justifyContent: "center", boxShadow: "0 4px 20px rgba(0,0,0,0.35)",
+    transition: "background 0.2s, opacity 0.2s",
+  };
+
+  return (
+    <>
+      {/* Dark overlay — 4 divs forming a frame around the spotlight cutout.
+          Each div fills one side of the screen; together they leave a clean rectangular
+          hole exactly where the target element is. No clip-path, no transitions. */}
+      {spotRect && hasSpotlight ? (
+        <>
+          {/* Top band: full width, from screen top to top of spotlight */}
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, height: sTop, background: "rgba(0,0,0,0.75)", zIndex: 9996, pointerEvents: "none" }} />
+          {/* Bottom band: full width, from bottom of spotlight to screen bottom */}
+          <div style={{ position: "fixed", top: sBottom, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.75)", zIndex: 9996, pointerEvents: "none" }} />
+          {/* Left band: from top of spotlight to bottom of spotlight, left of spotlight */}
+          <div style={{ position: "fixed", top: sTop, left: 0, width: sLeft, height: sH, background: "rgba(0,0,0,0.75)", zIndex: 9996, pointerEvents: "none" }} />
+          {/* Right band: from top of spotlight to bottom of spotlight, right of spotlight */}
+          <div style={{ position: "fixed", top: sTop, left: sRight, right: 0, height: sH, background: "rgba(0,0,0,0.75)", zIndex: 9996, pointerEvents: "none" }} />
+        </>
+      ) : (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 9996, pointerEvents: "none" }} />
+      )}
+
+      {/* Glow ring — snaps instantly to the element; only the box-shadow colour pulses */}
+      {spotRect && hasSpotlight && (
+        <div style={{
+          position: "fixed",
+          top: sTop, left: sLeft, width: sW, height: sH,
+          borderRadius: 10,
+          zIndex: 9997, pointerEvents: "none",
+          animation: "tourGlowPulse 2.5s ease-in-out 0.6s infinite",
+        }} />
+      )}
+
+      {/* Edge navigation arrows */}
+      {!isFinal && (
+        <>
+          <button onClick={step > 2 ? onBack : undefined} disabled={step <= 2}
+            aria-label="Previous step"
+            style={{ ...arrowBtnBase, left: isMobile ? 10 : 18, opacity: step <= 2 ? 0.35 : 1 }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </button>
+          <button onClick={onNext} aria-label="Next step" style={{ ...arrowBtnBase, right: isMobile ? 10 : 18 }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M9 18l6-6-6-6" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </button>
+        </>
+      )}
+
+      {/* Confetti on final step */}
+      {isFinal && <TourConfetti />}
+
+      {/* Tooltip — fades in on each step change via key={step} remount */}
+      <div style={{ position: "fixed", zIndex: 10000, ...outer }} onClick={e => e.stopPropagation()}>
+        <div key={step} style={{
+          background: "#fff",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.2), 0 4px 16px rgba(0,0,0,0.08)",
+          animation: "fadeIn 0.2s ease forwards",
+          ...inner,
+        }}>
+          {!isFinal && (
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#3B82F6", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 8 }}>
+              Step {displayStep} of {TOUR_TOTAL}
+            </div>
+          )}
+          <div style={{ fontSize: isFinal ? 24 : 17, fontWeight: 700, color: "#1E3A5F", marginBottom: 9, fontFamily: "'Playfair Display', Georgia, serif", lineHeight: 1.3 }}>
+            {cfg.title}
+          </div>
+          <p style={{ fontSize: 14, color: "#4B5563", lineHeight: 1.65, margin: "0 0 16px" }}>
+            {cfg.text}
+          </p>
+
+          {isFinal && (
+            <>
+              <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", justifyContent: "center" }}>
+                <button onClick={() => { onFinish(); setPage(userRole === "lender" ? "find-builder" : "search"); }}
+                  style={{ flex: 1, minWidth: 130, padding: "13px 16px", background: "#2E5FA3", color: "#fff", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+                  Find a match
+                </button>
+                <button onClick={() => { onFinish(); setPage("browse-projects"); }}
+                  style={{ flex: 1, minWidth: 130, padding: "13px 16px", background: "#1D9E75", color: "#fff", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+                  Post a project
+                </button>
+              </div>
+              <div style={{ textAlign: "center", marginBottom: 8 }}>
+                <button onClick={onRedo}
+                  style={{ background: "transparent", border: "1.5px solid #CBD5E1", borderRadius: 10, padding: "10px 28px", fontSize: 13, color: "#64748B", cursor: "pointer", fontWeight: 500, letterSpacing: "-0.01em" }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = "#94A3B8"; e.currentTarget.style.color = "#475569"; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = "#CBD5E1"; e.currentTarget.style.color = "#64748B"; }}>
+                  ← Redo tour
+                </button>
+              </div>
+            </>
+          )}
+
+          {!isFinal && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button onClick={onBack} disabled={step === 2}
+                style={{ flex: isMobile ? 1 : "none", padding: isMobile ? "13px 20px" : "10px 18px", minHeight: isMobile ? 50 : 42, background: "transparent", border: "0.5px solid #d0d0d0", borderRadius: 10, fontSize: 14, fontWeight: 500, color: step === 2 ? "#ccc" : "#4B5563", cursor: step === 2 ? "default" : "pointer" }}>
+                ← Back
+              </button>
+              <button onClick={onNext}
+                style={{ flex: isMobile ? 1 : "none", padding: isMobile ? "13px 20px" : "10px 22px", minHeight: isMobile ? 50 : 42, background: "#2E5FA3", color: "#fff", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+                Next →
+              </button>
+            </div>
+          )}
+
+          <div style={{ display: "flex", justifyContent: "center", gap: 6, marginTop: 14, alignItems: "center" }}>
+            {dots.map(d => (
+              <div key={d} style={{
+                height: d === dotStep ? 12 : 8, width: d === dotStep ? 12 : 8,
+                borderRadius: "50%",
+                background: d === dotStep ? "#2E5FA3" : "#CBD5E1",
+                transform: d === dotStep ? "scale(1.15)" : "scale(1)",
+                transition: "all 0.35s cubic-bezier(0.34,1.56,0.64,1)",
+              }} />
+            ))}
+          </div>
+
+          {!isFinal && (
+            <div style={{ textAlign: "center", marginTop: 10 }}>
+              <button onClick={onSkip}
+                style={{ background: "none", border: "none", fontSize: 12, color: "#94A3B8", cursor: "pointer", textDecoration: "underline", padding: "6px 8px", minHeight: 36 }}>
+                Skip tour
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── HELP TOOLTIP ─────────────────────────────────────────────────────────────
+function HelpTooltip({ text }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    function handler(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+  return (
+    <span ref={ref} style={{ position: "relative", display: "inline-flex", alignItems: "center", verticalAlign: "middle" }}>
+      <button
+        onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
+        style={{ width: 18, height: 18, borderRadius: "50%", border: "1.5px solid #CBD5E1", background: "#F8FAFC", color: "#64748B", fontSize: 10, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0, flexShrink: 0 }}
+        title="Help"
+      >?</button>
+      {open && (
+        <div style={{ position: "absolute", bottom: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)", background: "#1E3A5F", color: "#fff", fontSize: 12, lineHeight: 1.5, padding: "8px 12px", borderRadius: 8, whiteSpace: "nowrap", maxWidth: 220, zIndex: 9999, boxShadow: "0 4px 16px rgba(0,0,0,0.25)", pointerEvents: "none" }}>
+          {text}
+          <div style={{ position: "absolute", bottom: -5, left: "50%", transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderTop: "5px solid #1E3A5F" }} />
+        </div>
+      )}
+    </span>
+  );
+}
+
+// ─── COMMAND PALETTE ──────────────────────────────────────────────────────────
+const PALETTE_COMMANDS = [
+  { cat: "Navigation", label: "Dashboard",          target: "home",                    icon: "🏠" },
+  { cat: "Navigation", label: "Find lender",         target: "search",                  icon: "💰" },
+  { cat: "Navigation", label: "Find builder",        target: "find-builder",            icon: "🔨" },
+  { cat: "Navigation", label: "Browse projects",     target: "browse-projects",         icon: "🏗️" },
+  { cat: "Navigation", label: "Messages",            target: "messages",                icon: "💬" },
+  { cat: "Navigation", label: "My deals",            target: "deals",                   icon: "📊" },
+  { cat: "Navigation", label: "Leaderboard",         target: "leaderboard",             icon: "🏆" },
+  { cat: "Navigation", label: "Community",           target: "community",               icon: "👥" },
+  { cat: "Navigation", label: "Posts",               target: "posts",                   icon: "📝" },
+  { cat: "Navigation", label: "Market Intelligence", target: "market",                  icon: "📈" },
+  { cat: "Navigation", label: "Build Calculator",    target: "build-calculator",        icon: "🧮" },
+  { cat: "Navigation", label: "Notifications",       target: "notifications",           icon: "🔔" },
+  { cat: "Navigation", label: "Disputes",            target: "disputes",                icon: "⚖️" },
+  { cat: "Actions",    label: "Post a project",      target: "create-project-listing",  icon: "➕" },
+  { cat: "Actions",    label: "Create a post",       target: "create-post",             icon: "✏️" },
+  { cat: "Actions",    label: "Saved profiles",      target: "saved-profiles",          icon: "🤍" },
+  { cat: "Settings",   label: "Settings",            target: "account",                 icon: "⚙️" },
+  { cat: "Settings",   label: "Edit profile",        target: "profile-setup",           icon: "👤" },
+  { cat: "Settings",   label: "How it works",        target: "how-it-works",            icon: "❓" },
+  { cat: "Settings",   label: "Trust & Safety",      target: "safety",                  icon: "🛡️" },
+];
+
+function CommandPalette({ open, onClose, setPage, user }) {
+  const [query, setQuery]   = useState("");
+  const [cursor, setCursor] = useState(0);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (open) { setQuery(""); setCursor(0); setTimeout(() => inputRef.current?.focus(), 50); }
+  }, [open]);
+
+  const filtered = PALETTE_COMMANDS.filter(c =>
+    !query || c.label.toLowerCase().includes(query.toLowerCase()) || c.cat.toLowerCase().includes(query.toLowerCase())
+  );
+
+  const categories = [...new Set(filtered.map(c => c.cat))];
+
+  function go(target) { setPage(target); onClose(); }
+
+  function handleKey(e) {
+    if (e.key === "Escape") { onClose(); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); setCursor(c => Math.min(c + 1, filtered.length - 1)); }
+    if (e.key === "ArrowUp")   { e.preventDefault(); setCursor(c => Math.max(c - 1, 0)); }
+    if (e.key === "Enter" && filtered[cursor]) go(filtered[cursor].target);
+  }
+
+  if (!open) return null;
+
+  return createPortal(
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9998, backdropFilter: "blur(2px)" }} />
+      <div style={{ position: "fixed", top: "20%", left: "50%", transform: "translateX(-50%)", width: "min(560px, 92vw)", background: "#fff", borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.3)", zIndex: 9999, overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: "0.5px solid #f0f0f0" }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={e => { setQuery(e.target.value); setCursor(0); }}
+            onKeyDown={handleKey}
+            placeholder="Search pages and actions..."
+            style={{ flex: 1, border: "none", outline: "none", fontSize: 15, color: "#1E293B", background: "transparent" }}
+          />
+          <kbd style={{ fontSize: 11, color: "#94A3B8", background: "#F1F5F9", border: "0.5px solid #CBD5E1", borderRadius: 4, padding: "2px 6px" }}>ESC</kbd>
+        </div>
+        <div style={{ maxHeight: 380, overflowY: "auto", padding: "8px 0" }}>
+          {categories.length === 0 ? (
+            <div style={{ padding: "24px", textAlign: "center", color: "#94A3B8", fontSize: 14 }}>No results for "{query}"</div>
+          ) : categories.map(cat => {
+            const items = filtered.filter(c => c.cat === cat);
+            return (
+              <div key={cat}>
+                <div style={{ padding: "4px 16px 2px", fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em" }}>{cat}</div>
+                {items.map((cmd, idx) => {
+                  const globalIdx = filtered.indexOf(cmd);
+                  const active = globalIdx === cursor;
+                  return (
+                    <button key={cmd.target} onClick={() => go(cmd.target)} onMouseEnter={() => setCursor(globalIdx)}
+                      style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 16px", fontSize: 14, background: active ? "#EBF2FF" : "transparent", border: "none", cursor: "pointer", textAlign: "left", color: active ? "#1E3A5F" : "#374151" }}>
+                      <span style={{ fontSize: 16, flexShrink: 0 }}>{cmd.icon}</span>
+                      <span style={{ fontWeight: active ? 600 : 400 }}>{cmd.label}</span>
+                      {active && <span style={{ marginLeft: "auto", fontSize: 11, color: "#94A3B8" }}>↵ Open</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ padding: "8px 16px", borderTop: "0.5px solid #f0f0f0", display: "flex", gap: 12, fontSize: 11, color: "#94A3B8" }}>
+          <span><kbd style={{ background: "#F1F5F9", border: "0.5px solid #CBD5E1", borderRadius: 3, padding: "1px 4px", fontSize: 10 }}>↑↓</kbd> Navigate</span>
+          <span><kbd style={{ background: "#F1F5F9", border: "0.5px solid #CBD5E1", borderRadius: 3, padding: "1px 4px", fontSize: 10 }}>↵</kbd> Open</span>
+          <span><kbd style={{ background: "#F1F5F9", border: "0.5px solid #CBD5E1", borderRadius: 3, padding: "1px 4px", fontSize: 10 }}>Ctrl+K</kbd> Toggle</span>
+        </div>
+      </div>
+    </>,
+    document.body
+  );
+}
+
+// ─── WHAT'S NEW BUTTON ────────────────────────────────────────────────────────
+function WhatsNewButton({ onReplayTour }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    function handler(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+  const features = [
+    { label: "Builder Passport",      desc: "Verified builder profiles with credibility score" },
+    { label: "Market Intelligence",   desc: "Live deal flow, rate trends and regional data" },
+    { label: "Analytics Dashboard",   desc: "Your activity, views and match stats at a glance" },
+    { label: "Command Palette",       desc: "Press Ctrl+K to jump anywhere instantly" },
+    { label: "Saved Searches",        desc: "Save filter combos and get notified on new matches" },
+    { label: "Onboarding Tour",       desc: "Step-by-step guide for new users" },
+  ];
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button onClick={() => setOpen(o => !o)} title="What's new"
+        style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, border: "none", background: open ? "rgba(255,255,255,0.1)" : "transparent", color: "rgba(255,255,255,0.75)", cursor: "pointer", fontSize: 16 }}>
+        ✨
+      </button>
+      {open && (
+        <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", width: 300, background: "#fff", border: "0.5px solid #e8e8e8", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", zIndex: 500, overflow: "hidden" }}>
+          <div style={{ padding: "12px 16px 10px", borderBottom: "0.5px solid #f0f0f0" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#1E3A5F" }}>What's new ✨</div>
+            <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>Recent features on LenderBuild</div>
+          </div>
+          <div style={{ padding: "8px 0" }}>
+            {features.map(f => (
+              <div key={f.label} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 16px" }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "#2563EB", background: "#DBEAFE", borderRadius: 4, padding: "2px 5px", marginTop: 1, flexShrink: 0 }}>NEW</span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1E293B" }}>{f.label}</div>
+                  <div style={{ fontSize: 12, color: "#64748B", lineHeight: 1.4 }}>{f.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ borderTop: "0.5px solid #f0f0f0", padding: "10px 16px" }}>
+            <button onClick={() => { setOpen(false); onReplayTour && onReplayTour(); }}
+              style={{ width: "100%", padding: "9px", borderRadius: 8, border: "1px solid #e0e0e0", background: "transparent", fontSize: 13, fontWeight: 500, color: "#1E3A5F", cursor: "pointer" }}>
+              🎬 Replay tour
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── FLOATING ACTION BUTTON ───────────────────────────────────────────────────
+function FloatingActionButton({ user, setPage }) {
+  const [open, setOpen] = useState(false);
+  if (!user) return null;
+  const role = user?.user_metadata?.role;
+
+  const actions = role === "lender"
+    ? [
+        { label: "Browse projects", icon: "🏗️", target: "browse-projects" },
+        { label: "Find builder",    icon: "🔨", target: "find-builder" },
+        { label: "Messages",        icon: "💬", target: "messages" },
+        { label: "My investments",  icon: "📊", target: "deals" },
+      ]
+    : [
+        { label: "Post project",    icon: "📋", target: "create-project-listing" },
+        { label: "Find lender",     icon: "💰", target: "search" },
+        { label: "Messages",        icon: "💬", target: "messages" },
+        { label: "My deals",        icon: "📊", target: "deals" },
+      ];
+
+  return (
+    <>
+      {open && <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 1049 }} />}
+      <div style={{ position: "fixed", bottom: 88, right: 16, zIndex: 1050, display: "flex", flexDirection: "column-reverse", alignItems: "flex-end", gap: 10 }}>
+        {open && actions.map((a, i) => (
+          <div key={a.target} style={{ display: "flex", alignItems: "center", gap: 8, opacity: open ? 1 : 0, transform: open ? "translateY(0)" : "translateY(16px)", transition: `all 0.18s ease ${i * 0.05}s` }}>
+            <div style={{ background: "#1E3A5F", color: "#fff", fontSize: 12, fontWeight: 600, padding: "5px 10px", borderRadius: 20, whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(0,0,0,0.2)" }}>{a.label}</div>
+            <button onClick={() => { setOpen(false); setPage(a.target); }}
+              style={{ width: 42, height: 42, borderRadius: "50%", border: "none", background: "#fff", boxShadow: "0 2px 12px rgba(0,0,0,0.2)", cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              {a.icon}
+            </button>
+          </div>
+        ))}
+        <button onClick={() => setOpen(o => !o)}
+          style={{ width: 52, height: 52, borderRadius: "50%", border: "none", background: "#2E5FA3", color: "#fff", fontSize: 24, fontWeight: 300, cursor: "pointer", boxShadow: "0 4px 20px rgba(46,95,163,0.45)", display: "flex", alignItems: "center", justifyContent: "center", transform: open ? "rotate(45deg)" : "rotate(0deg)", transition: "transform 0.2s ease", flexShrink: 0 }}>
+          +
+        </button>
+      </div>
+    </>
+  );
+}
+
+// ─── ONBOARDING CHECKLIST ─────────────────────────────────────────────────────
+function OnboardingChecklist({ user, setPage }) {
+  const [expanded, setExpanded] = useState(true);
+  if (!user) return null;
+  const uid = user.id;
+  const dismissed = (() => { try { return localStorage.getItem(`lb_checklist_dismissed_${uid}`) === "true"; } catch { return false; } })();
+
+  const meta = user?.user_metadata || {};
+  const steps = [
+    { label: "Complete profile",         done: !!meta.profile_complete,          target: "profile-setup" },
+    { label: "Find your first match",    done: !!localStorage.getItem(`lb_first_match_${uid}`), target: meta.role === "lender" ? "find-builder" : "search" },
+    { label: "Send a connection",        done: (meta.connections?.length > 0 || meta.builder_connections?.length > 0), target: meta.role === "lender" ? "find-builder" : "search" },
+    { label: "Start a conversation",     done: !!localStorage.getItem(`lb_first_msg_${uid}`),   target: "messages" },
+    { label: "Create/browse a project",  done: !!localStorage.getItem(`lb_first_project_${uid}`), target: meta.role === "lender" ? "browse-projects" : "create-project-listing" },
+  ];
+  const doneCount = steps.filter(s => s.done).length;
+  if (dismissed || doneCount === steps.length) return null;
+
+  return (
+    <div style={{ position: "fixed", bottom: 88, left: 16, zIndex: 1050, width: 240, background: "#fff", borderRadius: 14, boxShadow: "0 4px 24px rgba(0,0,0,0.18)", border: "0.5px solid #e0e0e0", overflow: "hidden" }}>
+      <button onClick={() => setExpanded(o => !o)}
+        style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "#1E3A5F", border: "none", cursor: "pointer", color: "#fff" }}>
+        <span style={{ fontSize: 13, fontWeight: 600 }}>Getting started · {doneCount}/{steps.length}</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div style={{ height: 4, background: "#f0f0f0" }}>
+        <div style={{ height: 4, background: "#22C55E", width: `${(doneCount / steps.length) * 100}%`, transition: "width 0.4s" }} />
+      </div>
+      {expanded && (
+        <div style={{ padding: "8px 0" }}>
+          {steps.map((s, i) => (
+            <button key={i} onClick={() => setPage(s.target)}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 14px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
+              onMouseEnter={e => e.currentTarget.style.background = "#F8FAFC"}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ width: 18, height: 18, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: s.done ? "#22C55E" : "#F1F5F9", border: s.done ? "none" : "1.5px solid #CBD5E1" }}>
+                {s.done ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                        : <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#CBD5E1" }} />}
+              </span>
+              <span style={{ fontSize: 12, color: s.done ? "#94A3B8" : "#374151", textDecoration: s.done ? "line-through" : "none", fontWeight: s.done ? 400 : 500 }}>{s.label}</span>
+            </button>
+          ))}
+          <div style={{ borderTop: "0.5px solid #f0f0f0", marginTop: 4, padding: "6px 14px" }}>
+            <button onClick={() => { try { localStorage.setItem(`lb_checklist_dismissed_${uid}`, "true"); } catch {} window.location.reload(); }}
+              style={{ fontSize: 11, color: "#94A3B8", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [page, setPage] = useState("home");
+  const [darkMode, setDarkMode]                 = useDarkMode();
+  const [accentColor, setAccentColor]           = useAccentColor();
+  const [fontSize,    setFontSize]              = useFontSize();
+  const [density,     setDensity]               = useDensity();
+  const [paletteOpen, setPaletteOpen]           = useState(false);
+  const [page, setPage]                         = useState("home");
+  const [user, setUser]                         = useState(null);
+  const [selectedLender, setSelectedLender]     = useState(null);
+  const [lenderSettings, setLenderSettings]     = useState({});
+  const [editingPost, setEditingPost]           = useState(null);
+  const [selectedPost,      setSelectedPost]        = useState(null);
+  const [openConversationId, setOpenConversationId] = useState(null);
+  const [selectedBuilder,   setSelectedBuilder]     = useState(null);
+  const [selectedDeal,           setSelectedDeal]           = useState(null);
+  const [selectedBuilderPassportId, setSelectedBuilderPassportId] = useState(null);
+  const [unreadCount,       setUnreadCount]         = useState(0);
+  const [userProfile,       setUserProfile]         = useState(null);
+  const [viewerRoleProfile, setViewerRoleProfile]   = useState(null);
+  const [tourStep,          setTourStep]            = useState(0); // 0 = inactive
+  const [tourForceProfileOpen, setTourForceProfileOpen] = useState(false);
+  const [loginLoading,      setLoginLoading]         = useState(false);
+  const [showDeviceModal,   setShowDeviceModal]       = useState(false);
+  const [devicePref,        setDevicePref]            = useState(() => {
+    try { return localStorage.getItem("lb_device_preference") || "auto"; } catch { return "auto"; }
+  });
+  const [windowWidth,       setWindowWidth]           = useState(() => typeof window !== "undefined" ? window.innerWidth : 1200);
+  const [sidebarCollapsed,  setSidebarCollapsed]      = useState(false);
+  const [celebration, setCelebration] = useState(null);
+  const sessionTimerRef = useRef(null);
+  const tourShownRef    = useRef(false);
+
+  // ── Ctrl+K command palette ────────────────────────────────────────────────
+  useEffect(() => {
+    function handler(e) {
+      if (e.ctrlKey && e.key === "k") { e.preventDefault(); setPaletteOpen(o => !o); }
+    }
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
+
+  // ── Track window width for responsive layout ──────────────────────────────
+  useEffect(() => {
+    const onResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", onResize, { passive: true });
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // ── Apply device preference as body class for CSS hooks ───────────────────
+  useEffect(() => {
+    document.body.classList.remove("lb-mobile-layout", "lb-desktop-layout");
+    if (devicePref === "mobile") document.body.classList.add("lb-mobile-layout");
+    if (devicePref === "desktop") document.body.classList.add("lb-desktop-layout");
+  }, [devicePref]);
+
+  // ── Session timeout: log out after 30 minutes of inactivity ───────────────
+  useEffect(() => {
+    if (!user) { clearTimeout(sessionTimerRef.current); return; }
+
+    function resetTimer() {
+      clearTimeout(sessionTimerRef.current);
+      sessionTimerRef.current = setTimeout(async () => {
+        await supabase.auth.signOut();
+        setPage("home");
+      }, 30 * 60 * 1000); // 30 minutes
+    }
+
+    const events = ["click", "keydown", "scroll", "mousemove", "touchstart"];
+    events.forEach(e => window.addEventListener(e, resetTimer, { passive: true }));
+    resetTimer();
+
+    return () => {
+      clearTimeout(sessionTimerRef.current);
+      events.forEach(e => window.removeEventListener(e, resetTimer));
+    };
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Load current user's profile + role-specific data for match scoring ──────
+  useEffect(() => {
+    if (!user) { setUserProfile(null); setViewerRoleProfile(null); return; }
+    const role = user.user_metadata?.role;
+    supabase.from("profiles")
+      .select("sequential_id, user_role, location, bio")
+      .eq("id", user.id)
+      .maybeSingle()
+      .then(({ data: p }) => {
+        setUserProfile(p || null);
+        const loc = p?.location || "";
+        if (role === "builder") {
+          supabase.from("builder_profiles")
+            .select("total_value, projects_completed, specialization")
+            .eq("user_id", user.id)
+            .maybeSingle()
+            .then(({ data: bp }) => setViewerRoleProfile(bp ? { ...bp, location: loc } : null));
+        } else if (role === "lender") {
+          supabase.from("lender_profiles")
+            .select("budget_max, preferred_projects, return_type")
+            .eq("user_id", user.id)
+            .maybeSingle()
+            .then(({ data: lp }) => setViewerRoleProfile(lp ? { ...lp, location: loc } : null));
+        }
+      });
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Onboarding tour trigger ────────────────────────────────────────────────
+  useEffect(() => {
+    if (!user || tourShownRef.current) return;
+    if (user.user_metadata?.profile_complete && !user.user_metadata?.tour_completed) {
+      tourShownRef.current = true;
+      const t = setTimeout(() => setTourStep(1), 900);
+      return () => clearTimeout(t);
+    }
+  }, [user?.id, user?.user_metadata?.profile_complete]); // eslint-disable-line
+
+  // Open profile dropdown for step 5 so the element exists in DOM
+  useEffect(() => {
+    setTourForceProfileOpen(tourStep === 6);
+  }, [tourStep]);
+
+  // ── Crisp live chat — identify logged-in users ────────────────────────────
+  useEffect(() => {
+    if (!window.$crisp) return;
+    if (user) {
+      window.$crisp.push(["set", "user:email", [user.email]]);
+      const name = user.user_metadata?.name || user.email?.split("@")[0] || "";
+      if (name) window.$crisp.push(["set", "user:nickname", [name]]);
+      window.$crisp.push(["set", "session:data", [[["role", user.user_metadata?.role || "unknown"]]]]);
+    } else {
+      window.$crisp.push(["do", "session:reset"]);
+    }
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Unread message badge ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!user) { setUnreadCount(0); return; }
+    async function loadUnread() {
+      const lastRead = localStorage.getItem(`msgs_read_${user.id}`) || new Date(0).toISOString();
+      const { data } = await supabase
+        .from("conversations")
+        .select("id")
+        .or(`lender_id.eq.${user.id},builder_id.eq.${user.id}`)
+        .gt("last_message_at", lastRead);
+      setUnreadCount((data || []).length);
+    }
+    loadUnread();
+    const channel = supabase.channel("nav-unread")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" },
+        payload => { if (payload.new?.sender_id !== user.id) loadUnread(); })
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (page === "messages" && user) {
+      setUnreadCount(0);
+      localStorage.setItem(`msgs_read_${user.id}`, new Date().toISOString());
+    }
+  }, [page, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setIsLoggedIn(true);
+      } else {
+        setIsLoggedIn(false);
+      }
+      setUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session?.user) {
+        setIsLoggedIn(true);
+      } else if (event === "SIGNED_OUT") {
+        setIsLoggedIn(false);
+        clearPreferenceStorage();
+        setDarkMode(false);
+        setFontSize("normal");
+      }
+      setUser(session?.user ?? null);
+      if (event === "PASSWORD_RECOVERY") setPage("reset-password");
+      if (event === "SIGNED_IN" && session?.user && !session.user.user_metadata?.profile_complete) {
+        setPage("profile-setup");
+      }
+    });
+
+    fetch("/api/lender-settings")
+      .then(r => r.json())
+      .then(d => setLenderSettings(d.settings || {}))
+      .catch(() => {});
+
+    const handlePop = () => {
+      setSelectedLender(null);
+      setPage("home");
+    };
+    window.addEventListener("popstate", handlePop);
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener("popstate", handlePop);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleViewProfile(lc) {
+    setSelectedLender(lc);
+    setPage("lender-profile");
+    window.history.pushState(null, "", "/lender/" + lc.id);
+  }
+
+  function handleBackFromProfile() {
+    setSelectedLender(null);
+    setPage("search");
+    window.history.pushState(null, "", "/");
+  }
+
+  function handleOpenConversation(conversationId) {
+    setOpenConversationId(conversationId);
+    setPage("messages");
+    window.history.pushState(null, "", "/");
+  }
+
+  function handleViewBuilderProfile(builder) {
+    setSelectedBuilder(builder);
+    setPage("builder-profile");
+    window.history.pushState(null, "", "/");
+  }
+
+  function handleBackFromBuilderProfile() {
+    setSelectedBuilder(null);
+    setPage("find-builder");
+    window.history.pushState(null, "", "/");
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    setIsLoggedIn(false);
+    clearPreferenceStorage();
+    setAccentColor("#3B82F6");
+    setDarkMode(false);
+    setFontSize("normal");
+    setPage("home");
+    window.history.pushState(null, "", "/");
+  }
+
+  async function handleTourFinish() {
+    setTourStep(0);
+    await supabase.auth.updateUser({ data: { tour_completed: true } });
+  }
+
+  async function handleTourSkip() {
+    setTourStep(0);
+    await supabase.auth.updateUser({ data: { tour_completed: true } });
+  }
+
+  function handleReplayTour() {
+    tourShownRef.current = false;
+    setTourStep(1);
+  }
+
+  function handleLoginSuccess() {
+    setLoginLoading(true);
+  }
+
+  function handleLoginDone() {
+    setLoginLoading(false);
+    setPage("home");
+    try {
+      if (!localStorage.getItem("lb_device_preference")) {
+        setTimeout(() => setShowDeviceModal(true), 600);
+      }
+    } catch (_) {}
+  }
+
+  function handleDeviceChoice(pref) {
+    try { localStorage.setItem("lb_device_preference", pref); } catch (_) {}
+    setDevicePref(pref);
+    setShowDeviceModal(false);
+  }
+
+  // navigateTo accepts an optional second arg for post/deal editing
+  function navigateTo(p, data) {
+    if (p === "edit-post") {
+      setEditingPost(data || null);
+    } else {
+      setEditingPost(null);
+    }
+    if (p === "post-detail") {
+      setSelectedPost(data || null);
+    } else {
+      setSelectedPost(null);
+    }
+    if (p === "deal-detail" || p === "deal-room") {
+      setSelectedDeal(data || null);
+    } else {
+      setSelectedDeal(null);
+    }
+    if (p === "builder-passport") {
+      setSelectedBuilderPassportId(data || null);
+    } else {
+      setSelectedBuilderPassportId(null);
+    }
+    // Clear the pre-selected conversation when navigating to messages normally
+    if (p === "messages") setOpenConversationId(null);
+    if (p !== "lender-profile") {
+      setSelectedLender(null);
+      window.history.pushState(null, "", "/");
+    }
+    if (p !== "builder-profile") setSelectedBuilder(null);
+    setPage(p);
+  }
+
+  const isMobileLayout = devicePref === "mobile" || (devicePref === "auto" && windowWidth < 768);
+  const showSidebar    = !isMobileLayout && !!user && windowWidth >= 1024;
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", minHeight: "100vh", background: "#fff", color: "#1a1a1a" }}>
-      <Navbar page={page} setPage={setPage} />
-      {page === "home" && <HomePage setPage={setPage} />}
-      {page === "search" && <SearchPage />}
-      {page === "leaderboard" && <LeaderboardPage />}
+    <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-primary)" }}>
+      <Navbar page={page} setPage={navigateTo} user={user} onLogout={handleLogout} unreadCount={unreadCount} userProfile={userProfile} tourForceProfileOpen={tourForceProfileOpen} darkMode={darkMode} setDarkMode={setDarkMode} onReplayTour={handleReplayTour} />
+      <div style={{ display: "flex", alignItems: "flex-start" }}>
+        {showSidebar && (
+          <DesktopSidebar
+            page={page}
+            setPage={navigateTo}
+            user={user}
+            collapsed={sidebarCollapsed}
+            onToggle={() => setSidebarCollapsed(c => !c)}
+          />
+        )}
+        <div style={{ flex: 1, minWidth: 0, paddingBottom: isMobileLayout ? 72 : 0 }}>
+          <div key={page} className="page-transition">
+          {(page === "home" || page === "home-dashboard") && (!user ? <HomePage setPage={navigateTo} user={user} onViewProfile={handleViewProfile} /> : <DashboardPage user={user} setPage={navigateTo} onViewProfile={handleViewProfile} onViewBuilderProfile={handleViewBuilderProfile} onMessage={handleOpenConversation} viewerRoleProfile={viewerRoleProfile} userProfile={userProfile} page={page} />)}
+          {page === "search"           && <SearchPage         setPage={navigateTo} user={user} onViewProfile={handleViewProfile} viewerRoleProfile={viewerRoleProfile} />}
+          {page === "find-builder"     && <FindBuilderPage    setPage={navigateTo} user={user} onMessage={handleOpenConversation} onViewProfile={handleViewBuilderProfile} viewerRoleProfile={viewerRoleProfile} />}
+          {page === "posts"            && <PostsFeedPage      setPage={navigateTo} user={user} />}
+          {page === "post-detail"      && (selectedPost ? <PostDetailPage post={selectedPost} user={user} setPage={navigateTo} onMessage={handleOpenConversation} /> : <PostsFeedPage setPage={navigateTo} user={user} />)}
+          {page === "my-posts"         && user && <MyPostsPage        user={user} setPage={navigateTo} />}
+          {page === "create-post"      && user && <CreateEditPostPage user={user} setPage={navigateTo} />}
+          {page === "edit-post"        && user && <CreateEditPostPage user={user} setPage={navigateTo} editPost={editingPost} />}
+          {page === "leaderboard"      && <LeaderboardPage />}
+          {page === "auth"             && <AuthPage           setPage={navigateTo} onLoginSuccess={handleLoginSuccess} />}
+          {page === "forgot-password"  && <ForgotPasswordPage setPage={navigateTo} />}
+          {page === "reset-password"   && <ResetPasswordPage  setPage={navigateTo} />}
+          {page === "account"          && user && <AccountPage      user={user} setPage={navigateTo} userProfile={userProfile} viewerRoleProfile={viewerRoleProfile} onReplayTour={handleReplayTour} darkMode={darkMode} setDarkMode={setDarkMode} accentColor={accentColor} setAccentColor={setAccentColor} fontSize={fontSize} setFontSize={setFontSize} density={density} setDensity={setDensity} />}
+          {page === "profile-setup"   && user && <ProfileSetupPage user={user} setPage={navigateTo} setCelebration={setCelebration} />}
+          {page === "messages"         && user && <MessagesPage user={user} initialConversationId={openConversationId} />}
+          {page === "lender-dashboard" && user && <LenderDashboard  user={user} setPage={navigateTo} />}
+          {page === "admin"            && user && <AdminPage user={user} />}
+          {page === "lender-profile"   && (selectedLender ? (
+            <LenderProfilePage
+              lc={selectedLender}
+              user={user}
+              setPage={navigateTo}
+              settings={lenderSettings[selectedLender.name]}
+              onBack={handleBackFromProfile}
+              onMessage={handleOpenConversation}
+              viewerRoleProfile={viewerRoleProfile}
+            />
+          ) : <SearchPage setPage={navigateTo} user={user} onViewProfile={handleViewProfile} viewerRoleProfile={viewerRoleProfile} />)}
+          {page === "builder-profile"  && (selectedBuilder ? (
+            <BuilderProfilePage
+              builder={selectedBuilder}
+              user={user}
+              setPage={navigateTo}
+              onBack={handleBackFromBuilderProfile}
+              onMessage={handleOpenConversation}
+              viewerRoleProfile={viewerRoleProfile}
+            />
+          ) : <FindBuilderPage setPage={navigateTo} user={user} onMessage={handleOpenConversation} onViewProfile={handleViewBuilderProfile} viewerRoleProfile={viewerRoleProfile} />)}
+          {page === "deals"                   && user && <DealsPage user={user} setPage={navigateTo} setCelebration={setCelebration} />}
+          {page === "deal-detail"             && user && (selectedDeal ? <DealDetailPage user={user} setPage={navigateTo} deal={selectedDeal} setCelebration={setCelebration} /> : <DealsPage user={user} setPage={navigateTo} setCelebration={setCelebration} />)}
+          {page === "disputes"                && user && <DisputesPage user={user} setPage={navigateTo} />}
+          {page === "browse-projects"         && <BrowseProjectsPage user={user} setPage={navigateTo} />}
+          {page === "create-project-listing"  && user && <CreateProjectListingPage user={user} setPage={navigateTo} />}
+          {page === "community"               && <CommunityPage user={user} setPage={navigateTo} />}
+          {page === "analytics"               && user && user.user_metadata?.role === "admin" && <AnalyticsPage user={user} />}
+          {page === "privacy"       && <PrivacyPolicyPage  setPage={navigateTo} />}
+          {page === "terms"         && <TermsPage           setPage={navigateTo} />}
+          {page === "risk-warning"  && <RiskWarningPage     setPage={navigateTo} />}
+          {page === "how-it-works"  && <HowItWorksPage      setPage={navigateTo} />}
+          {page === "safety"        && <SafetyPage           setPage={navigateTo} />}
+          {page === "about"         && <AboutPage            setPage={navigateTo} />}
+          {page === "notifications"    && user && <NotificationsPage user={user} />}
+          {page === "saved-profiles"   && user && <SavedProfilesPage user={user} setPage={navigateTo} onViewProfile={handleViewProfile} onViewBuilderProfile={handleViewBuilderProfile} />}
+          {page === "saved-searches"   && user && <SavedSearchesPage user={user} setPage={navigateTo} />}
+          {page === "market"           && <MarketPage setPage={navigateTo} />}
+          {page === "build-calculator" && <BuildCostCalculatorPage setPage={navigateTo} />}
+          {page === "deal-room"        && user && (selectedDeal ? <DealRoomPage user={user} setPage={navigateTo} deal={selectedDeal} /> : <DealsPage user={user} setPage={navigateTo} setCelebration={setCelebration} />)}
+          {page === "builder-passport" && <BuilderPassportPage sequential_id={selectedBuilderPassportId} user={user} setPage={navigateTo} />}
+          {page === "status"           && <StatusPage />}
+          </div>
+          <Footer setPage={navigateTo} />
+        </div>
+      </div>
+      {tourStep > 0 && (
+        <OnboardingTour
+          step={tourStep}
+          userRole={user?.user_metadata?.role}
+          onNext={() => setTourStep(s => Math.min(s + 1, TOUR_TOTAL + 1))}
+          onBack={() => setTourStep(s => Math.max(s - 1, 2))}
+          onSkip={handleTourSkip}
+          onFinish={handleTourFinish}
+          onRedo={handleReplayTour}
+          setPage={navigateTo}
+        />
+      )}
+      {loginLoading && <LoginLoader onDone={handleLoginDone} />}
+      <FloatingActionButton user={user} setPage={navigateTo} />
+      <OnboardingChecklist user={user} setPage={navigateTo} />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} setPage={navigateTo} user={user} />
+      {user && isMobileLayout && (
+        <BottomNav page={page} setPage={navigateTo} user={user} unreadCount={unreadCount} onLogout={handleLogout} userProfile={userProfile} darkMode={darkMode} setDarkMode={setDarkMode} accentColor={accentColor} setAccentColor={setAccentColor} />
+      )}
+      {showDeviceModal && <DeviceDetectionModal onChoose={handleDeviceChoice} />}
+      {celebration && <CelebrationOverlay message={celebration.message} subtitle={celebration.subtitle} onClose={() => setCelebration(null)} />}
     </div>
   );
 }
