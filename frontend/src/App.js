@@ -1412,7 +1412,9 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
   if (!user) {
     function scrollToSection(id) {
       const el = document.getElementById(id);
-      if (el) el.scrollIntoView({ behavior: "smooth" });
+      if (!el) return;
+      const top = el.getBoundingClientRect().top + window.scrollY - 70;
+      window.scrollTo({ top, behavior: "smooth" });
     }
 
     if (isMobile) {
@@ -3988,12 +3990,12 @@ function HomePage({ setPage, user, onViewProfile }) {
           </p>
           <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
             <button
-              onClick={() => { const el = document.getElementById("builders"); if (el) el.scrollIntoView({ behavior: "smooth" }); }}
+              onClick={() => { const el = document.getElementById("builders"); if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 70, behavior: "smooth" }); }}
               style={{ background: "#3B82F6", color: "#FFFFFF", border: "none", padding: "15px 28px", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
               I'm a builder — find funding
             </button>
             <button
-              onClick={() => { const el = document.getElementById("lenders"); if (el) el.scrollIntoView({ behavior: "smooth" }); }}
+              onClick={() => { const el = document.getElementById("lenders"); if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 70, behavior: "smooth" }); }}
               style={{ background: "transparent", color: "#fff", border: "1.5px solid rgba(255,255,255,0.4)", padding: "15px 28px", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
               I'm a lender — earn returns
             </button>
