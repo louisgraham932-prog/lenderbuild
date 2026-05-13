@@ -12,7 +12,7 @@ if (!dbPassword) {
 }
 
 const PROJECT_REF = "qvywhdsaeiufdlaewwby";
-const FOUNDER_EMAIL = "louisgraham932@gmail.com";
+const FOUNDER_EMAIL = "lenderbuild.support@gmail.com";
 
 const client = new Client({
   host: `db.${PROJECT_REF}.supabase.co`,

@@ -7,7 +7,7 @@ const supabase = createClient(
 );
 
 const PLATFORM_URL = process.env.CLIENT_URL || "https://www.lenderbuild.co.uk";
-const ADMIN_EMAIL  = process.env.ADMIN_EMAIL  || "louisgraham932@gmail.com";
+const ADMIN_EMAIL  = process.env.ADMIN_EMAIL  || "lenderbuild.support@gmail.com";
 const FROM_EMAIL   = process.env.RESEND_FROM_EMAIL || "LenderBuild <noreply@lenderbuild.co.uk>";
 
 async function sendEmail(to, subject, html) {

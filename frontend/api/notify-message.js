@@ -36,10 +36,120 @@ module.exports = async function handler(req, res) {
     return res.status(429).json({ error: "Too many requests. Please wait a moment." });
   }
 
+  // ── Clear all messages in a conversation ─────────────────────────────────
+  if (req.body?.action === "clear-conversation") {
+    const { conversation_id } = req.body || {};
+    if (!conversation_id) return res.status(400).json({ error: "conversation_id required" });
+
+    const { data: convo } = await supabase.from("conversations").select("lender_id,builder_id").eq("id", conversation_id).maybeSingle();
+    if (!convo) return res.status(404).json({ error: "Conversation not found" });
+    if (convo.lender_id !== user.id && convo.builder_id !== user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const { error: delErr } = await supabase.from("messages").delete().eq("conversation_id", conversation_id);
+    if (delErr) return res.status(500).json({ error: delErr.message });
+
+    await supabase.from("conversations").update({ last_message: null, last_message_at: null }).eq("id", conversation_id);
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── Process scheduled messages that are now due ───────────────────────────
+  if (req.body?.action === "process-scheduled") {
+    const { conversation_id } = req.body || {};
+    const now = new Date().toISOString();
+
+    let query = supabase.from("messages")
+      .select("id, conversation_id, content, sender_id")
+      .eq("status", "scheduled")
+      .lte("scheduled_at", now);
+
+    if (conversation_id) query = query.eq("conversation_id", conversation_id);
+
+    const { data: due } = await query;
+    if (!due || due.length === 0) return res.status(200).json({ sent: 0 });
+
+    const ids = due.map(m => m.id);
+    await supabase.from("messages").update({ status: "sent", scheduled_at: null }).in("id", ids);
+
+    // Update last_message on each affected conversation
+    const convoIds = [...new Set(due.map(m => m.conversation_id))];
+    for (const cid of convoIds) {
+      const last = due.filter(m => m.conversation_id === cid).slice(-1)[0];
+      if (last) {
+        await supabase.from("conversations").update({
+          last_message: last.content,
+          last_message_at: new Date().toISOString(),
+        }).eq("id", cid);
+      }
+    }
+
+    return res.status(200).json({ sent: ids.length });
+  }
+
+  // ── Contact a recommended solicitor ──────────────────────────────────────
+  if (req.body?.action === "contact-solicitor") {
+    const { solicitor_id, solicitor_name, solicitor_email, deal_id, deal_title, deal_value } = req.body;
+    const userName    = user.user_metadata?.name || user.email;
+    const PLATFORM_URL = process.env.CLIENT_URL   || "https://www.lenderbuild.co.uk";
+    const FROM_EMAIL   = process.env.RESEND_FROM_EMAIL || "LenderBuild <noreply@lenderbuild.co.uk>";
+
+    // Track the referral click (table created by migrate-solicitor-tracking.js)
+    supabase.from("solicitor_referral_clicks").insert({
+      user_id:       user.id,
+      user_email:    user.email,
+      solicitor_id:  solicitor_id || null,
+      solicitor_name: solicitor_name || null,
+      deal_id:       deal_id || null,
+      deal_title:    deal_title || null,
+    }).then(() => {}).catch(() => {});
+
+    if (process.env.RESEND_API_KEY) {
+      // Email to solicitor
+      if (solicitor_email) {
+        fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+          body: JSON.stringify({
+            from: FROM_EMAIL,
+            to: [solicitor_email],
+            subject: `New enquiry from LenderBuild — ${userName}`,
+            html: `<p>Dear ${solicitor_name || "team"},</p>
+<p>A LenderBuild user has expressed interest in your services via the platform.</p>
+<p><strong>Name:</strong> ${userName}</p>
+<p><strong>Email:</strong> ${user.email}</p>
+${deal_title ? `<p><strong>Deal:</strong> ${deal_title}</p>` : ""}
+${deal_value ? `<p><strong>Deal value:</strong> ${deal_value}</p>` : ""}
+<p>Please contact the user directly to discuss your services and fees.</p>
+<p>This enquiry was made via <a href="${PLATFORM_URL}">LenderBuild</a>.</p>`,
+          }),
+        }).catch(() => {});
+      }
+
+      // Confirmation email to user
+      fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+        body: JSON.stringify({
+          from: FROM_EMAIL,
+          to: [user.email],
+          subject: `Your enquiry to ${solicitor_name} — LenderBuild`,
+          html: `<p>Hi ${userName},</p>
+<p>Your enquiry has been sent to <strong>${solicitor_name}</strong>. They will contact you shortly at this email address.</p>
+${deal_title ? `<p><strong>Deal reference:</strong> ${deal_title}</p>` : ""}
+<p style="font-size:12px;color:#888;">LenderBuild may receive a referral fee from recommended solicitors. This does not affect the advice you receive.</p>
+<p><a href="${PLATFORM_URL}">Return to LenderBuild</a></p>`,
+        }),
+      }).catch(() => {});
+    }
+
+    return res.status(200).json({ ok: true });
+  }
+
   // ── Community flag alert: notify admin of auto-flagged message ───────────
   if (req.body?.action === "community-flag-alert") {
     const { message_id, flag_reason, message_content, user_name } = req.body;
-    const ADMIN_EMAIL  = process.env.ADMIN_EMAIL  || "louisgraham932@gmail.com";
+    const ADMIN_EMAIL  = process.env.ADMIN_EMAIL  || "lenderbuild.support@gmail.com";
     const PLATFORM_URL = process.env.CLIENT_URL   || "https://www.lenderbuild.co.uk";
     const FROM_EMAIL   = process.env.RESEND_FROM_EMAIL || "LenderBuild <noreply@lenderbuild.co.uk>";
     if (process.env.RESEND_API_KEY) {

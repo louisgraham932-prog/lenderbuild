@@ -9,7 +9,7 @@ const supabase = createClient(
 );
 
 const PLATFORM_URL = process.env.CLIENT_URL || "https://www.lenderbuild.co.uk";
-const ADMIN_EMAIL  = process.env.ADMIN_EMAIL  || "louisgraham932@gmail.com";
+const ADMIN_EMAIL  = process.env.ADMIN_EMAIL  || "lenderbuild.support@gmail.com";
 const FROM_EMAIL   = process.env.RESEND_FROM_EMAIL || "LenderBuild <noreply@lenderbuild.co.uk>";
 
 async function sendEmail(to, subject, html) {
@@ -85,6 +85,28 @@ module.exports = async function handler(req, res) {
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
+    // Stripe Identity: mark user as ID-verified
+    if (event.type === "identity.verification_session.verified") {
+      const session = event.data.object;
+      const userId = session.metadata?.user_id;
+      if (userId) {
+        await supabase.from("profiles").update({
+          identity_verified: true,
+          identity_verified_at: new Date().toISOString(),
+        }).eq("id", userId);
+        // Notify user
+        const { data: userData } = await supabase.auth.admin.getUserById(userId);
+        if (userData?.user?.email) {
+          sendEmail(userData.user.email, "Your identity has been verified on LenderBuild",
+            `<p>Hi ${userData.user.user_metadata?.name || ""},</p>
+<p>Your identity verification is complete. Your profile now displays a gold <strong>ID Verified</strong> badge, which increases trust with potential partners.</p>
+<p><a href="${PLATFORM_URL}">View your profile on LenderBuild</a></p>`
+          );
+        }
+      }
+      return res.status(200).json({ received: true });
+    }
+
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
 
@@ -157,6 +179,7 @@ module.exports = async function handler(req, res) {
 
     const dealIds = (deals || []).map(d => d.id);
     let dealDocsMap = {}, disputesMap = {}, repaymentsMap = {};
+    let builderBankMap = {};
 
     if (dealIds.length > 0) {
       const [{ data: docs }, { data: dispList }, { data: repList }] = await Promise.all([
@@ -165,22 +188,28 @@ module.exports = async function handler(req, res) {
         supabase.from("repayments").select("*").in("deal_id", dealIds).order("payment_index", { ascending: true }),
       ]);
 
+      // Fetch builder bank details for all deals
+      const builderIds = [...new Set((deals || []).map(d => d.builder_id).filter(Boolean))];
+      if (builderIds.length > 0) {
+        const { data: bps } = await supabase.from("builder_profiles").select("user_id, bank_details_provided").in("user_id", builderIds);
+        (bps || []).forEach(bp => { builderBankMap[bp.user_id] = bp.bank_details_provided || false; });
+      }
+
       (docs || []).forEach(d => { if (!dealDocsMap[d.deal_id]) dealDocsMap[d.deal_id] = []; dealDocsMap[d.deal_id].push(d); });
       (dispList || []).forEach(d => { if (!disputesMap[d.deal_id]) disputesMap[d.deal_id] = []; disputesMap[d.deal_id].push(d); });
       (repList || []).forEach(r => { if (!repaymentsMap[r.deal_id]) repaymentsMap[r.deal_id] = []; repaymentsMap[r.deal_id].push(r); });
 
-      // Check for newly missed repayments (fire-and-forget emails, sync status update)
       const today = new Date().toISOString().split("T")[0];
+
+      // Newly missed repayments
       const newlyMissed = (repList || []).filter(r => r.status === "scheduled" && r.due_date < today && !r.missed_alert_sent);
       if (newlyMissed.length > 0) {
         const missedIds = newlyMissed.map(r => r.id);
         await supabase.from("repayments").update({ status: "missed", missed_alert_sent: true }).in("id", missedIds);
-        newlyMissed.forEach(r => { r.status = "missed"; }); // update local copy
+        newlyMissed.forEach(r => { r.status = "missed"; });
 
-        // Group by deal to send one email per deal per missed batch
         const byDeal = {};
         newlyMissed.forEach(r => { if (!byDeal[r.deal_id]) byDeal[r.deal_id] = []; byDeal[r.deal_id].push(r); });
-
         for (const [dealId, reps] of Object.entries(byDeal)) {
           const deal = (deals || []).find(d => d.id === dealId);
           if (!deal) continue;
@@ -193,6 +222,89 @@ module.exports = async function handler(req, res) {
           }
         }
       }
+
+      // 3-day upcoming reminders (email builder)
+      const d3 = new Date(); d3.setDate(d3.getDate() + 3);
+      const threeDayStr = d3.toISOString().split("T")[0];
+      const needs3Day = (repList || []).filter(r => r.status === "scheduled" && r.due_date === threeDayStr && !r.reminder_3day_sent);
+      if (needs3Day.length > 0) {
+        await supabase.from("repayments").update({ reminder_3day_sent: true }).in("id", needs3Day.map(r => r.id));
+        const byDeal3 = {};
+        needs3Day.forEach(r => { if (!byDeal3[r.deal_id]) byDeal3[r.deal_id] = []; byDeal3[r.deal_id].push(r); });
+        for (const [dealId, reps] of Object.entries(byDeal3)) {
+          const deal = (deals || []).find(d => d.id === dealId);
+          if (!deal || !deal.builder_id) continue;
+          const { data: bData } = await supabase.auth.admin.getUserById(deal.builder_id);
+          if (bData?.user?.email) {
+            for (const r of reps) {
+              sendEmail(bData.user.email,
+                `Reminder: Repayment of £${Number(r.amount).toLocaleString()} due in 3 days`,
+                `<p>Hi ${bData.user.user_metadata?.name || ""},</p>
+<p>This is a reminder that a repayment of <strong>£${Number(r.amount).toLocaleString()}</strong> to <strong>${deal.lender_name}</strong> is due in 3 days (${r.due_date}).</p>
+<p><strong>Reference:</strong> LB-${deal.id.slice(0, 8).toUpperCase()}</p>
+<p><a href="${PLATFORM_URL}">Log in to LenderBuild</a> to make your repayment.</p>`
+              );
+            }
+          }
+        }
+      }
+
+      // Due-date reminders (email both parties)
+      const needsDue = (repList || []).filter(r => r.status === "scheduled" && r.due_date === today && !r.reminder_due_sent);
+      if (needsDue.length > 0) {
+        await supabase.from("repayments").update({ reminder_due_sent: true }).in("id", needsDue.map(r => r.id));
+        const byDealDue = {};
+        needsDue.forEach(r => { if (!byDealDue[r.deal_id]) byDealDue[r.deal_id] = []; byDealDue[r.deal_id].push(r); });
+        for (const [dealId, reps] of Object.entries(byDealDue)) {
+          const deal = (deals || []).find(d => d.id === dealId);
+          if (!deal) continue;
+          for (const uid of [deal.lender_id, deal.builder_id].filter(Boolean)) {
+            const { data: uData } = await supabase.auth.admin.getUserById(uid);
+            if (!uData?.user?.email) continue;
+            const isBuilder = uid === deal.builder_id;
+            const amounts = reps.map(r => `£${Number(r.amount).toLocaleString()}`).join(", ");
+            sendEmail(uData.user.email,
+              `Repayment due today — ${deal.title}`,
+              `<p>Hi ${uData.user.user_metadata?.name || ""},</p>
+<p>${isBuilder ? `A repayment of <strong>${amounts}</strong> to ${deal.lender_name} is due today.` : `A repayment of <strong>${amounts}</strong> from ${deal.builder_name} is due today.`}</p>
+<p><strong>Reference:</strong> LB-${deal.id.slice(0, 8).toUpperCase()}</p>
+<p><a href="${PLATFORM_URL}">View on LenderBuild</a></p>`
+            );
+          }
+          sendEmail(ADMIN_EMAIL, `Repayment due today — ${deal.title}`, `<p>Repayment due today on deal <em>"${deal.title}"</em>. Builder: ${deal.builder_name}. Amounts: ${reps.map(r => `£${Number(r.amount).toLocaleString()}`).join(", ")}.</p>`);
+        }
+      }
+
+      // 7-day overdue urgent reminders
+      const d7ago = new Date(); d7ago.setDate(d7ago.getDate() - 7);
+      const sevenDayStr = d7ago.toISOString().split("T")[0];
+      const needs7Day = (repList || []).filter(r => r.status === "missed" && r.due_date <= sevenDayStr && !r.reminder_7day_overdue_sent);
+      if (needs7Day.length > 0) {
+        await supabase.from("repayments").update({ reminder_7day_overdue_sent: true }).in("id", needs7Day.map(r => r.id));
+        await supabase.from("deals").update({ flagged_default: true }).in("id", [...new Set(needs7Day.map(r => r.deal_id))]);
+        const byDeal7 = {};
+        needs7Day.forEach(r => { if (!byDeal7[r.deal_id]) byDeal7[r.deal_id] = []; byDeal7[r.deal_id].push(r); });
+        for (const [dealId, reps] of Object.entries(byDeal7)) {
+          const deal = (deals || []).find(d => d.id === dealId);
+          if (!deal) continue;
+          const amounts = reps.map(r => `£${Number(r.amount).toLocaleString()} (due ${r.due_date})`).join(", ");
+          for (const uid of [deal.lender_id, deal.builder_id].filter(Boolean)) {
+            const { data: uData } = await supabase.auth.admin.getUserById(uid);
+            if (!uData?.user?.email) continue;
+            const isBuilder = uid === deal.builder_id;
+            sendEmail(uData.user.email,
+              `URGENT: Repayment 7 days overdue — ${deal.title}`,
+              `<p>Hi ${uData.user.user_metadata?.name || ""},</p>
+<p>⚠️ A repayment on the deal <em>"${deal.title}"</em> is now <strong>7 days overdue</strong>: ${amounts}.</p>
+${isBuilder ? "<p>Please make this repayment immediately to avoid further action.</p>" : "<p>If this repayment is not received promptly, we recommend contacting your solicitor regarding the legal charge registered against the property.</p>"}
+<p><a href="${PLATFORM_URL}">View on LenderBuild</a></p>`
+            );
+          }
+          sendEmail(ADMIN_EMAIL, `URGENT: Repayment 7 days overdue — ${deal.title}`,
+            `<p>Repayment on <em>"${deal.title}"</em> is 7 days overdue. Amounts: ${amounts}. Builder: ${deal.builder_name}. Deal flagged.</p><p><a href="${PLATFORM_URL}">Review in admin panel</a></p>`
+          );
+        }
+      }
     }
 
     const enriched = (deals || []).map(d => ({
@@ -200,6 +312,7 @@ module.exports = async function handler(req, res) {
       deal_documents: dealDocsMap[d.id] || [],
       disputes: disputesMap[d.id] || [],
       repayments: repaymentsMap[d.id] || [],
+      builder_bank_details_provided: builderBankMap[d.builder_id] || false,
     }));
 
     return res.status(200).json({ deals: enriched });
@@ -302,7 +415,7 @@ module.exports = async function handler(req, res) {
     if (!milestone_id) return res.status(400).json({ error: "milestone_id required" });
 
     const { data: milestone } = await supabase.from("milestones")
-      .select("*, deals!inner(builder_id, lender_id, lender_name, title, frozen, legal_confirmed_lender, legal_confirmed_builder, deal_id:id)")
+      .select("*, deals!inner(builder_id, lender_id, lender_name, title, frozen, agreement_signed_lender, agreement_signed_builder, deal_id:id)")
       .eq("id", milestone_id).maybeSingle();
 
     if (!milestone) return res.status(404).json({ error: "Milestone not found" });
@@ -318,9 +431,9 @@ module.exports = async function handler(req, res) {
       if (required.some(r => !approved.has(r)))
         return res.status(400).json({ error: "All four required documents must be uploaded and approved before milestone 1 can be marked complete." });
 
-      // Check legal charge confirmation
-      if (!milestone.deals.legal_confirmed_lender || !milestone.deals.legal_confirmed_builder)
-        return res.status(400).json({ error: "Both parties must confirm the legal charge checklist before milestone 1 can be marked complete." });
+      // Check deal agreement signed by both parties
+      if (!milestone.deals.agreement_signed_lender || !milestone.deals.agreement_signed_builder)
+        return res.status(400).json({ error: "Both parties must sign the deal agreement before milestone 1 can be marked complete." });
     }
 
     const { error: updateErr } = await supabase.from("milestones").update({
@@ -350,13 +463,28 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
     if (!milestone_id) return res.status(400).json({ error: "milestone_id required" });
 
     const { data: milestone } = await supabase.from("milestones")
-      .select("*, deals!inner(lender_id, builder_id, builder_name, title, frozen)")
+      .select("*, deals!inner(id, lender_id, builder_id, builder_name, title, frozen, agreement_signed_lender, agreement_signed_builder, legal_solicitor_instructed, legal_charge_registered)")
       .eq("id", milestone_id).maybeSingle();
 
     if (!milestone) return res.status(404).json({ error: "Milestone not found" });
     if (milestone.deals.lender_id !== user.id) return res.status(403).json({ error: "Forbidden" });
     if (milestone.status !== "completed") return res.status(400).json({ error: "Milestone must be marked complete first" });
     if (milestone.deals.frozen) return res.status(400).json({ error: "This deal is frozen due to an active dispute." });
+    if (!milestone.deals.agreement_signed_lender || !milestone.deals.agreement_signed_builder)
+      return res.status(400).json({ error: "Both parties must sign the deal agreement before any payment can be released." });
+
+    // For milestone 1: enforce all 4 legal protection steps
+    if (milestone.order_index === 1) {
+      if (!milestone.deals.legal_solicitor_instructed)
+        return res.status(400).json({ error: "Legal protection step 2 incomplete: confirm that a solicitor has been instructed." });
+      if (!milestone.deals.legal_charge_registered)
+        return res.status(400).json({ error: "Legal protection step 3 incomplete: confirm the legal charge has been registered at the Land Registry." });
+      if (milestone.deals.builder_id) {
+        const { data: bp } = await supabase.from("builder_profiles").select("bank_details_provided").eq("user_id", milestone.deals.builder_id).maybeSingle();
+        if (!bp?.bank_details_provided)
+          return res.status(400).json({ error: "Legal protection step 4 incomplete: the builder has not confirmed their bank details." });
+      }
+    }
     if (!process.env.STRIPE_SECRET_KEY) return res.status(500).json({ error: "Payment processing not configured" });
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -501,6 +629,147 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
     if (upErr) return res.status(500).json({ error: upErr.message });
 
     return res.status(200).json({ ok: true });
+  }
+
+  // ── POST action="save-legal-checklist" (lender only) ─────────────────────
+  if (action === "save-legal-checklist") {
+    if (role !== "lender") return res.status(403).json({ error: "Lenders only" });
+
+    const { deal_id, solicitor_instructed, solicitor_name, solicitor_firm, charge_registered, charge_ref } = req.body;
+    if (!deal_id) return res.status(400).json({ error: "deal_id required" });
+
+    const { data: deal } = await supabase.from("deals").select("id, lender_id").eq("id", deal_id).maybeSingle();
+    if (!deal) return res.status(404).json({ error: "Deal not found" });
+    if (deal.lender_id !== user.id) return res.status(403).json({ error: "Forbidden" });
+
+    const updates = {};
+    if (solicitor_instructed !== undefined) updates.legal_solicitor_instructed = !!solicitor_instructed;
+    if (solicitor_name !== undefined) updates.legal_solicitor_name = sanitizeStr(solicitor_name || "", 200);
+    if (solicitor_firm !== undefined) updates.legal_solicitor_firm = sanitizeStr(solicitor_firm || "", 200);
+    if (charge_registered !== undefined) updates.legal_charge_registered = !!charge_registered;
+    if (charge_ref !== undefined) updates.legal_charge_ref = sanitizeStr(charge_ref || "", 200);
+
+    const { error: upErr } = await supabase.from("deals").update(updates).eq("id", deal_id);
+    if (upErr) return res.status(500).json({ error: upErr.message });
+
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── POST action="confirm-bank-details" (builder only) ────────────────────
+  if (action === "confirm-bank-details") {
+    if (role !== "builder") return res.status(403).json({ error: "Builders only" });
+
+    const { data: bp } = await supabase.from("builder_profiles").select("user_id").eq("user_id", user.id).maybeSingle();
+    if (!bp) return res.status(404).json({ error: "Builder profile not found" });
+
+    const { error: upErr } = await supabase.from("builder_profiles").update({ bank_details_provided: true }).eq("user_id", user.id);
+    if (upErr) return res.status(500).json({ error: upErr.message });
+
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── POST action="chase-repayment" (lender only) ───────────────────────────
+  if (action === "chase-repayment") {
+    if (role !== "lender") return res.status(403).json({ error: "Lenders only" });
+
+    const { repayment_id } = req.body;
+    if (!repayment_id) return res.status(400).json({ error: "repayment_id required" });
+
+    const { data: rep } = await supabase.from("repayments")
+      .select("*, deals(builder_id, lender_id, lender_name, title, id)")
+      .eq("id", repayment_id).maybeSingle();
+
+    if (!rep) return res.status(404).json({ error: "Repayment not found" });
+    if (rep.deals.lender_id !== user.id) return res.status(403).json({ error: "Forbidden" });
+
+    if (rep.deals.builder_id) {
+      const { data: bData } = await supabase.auth.admin.getUserById(rep.deals.builder_id);
+      if (bData?.user?.email) {
+        sendEmail(bData.user.email,
+          `Payment reminder: £${Number(rep.amount).toLocaleString()} overdue — ${rep.deals.title}`,
+          `<p>Hi ${bData.user.user_metadata?.name || ""},</p>
+<p>Your lender <strong>${rep.deals.lender_name}</strong> has requested payment of <strong>£${Number(rep.amount).toLocaleString()}</strong> which was due on ${rep.due_date}.</p>
+<p><strong>Reference:</strong> LB-${rep.deals.id.slice(0, 8).toUpperCase()}</p>
+<p>Please log in and make this repayment as soon as possible to avoid a formal dispute being raised.</p>
+<p><a href="${PLATFORM_URL}">Make repayment on LenderBuild</a></p>`
+        );
+      }
+    }
+
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── POST action="mark-repayment-received" (lender only) ───────────────────
+  if (action === "mark-repayment-received") {
+    if (role !== "lender") return res.status(403).json({ error: "Lenders only" });
+
+    const { repayment_id } = req.body;
+    if (!repayment_id) return res.status(400).json({ error: "repayment_id required" });
+
+    const { data: rep } = await supabase.from("repayments")
+      .select("*, deals(builder_id, lender_id, builder_name, title)")
+      .eq("id", repayment_id).maybeSingle();
+
+    if (!rep) return res.status(404).json({ error: "Repayment not found" });
+    if (rep.deals.lender_id !== user.id) return res.status(403).json({ error: "Forbidden" });
+    if (rep.status === "paid") return res.status(400).json({ error: "Already marked as received." });
+
+    const { error: upErr } = await supabase.from("repayments").update({
+      status: "paid",
+      paid_at: new Date().toISOString(),
+    }).eq("id", repayment_id);
+    if (upErr) return res.status(500).json({ error: upErr.message });
+
+    if (rep.deals.builder_id) {
+      const { data: bData } = await supabase.auth.admin.getUserById(rep.deals.builder_id);
+      if (bData?.user?.email) {
+        sendEmail(bData.user.email,
+          `Repayment confirmed received — ${rep.deals.title}`,
+          `<p>Hi ${bData.user.user_metadata?.name || ""},</p>
+<p>Your lender has confirmed receipt of your repayment of <strong>£${Number(rep.amount).toLocaleString()}</strong> on deal <em>"${rep.deals.title}"</em>.</p>
+<p><strong>Confirmation:</strong> ${rep.confirmation_number}</p>
+<p><a href="${PLATFORM_URL}">View on LenderBuild</a></p>`
+        );
+      }
+    }
+
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── POST action="sign-agreement" ─────────────────────────────────────────
+  if (action === "sign-agreement") {
+    const { deal_id } = req.body;
+    if (!deal_id) return res.status(400).json({ error: "deal_id required" });
+
+    const { data: deal } = await supabase.from("deals").select("id, lender_id, builder_id, lender_name, builder_name, title").eq("id", deal_id).maybeSingle();
+    if (!deal) return res.status(404).json({ error: "Deal not found" });
+    if (deal.lender_id !== user.id && deal.builder_id !== user.id) return res.status(403).json({ error: "Forbidden" });
+
+    const isLender  = user.id === deal.lender_id;
+    const field     = isLender ? "agreement_signed_lender" : "agreement_signed_builder";
+    const tsField   = isLender ? "agreement_signed_lender_at" : "agreement_signed_builder_at";
+    const now       = new Date().toISOString();
+
+    const { error: upErr } = await supabase.from("deals").update({ [field]: true, [tsField]: now }).eq("id", deal_id);
+    if (upErr) return res.status(500).json({ error: upErr.message });
+
+    // Check if both have now signed — if so, notify both parties
+    const { data: updated } = await supabase.from("deals").select("agreement_signed_lender, agreement_signed_builder, lender_id, builder_id").eq("id", deal_id).maybeSingle();
+    if (updated?.agreement_signed_lender && updated?.agreement_signed_builder) {
+      const signer = user.user_metadata?.name || "Your counterparty";
+      for (const uid of [deal.lender_id, deal.builder_id].filter(Boolean)) {
+        const { data: uData } = await supabase.auth.admin.getUserById(uid);
+        if (uData?.user?.email) {
+          sendEmail(uData.user.email, `Deal agreement fully signed — ${deal.title}`,
+            `<p>Hi ${uData.user.user_metadata?.name || ""},</p>
+<p>Both parties have signed the deal agreement for <em>"${deal.title}"</em>. Milestone payments can now be released.</p>
+<p><a href="${PLATFORM_URL}">View deal on LenderBuild</a></p>`
+          );
+        }
+      }
+    }
+
+    return res.status(200).json({ ok: true, both_signed: !!(updated?.agreement_signed_lender && updated?.agreement_signed_builder) });
   }
 
   // ── POST action="make-repayment" ──────────────────────────────────────────

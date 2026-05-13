@@ -43,6 +43,27 @@ module.exports = async function handler(req, res) {
 
   const role = user.user_metadata?.role;
 
+  // ── Cancel / Withdraw a pending request (builder cancels their sent request) ─
+  if (req.body?.action === "cancel-request") {
+    if (role !== "builder") return res.status(403).json({ error: "Builders only" });
+    const lender_name = sanitizeStr(req.body?.lender_name, 100);
+    if (!lender_name) return res.status(400).json({ error: "lender_name required" });
+
+    const connections = user.user_metadata?.connections || [];
+    const updated = connections.filter(
+      c => !(c.lender_name === lender_name && c.status === "pending")
+    );
+    if (updated.length === connections.length) {
+      return res.status(404).json({ error: "Pending request not found" });
+    }
+
+    const { error: updateErr } = await supabase.auth.admin.updateUserById(user.id, {
+      user_metadata: { ...user.user_metadata, connections: updated },
+    });
+    if (updateErr) return res.status(500).json({ error: updateErr.message });
+    return res.status(200).json({ ok: true });
+  }
+
   // ── Save Review (lender → builder) ────────────────────────────────────────
   if (req.body?.action === "save-review") {
     if (role !== "lender") return res.status(403).json({ error: "Lenders only" });

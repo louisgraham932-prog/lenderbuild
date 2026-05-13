@@ -30,7 +30,7 @@ module.exports = async function handler(req, res) {
       const userIds = lenders.map(l => l.user_id).filter(Boolean);
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("id, full_name, location, bio, sequential_id, user_role")
+        .select("id, full_name, location, bio, sequential_id, user_role, identity_verified, kyc_flagged")
         .in("id", userIds);
       const profileMap = {};
       (profiles || []).forEach(p => { profileMap[p.id] = p; });
@@ -42,6 +42,7 @@ module.exports = async function handler(req, res) {
       lenders.forEach(l => {
         l.profiles = profileMap[l.user_id] || null;
         l.avatar_url = usersMap[l.user_id]?.user_metadata?.avatar_url || null;
+        l.identity_verified = profileMap[l.user_id]?.identity_verified || false;
       });
     }
 
@@ -62,11 +63,15 @@ module.exports = async function handler(req, res) {
       const userIds = builders.map(b => b.user_id).filter(Boolean);
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("id, full_name, location, bio, sequential_id, user_role")
+        .select("id, full_name, location, bio, sequential_id, user_role, identity_verified, kyc_flagged, created_at")
         .in("id", userIds);
       const profileMap = {};
       (profiles || []).forEach(p => { profileMap[p.id] = p; });
-      builders.forEach(b => { b.profiles = profileMap[b.user_id] || null; });
+      builders.forEach(b => {
+        b.profiles = profileMap[b.user_id] || null;
+        b.identity_verified = profileMap[b.user_id]?.identity_verified || false;
+        b.member_since = profileMap[b.user_id]?.created_at || null;
+      });
 
       // Enrich with approved verified_documents from document_submissions table
       const { data: usersPage } = await supabase.auth.admin.listUsers({ perPage: 1000 });
@@ -88,6 +93,40 @@ module.exports = async function handler(req, res) {
         b.verified_documents = approvedMap[b.user_id] || [];
         b.avatar_url = usersMap[b.user_id]?.user_metadata?.avatar_url || null;
       });
+
+      // Fetch repayment history stats for each builder
+      const { data: builderDeals } = await supabase.from("deals").select("id, builder_id").in("builder_id", userIds);
+      const builderDealIds = (builderDeals || []).map(d => d.id);
+      const dealBuilderMap = {};
+      (builderDeals || []).forEach(d => { dealBuilderMap[d.id] = d.builder_id; });
+
+      if (builderDealIds.length > 0) {
+        const { data: reps } = await supabase.from("repayments").select("deal_id, status, due_date, paid_at").in("deal_id", builderDealIds);
+        const repStats = {};
+        (reps || []).forEach(r => {
+          const bid = dealBuilderMap[r.deal_id];
+          if (!bid) return;
+          if (!repStats[bid]) repStats[bid] = { total: 0, onTime: 0, late: 0, missed: 0 };
+          repStats[bid].total++;
+          if (r.status === "paid") {
+            const paidDate = r.paid_at ? r.paid_at.split("T")[0] : null;
+            if (paidDate && paidDate <= r.due_date) repStats[bid].onTime++;
+            else repStats[bid].late++;
+          } else if (r.status === "missed") {
+            repStats[bid].missed++;
+          }
+        });
+        builders.forEach(b => {
+          const s = repStats[b.user_id] || null;
+          b.repayment_stats = s;
+          if (s && s.total > 0) {
+            const ratio = (s.onTime + s.late * 0.5) / s.total;
+            b.repayment_score = ratio >= 0.95 ? 5 : ratio >= 0.8 ? 4 : ratio >= 0.6 ? 3 : ratio >= 0.4 ? 2 : 1;
+          } else {
+            b.repayment_score = null;
+          }
+        });
+      }
     }
 
     return res.status(200).json({ builders: builders || [] });

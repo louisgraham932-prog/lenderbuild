@@ -297,6 +297,15 @@ select:focus {
   }
 }
 
+/* ── Safe-area support for bottom nav and fixed overlays ──────────────────── */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  /* Ensure the bottom nav accounts for iPhone home indicator */
+  nav[style*="position: fixed"][style*="bottom: 0"],
+  .lb-bottom-nav-override {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
 /* ── Mobile fixes: screens narrower than 420px ────────────────────────────── */
 @media (max-width: 420px) {
   h1, h2, h3 {
@@ -310,7 +319,7 @@ select:focus {
   }
 
   table {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   p {
@@ -323,6 +332,12 @@ select:focus {
 
   .deal-stat-box {
     min-width: 80px !important;
+  }
+
+  /* Hero CTA buttons: full width on small phones */
+  [style*="justify-content: center"][style*="flex-wrap: wrap"] > button,
+  [style*="justify-content: center"][style*="flexWrap: wrap"] > button {
+    width: 100% !important;
   }
 }
 
@@ -509,7 +524,7 @@ select:focus {
   p, li, td, th, span, label, input, select, textarea, button {
     font-size: max(14px, 0.875rem);
   }
-  .caption, small { font-size: 12px; }
+  .caption, small { font-size: 13px; }
 
   /* ── Cards: full width, tighter padding ─────────────────────────────────── */
   .card {
@@ -549,9 +564,35 @@ select:focus {
     grid-template-columns: 1fr 1fr !important;
   }
 
-  /* ── Buttons: minimum 44px tap target ───────────────────────────────────── */
+  /* ── Buttons and interactive controls: minimum 44px tap target ─────────── */
   button {
     min-height: 44px;
+  }
+  select {
+    min-height: 44px !important;
+  }
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="search"],
+  input[type="url"],
+  input[type="date"] {
+    min-height: 44px !important;
+  }
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-height: 0 !important;
+    width: 18px;
+    height: 18px;
+  }
+
+  /* Exception: footer nav buttons just need reasonable touch area, not full 44px */
+  footer button {
+    min-height: 36px;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
   }
   /* Action buttons: full width where they appear as primary CTAs */
   .btn-full-mobile {
