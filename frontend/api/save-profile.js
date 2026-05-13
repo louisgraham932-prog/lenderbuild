@@ -68,11 +68,12 @@ async function lookupCompanyOfficers(companyNumber, apiKey) {
 }
 
 function nameMatchesDirectors(profileName, directors) {
-  if (!profileName || !directors.length) return false;
+  if (!directors.length) return null; // no directors to check against
+  if (!profileName) return null;      // no profile name to compare
   const norm = s => s.toLowerCase().replace(/[^a-z]/g, " ").trim();
   const words = s => norm(s).split(/\s+/).filter(w => w.length > 2);
   const pWords = words(profileName);
-  if (!pWords.length) return false;
+  if (!pWords.length) return null;
   return directors.some(d => {
     const dStr = norm(d.name);
     return pWords.filter(w => dStr.includes(w)).length >= Math.ceil(pWords.length * 0.5);

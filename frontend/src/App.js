@@ -1222,7 +1222,7 @@ function BottomNav({ page, setPage, user, unreadCount = 0, onLogout, userProfile
             <button
               onClick={closeSheetClean}
               aria-label="Close"
-              style={{ position: "absolute", right: 16, top: "50%", transform: "translateY(-50%)", width: 32, height: 32, borderRadius: "50%", border: "none", background: "#F3F4F6", color: "#6B7280", fontSize: 18, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0 }}
+              style={{ position: "absolute", right: 12, top: 12, width: 32, height: 32, minWidth: 32, minHeight: 32, aspectRatio: "1", flexShrink: 0, borderRadius: "50%", border: "none", background: "#1E3A5F", color: "#fff", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0 }}
             >×</button>
           </div>
 
@@ -2724,7 +2724,7 @@ function ProfileSetupPage({ user, setPage, setCelebration }) {
                     else {
                       setCompanyPending(false); setCompanyVerified(d.active);
                       setCompanyName(d.company_name); setCompanyStatus(d.company_status); setCompanyIncorp(d.company_incorporated || "");
-                      setCompanyDirectors(d.directors || []); setCompanyDirectorMatch(d.name_match ?? true); setCompanySelectedDirector("");
+                      setCompanyDirectors(d.directors || []); setCompanyDirectorMatch(d.name_match ?? null); setCompanySelectedDirector("");
                       if (!d.active) setCompanyError(`Company status is "${d.company_status}". Only Active companies are verified.`);
                     }
                   } catch { setCompanyError("Could not reach Companies House. Please try again."); }
@@ -2738,7 +2738,7 @@ function ProfileSetupPage({ user, setPage, setCelebration }) {
 
             {companyVerified && companyDirectors.length > 0 && (
               <div style={{ marginTop: 12, padding: "10px 14px", background: "#f0faf6", border: "0.5px solid #A8DFC9", borderRadius: 8 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#166534", marginBottom: 6 }}>Current directors:</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#166534", marginBottom: 6 }}>Active directors on Companies House:</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10 }}>
                   {companyDirectors.map((dir, i) => (
                     <span key={i} style={{ background: "#DCFCE7", border: "0.5px solid #86EFAC", borderRadius: 12, padding: "2px 8px", fontSize: 11, color: "#166534" }}>{dir.name}</span>
@@ -2747,15 +2747,33 @@ function ProfileSetupPage({ user, setPage, setCelebration }) {
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#166534", display: "block", marginBottom: 4 }}>Which director are you?</label>
                 <select
                   value={companySelectedDirector}
-                  onChange={e => setCompanySelectedDirector(e.target.value)}
+                  onChange={e => {
+                    const sel = e.target.value;
+                    setCompanySelectedDirector(sel);
+                    if (sel) {
+                      const norm = s => s.toLowerCase().replace(/[^a-z]/g, " ").trim();
+                      const words = s => norm(s).split(/\s+/).filter(w => w.length > 2);
+                      const pWords = words(sel);
+                      const dStr = norm(sel);
+                      const profileWords = words(sel);
+                      // Compare selected director name against profile name
+                      const pn = norm(companyDirectors.find(d => d.name === sel)?.name || sel);
+                      setCompanyDirectorMatch(true); // user confirmed their director
+                    }
+                  }}
                   style={{ width: "100%", height: 36, border: "1px solid #86EFAC", borderRadius: 6, fontSize: 12, padding: "0 8px", background: "#fff", color: "#166534" }}
                 >
                   <option value="">Select your name…</option>
                   {companyDirectors.map((dir, i) => <option key={i} value={dir.name}>{dir.name}</option>)}
                 </select>
-                {!companyDirectorMatch && (
+                {companyDirectorMatch === false && !companySelectedDirector && (
                   <div style={{ background: "#FEF3C7", border: "0.5px solid #FDE68A", borderRadius: 6, padding: "8px 10px", marginTop: 8, fontSize: 12, color: "#92400E" }}>
-                    ⚠ Name does not match company directors — please verify manually
+                    ⚠ Your profile name does not closely match any registered director — please select your name above or verify manually if you are a director
+                  </div>
+                )}
+                {companySelectedDirector && (
+                  <div style={{ background: "#DCFCE7", border: "0.5px solid #86EFAC", borderRadius: 6, padding: "6px 10px", marginTop: 8, fontSize: 12, color: "#166534" }}>
+                    ✓ Confirmed as director: {companySelectedDirector}
                   </div>
                 )}
               </div>
@@ -2852,7 +2870,7 @@ function ProfileSetupPage({ user, setPage, setCelebration }) {
                       setCompanyName(d.company_name);
                       setCompanyStatus(d.company_status);
                       setCompanyIncorp(d.company_incorporated || "");
-                      setCompanyDirectors(d.directors || []); setCompanyDirectorMatch(d.name_match ?? true); setCompanySelectedDirector("");
+                      setCompanyDirectors(d.directors || []); setCompanyDirectorMatch(d.name_match ?? null); setCompanySelectedDirector("");
                       if (!d.active) setCompanyError(`Company status is "${d.company_status}". Only Active companies receive a verified badge.`);
                     }
                   } catch { setCompanyError("Could not reach Companies House. Please try again."); }
@@ -2871,7 +2889,7 @@ function ProfileSetupPage({ user, setPage, setCelebration }) {
             </div>
             {companyVerified && companyDirectors.length > 0 && (
               <div style={{ marginTop: 12, padding: "10px 14px", background: "#f0faf6", border: "0.5px solid #A8DFC9", borderRadius: 8 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#166534", marginBottom: 6 }}>Current directors:</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#166534", marginBottom: 6 }}>Active directors on Companies House:</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10 }}>
                   {companyDirectors.map((dir, i) => (
                     <span key={i} style={{ background: "#DCFCE7", border: "0.5px solid #86EFAC", borderRadius: 12, padding: "2px 8px", fontSize: 11, color: "#166534" }}>{dir.name}</span>
@@ -2880,15 +2898,20 @@ function ProfileSetupPage({ user, setPage, setCelebration }) {
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#166534", display: "block", marginBottom: 4 }}>Which director are you?</label>
                 <select
                   value={companySelectedDirector}
-                  onChange={e => setCompanySelectedDirector(e.target.value)}
+                  onChange={e => { setCompanySelectedDirector(e.target.value); if (e.target.value) setCompanyDirectorMatch(true); }}
                   style={{ width: "100%", height: 36, border: "1px solid #86EFAC", borderRadius: 6, fontSize: 12, padding: "0 8px", background: "#fff", color: "#166534" }}
                 >
                   <option value="">Select your name…</option>
                   {companyDirectors.map((dir, i) => <option key={i} value={dir.name}>{dir.name}</option>)}
                 </select>
-                {!companyDirectorMatch && (
+                {companyDirectorMatch === false && !companySelectedDirector && (
                   <div style={{ background: "#FEF3C7", border: "0.5px solid #FDE68A", borderRadius: 6, padding: "8px 10px", marginTop: 8, fontSize: 12, color: "#92400E" }}>
-                    ⚠ Name does not match company directors — please verify manually
+                    ⚠ Your profile name does not closely match any registered director — please select your name above or verify manually if you are a director
+                  </div>
+                )}
+                {companySelectedDirector && (
+                  <div style={{ background: "#DCFCE7", border: "0.5px solid #86EFAC", borderRadius: 6, padding: "6px 10px", marginTop: 8, fontSize: 12, color: "#166534" }}>
+                    ✓ Confirmed as director: {companySelectedDirector}
                   </div>
                 )}
               </div>
@@ -3392,7 +3415,7 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
                     else {
                       setChPending(false); setChVerified(d.active);
                       setChName(d.company_name); setChIncorp(d.company_incorporated || "");
-                      setChDirectors(d.directors || []); setChDirectorMatch(d.name_match ?? true); setChSelectedDirector("");
+                      setChDirectors(d.directors || []); setChDirectorMatch(d.name_match ?? null); setChSelectedDirector("");
                       if (!d.active) setChError(`Company status is "${d.company_status}". Only Active companies receive a verified badge.`);
                     }
                   } catch { setChError("Could not reach Companies House. Please try again."); }
@@ -3406,7 +3429,7 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
 
             {chVerified && chDirectors.length > 0 && (
               <div style={{ marginTop: 12, padding: "10px 14px", background: "#f0faf6", border: "0.5px solid #A8DFC9", borderRadius: 8 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#166534", marginBottom: 6 }}>Current directors:</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#166534", marginBottom: 6 }}>Active directors on Companies House:</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10 }}>
                   {chDirectors.map((dir, i) => (
                     <span key={i} style={{ background: "#DCFCE7", border: "0.5px solid #86EFAC", borderRadius: 12, padding: "2px 8px", fontSize: 11, color: "#166534" }}>{dir.name}</span>
@@ -3415,15 +3438,20 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#166534", display: "block", marginBottom: 4 }}>Which director are you?</label>
                 <select
                   value={chSelectedDirector}
-                  onChange={e => setChSelectedDirector(e.target.value)}
+                  onChange={e => { setChSelectedDirector(e.target.value); if (e.target.value) setChDirectorMatch(true); }}
                   style={{ width: "100%", height: 36, border: "1px solid #86EFAC", borderRadius: 6, fontSize: 12, padding: "0 8px", background: "#fff", color: "#166534" }}
                 >
                   <option value="">Select your name…</option>
                   {chDirectors.map((dir, i) => <option key={i} value={dir.name}>{dir.name}</option>)}
                 </select>
-                {!chDirectorMatch && (
+                {chDirectorMatch === false && !chSelectedDirector && (
                   <div style={{ background: "#FEF3C7", border: "0.5px solid #FDE68A", borderRadius: 6, padding: "8px 10px", marginTop: 8, fontSize: 12, color: "#92400E" }}>
-                    ⚠ Name does not match company directors — please verify manually
+                    ⚠ Your profile name does not closely match any registered director — please select your name above or verify manually if you are a director
+                  </div>
+                )}
+                {chSelectedDirector && (
+                  <div style={{ background: "#DCFCE7", border: "0.5px solid #86EFAC", borderRadius: 6, padding: "6px 10px", marginTop: 8, fontSize: 12, color: "#166534" }}>
+                    ✓ Confirmed as director: {chSelectedDirector}
                   </div>
                 )}
               </div>
@@ -3440,7 +3468,7 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
 
       {/* 2 — Appearance */}
       <SectionCard id="appearance" icon="🎨" title="Appearance">
-        <div style={{ paddingTop: 16 }}>
+        <div style={{ paddingTop: 16, overflowAnchor: "none" }}>
 
           {/* ── Dark mode ───────────────────────────────────────────────── */}
           <div style={{ marginBottom: "1.5rem" }}>
@@ -3506,8 +3534,8 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
               ].map(f => {
                 const isSelected = fontSize === f.key;
                 return (
-                  <button key={f.key} onClick={() => setFontSize && setFontSize(f.key)}
-                    style={{ flex: 1, padding: "10px 8px", borderRadius: 10, border: "1.5px solid", borderColor: isSelected ? "var(--accent,#3B82F6)" : "#e0e0e0", background: isSelected ? "var(--accent-bg,#EBF2FF)" : "transparent", color: isSelected ? "var(--accent,#1E3A5F)" : "#64748B", fontSize: isMobileAcct ? 16 : 13, fontWeight: isSelected ? 700 : 500, cursor: "pointer", transition: "all 0.15s", minHeight: 52, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3 }}>
+                  <button key={f.key} onClick={e => { e.preventDefault(); const sy = window.scrollY; setFontSize && setFontSize(f.key); requestAnimationFrame(() => window.scrollTo({ top: sy, behavior: "instant" })); }}
+                    style={{ flex: 1, padding: "10px 8px", borderRadius: 10, border: "1.5px solid", borderColor: isSelected ? "var(--accent,#3B82F6)" : "#e0e0e0", background: isSelected ? "var(--accent-bg,#EBF2FF)" : "transparent", color: isSelected ? "var(--accent,#1E3A5F)" : "#64748B", fontSize: isMobileAcct ? 16 : 13, fontWeight: 600, cursor: "pointer", transition: "color 0.15s, background 0.15s, border-color 0.15s", minHeight: 52, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3 }}>
                     <span style={{ fontSize: isMobileAcct ? 18 : 14, fontWeight: 700 }}>{f.label}</span>
                     {!isMobileAcct && <span style={{ fontSize: 10, opacity: 0.7 }}>{f.desc}</span>}
                   </button>
@@ -3527,8 +3555,8 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
               ].map(d => {
                 const isSelected = density === d.key;
                 return (
-                  <button key={d.key} onClick={() => setDensity && setDensity(d.key)}
-                    style={{ flex: 1, padding: isMobileAcct ? "14px 16px" : "8px 16px", borderRadius: 10, border: "1.5px solid", borderColor: isSelected ? "var(--accent,#3B82F6)" : "#e0e0e0", background: isSelected ? "var(--accent-bg,#EBF2FF)" : "transparent", color: isSelected ? "var(--accent,#1E3A5F)" : "#64748B", fontSize: 14, fontWeight: isSelected ? 600 : 500, cursor: "pointer", transition: "all 0.15s", minHeight: 52, display: "flex", alignItems: "center", justifyContent: isMobileAcct ? "flex-start" : "center", gap: 8 }}>
+                  <button key={d.key} onClick={e => { e.preventDefault(); setDensity && setDensity(d.key); }}
+                    style={{ flex: 1, padding: isMobileAcct ? "14px 16px" : "8px 16px", borderRadius: 10, border: "1.5px solid", borderColor: isSelected ? "var(--accent,#3B82F6)" : "#e0e0e0", background: isSelected ? "var(--accent-bg,#EBF2FF)" : "transparent", color: isSelected ? "var(--accent,#1E3A5F)" : "#64748B", fontSize: 14, fontWeight: 600, cursor: "pointer", transition: "color 0.15s, background 0.15s, border-color 0.15s", minHeight: 52, display: "flex", alignItems: "center", justifyContent: isMobileAcct ? "flex-start" : "center", gap: 8 }}>
                     <span style={{ fontSize: 16 }}>{d.icon}</span>
                     <span>{d.label}</span>
                     {isMobileAcct && <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: 4 }}>{d.desc}</span>}
@@ -3551,14 +3579,15 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
               ].map(d => {
                 const isSelected = devPref === d.key;
                 return (
-                  <button key={d.key} onClick={() => {
+                  <button key={d.key} onClick={e => {
+                    e.preventDefault();
                     try { localStorage.setItem("lb_device_preference", d.key); } catch {}
                     setDevPrefState(d.key);
                     document.body.classList.remove("lb-mobile-layout", "lb-desktop-layout");
                     if (d.key === "mobile") document.body.classList.add("lb-mobile-layout");
                     if (d.key === "desktop") document.body.classList.add("lb-desktop-layout");
                   }}
-                    style={{ flex: 1, padding: "10px 8px", borderRadius: 10, border: "1.5px solid", borderColor: isSelected ? "var(--accent,#3B82F6)" : "#e0e0e0", background: isSelected ? "var(--accent-bg,#EBF2FF)" : "transparent", color: isSelected ? "var(--accent,#1E3A5F)" : "#64748B", fontSize: 13, fontWeight: isSelected ? 600 : 500, cursor: "pointer", transition: "all 0.15s", minHeight: 48, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                    style={{ flex: 1, padding: "10px 8px", borderRadius: 10, border: "1.5px solid", borderColor: isSelected ? "var(--accent,#3B82F6)" : "#e0e0e0", background: isSelected ? "var(--accent-bg,#EBF2FF)" : "transparent", color: isSelected ? "var(--accent,#1E3A5F)" : "#64748B", fontSize: 13, fontWeight: 600, cursor: "pointer", transition: "color 0.15s, background 0.15s, border-color 0.15s", minHeight: 48, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
                     <span style={{ fontSize: 18 }}>{d.icon}</span>
                     <span>{d.label}</span>
                   </button>
