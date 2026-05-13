@@ -2747,20 +2747,7 @@ function ProfileSetupPage({ user, setPage, setCelebration }) {
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#166534", display: "block", marginBottom: 4 }}>Which director are you?</label>
                 <select
                   value={companySelectedDirector}
-                  onChange={e => {
-                    const sel = e.target.value;
-                    setCompanySelectedDirector(sel);
-                    if (sel) {
-                      const norm = s => s.toLowerCase().replace(/[^a-z]/g, " ").trim();
-                      const words = s => norm(s).split(/\s+/).filter(w => w.length > 2);
-                      const pWords = words(sel);
-                      const dStr = norm(sel);
-                      const profileWords = words(sel);
-                      // Compare selected director name against profile name
-                      const pn = norm(companyDirectors.find(d => d.name === sel)?.name || sel);
-                      setCompanyDirectorMatch(true); // user confirmed their director
-                    }
-                  }}
+                  onChange={e => { setCompanySelectedDirector(e.target.value); if (e.target.value) setCompanyDirectorMatch(true); }}
                   style={{ width: "100%", height: 36, border: "1px solid #86EFAC", borderRadius: 6, fontSize: 12, padding: "0 8px", background: "#fff", color: "#166534" }}
                 >
                   <option value="">Select your name…</option>
