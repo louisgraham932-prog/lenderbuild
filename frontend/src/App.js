@@ -445,10 +445,10 @@ function CredibilityRing({ score, size = 48, children }) {
       ref={wrapRef}
       onClick={handleClick}
       title="Builder credibility score"
-      style={{ position: "relative", display: "inline-block", width: size, height: size, cursor: "pointer", flexShrink: 0 }}
+      style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", width: size, height: size, cursor: "pointer", flexShrink: 0 }}
     >
       {children}
-      <svg width={size} height={size} style={{ position: "absolute", inset: 0, transform: "rotate(-90deg)", pointerEvents: "none" }}>
+      <svg width={size} height={size} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", transform: "rotate(-90deg)", pointerEvents: "none" }}>
         <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(0,0,0,0.15)" strokeWidth="3" />
         <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="3"
           strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" style={{ transition: "stroke-dasharray 0.6s ease" }} />
@@ -697,7 +697,7 @@ function MatchBadge({ score, breakdown }) {
   let label, bg, color;
   if (score >= 80)      { label = "Great match";    bg = "#E1F5EE"; color = "#0F6E56"; }
   else if (score >= 60) { label = "Good match";     bg = "#EBF2FF"; color = "#1E3A5F"; }
-  else                  { label = "Possible match"; bg = "#F1EFE8"; color = "#5F5E5A"; }
+  else                  { label = "Possible match"; bg = "#FEF2F2"; color = "#DC2626"; }
 
   return (
     <div style={{ position: "relative", display: "inline-block" }}
@@ -1420,8 +1420,7 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
 
   const moreNavItems = [
     { label: "Build Calculator", target: "build-calculator" },
-    { label: "Posts",            target: "posts" },
-    { label: "Community",        target: "community", community: true },
+    { label: "Community",        target: "posts" },
     { label: "Leaderboard",      target: "leaderboard" },
     { label: "Market",           target: "market" },
   ];
@@ -4895,14 +4894,15 @@ function LenderCard({ lc, user, setPage, settings, onViewProfile, viewerProfile 
     return m?.score || null;
   })();
   const isVerifiedUser = lc.user_role === "verified_pro" || lc.user_role === "founder";
-  const leftBorderColor = matchScore >= 80 ? "#16A34A" : isVerifiedUser ? "#2E5FA3" : null;
+  const cardMatchBg = matchScore != null ? (matchScore >= 80 ? "rgba(22,163,74,0.05)" : matchScore >= 60 ? "rgba(59,130,246,0.05)" : "rgba(220,38,38,0.05)") : "#fff";
+  const leftBorderColor = matchScore != null ? (matchScore >= 80 ? "#16A34A" : matchScore >= 60 ? "#3B82F6" : "#DC2626") : (isVerifiedUser ? "#2E5FA3" : null);
 
   return (
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        background: "#fff",
+        background: cardMatchBg,
         border: "0.5px solid #e0e0e0",
         borderLeft: leftBorderColor ? `3px solid ${leftBorderColor}` : "0.5px solid #e0e0e0",
         borderRadius: 12, padding: "24px",
@@ -5036,6 +5036,7 @@ function SearchPage({ user, setPage, onViewProfile, viewerRoleProfile }) {
   const [realLenders,   setRealLenders]   = useState([]);
   const [loadingReal,   setLoadingReal]   = useState(true);
   const [filterOpen,    setFilterOpen]    = useState(false);
+  const [matchFilter,   setMatchFilter]   = useState("all");
   const [presetName,    setPresetName]    = useState("");
   const [presets,       setPresets]       = useState(() => user?.id ? getFilterPresets(user.id, "lender") : []);
   const [width,         setWidth]         = useState(window.innerWidth);
@@ -5149,6 +5150,12 @@ function SearchPage({ user, setPage, onViewProfile, viewerRoleProfile }) {
       const days = card.updated_at ? (Date.now() - new Date(card.updated_at).getTime()) / 86400000 : 999;
       if (days > 30) return false;
     }
+    if (matchFilter !== "all" && viewerRoleProfile) {
+      const m = computeMatch(viewerRoleProfile, card, "builder");
+      const s = m?.score || 0;
+      if (matchFilter === "great" && s < 80) return false;
+      if (matchFilter === "good"  && s < 60) return false;
+    }
     return true;
   }
 
@@ -5171,6 +5178,7 @@ function SearchPage({ user, setPage, onViewProfile, viewerRoleProfile }) {
   const activeFiltersCountFull = [
     budget !== "any", returnType !== "any", project !== "any",
     verifiedOnly, activeOnly, budgetMin > 0, budgetMax_ < 1000000,
+    matchFilter !== "all",
   ].filter(Boolean).length;
 
   return (
@@ -5217,8 +5225,15 @@ function SearchPage({ user, setPage, onViewProfile, viewerRoleProfile }) {
           <option value="budget">Sort: Highest budget</option>
           <option value="compatibility">Sort: Best match</option>
         </select>
+        {user && viewerRoleProfile && (
+          <select value={matchFilter} onChange={e => setMatchFilter(e.target.value)} style={{ height: 44, border: matchFilter !== "all" ? "1.5px solid #3B82F6" : "0.5px solid #ccc", borderRadius: 8, padding: "0 12px", fontSize: 13, background: matchFilter !== "all" ? "#EBF2FF" : "#fff", color: matchFilter !== "all" ? "#1E3A5F" : undefined, cursor: "pointer", fontWeight: matchFilter !== "all" ? 600 : 400 }}>
+            <option value="all">All matches</option>
+            <option value="great">Great matches only (80%+)</option>
+            <option value="good">Good matches &amp; above (60%+)</option>
+          </select>
+        )}
         {activeFiltersCountFull > 0 && (
-          <button onClick={() => { setBudget("any"); setReturnType("any"); setProject("any"); setVerifiedOnly(false); setActiveOnly(false); setBudgetMin(0); setBudgetMax_(1000000); }}
+          <button onClick={() => { setBudget("any"); setReturnType("any"); setProject("any"); setVerifiedOnly(false); setActiveOnly(false); setBudgetMin(0); setBudgetMax_(1000000); setMatchFilter("all"); }}
             style={{ background: "#FEE2E2", color: "#DC2626", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
             Clear all filters
           </button>
@@ -5424,14 +5439,15 @@ function BuilderCard({ builder, user, setPage, onMessage, onViewProfile, viewerP
     return m?.score || null;
   })();
   const builderIsVerified = builder.verified_documents?.length > 0;
-  const builderLeftBorder = builderMatchScore >= 80 ? "#16A34A" : builderIsVerified ? "#2E5FA3" : null;
+  const builderCardBg = builderMatchScore != null ? (builderMatchScore >= 80 ? "rgba(22,163,74,0.05)" : builderMatchScore >= 60 ? "rgba(59,130,246,0.05)" : "rgba(220,38,38,0.05)") : "#fff";
+  const builderLeftBorder = builderMatchScore != null ? (builderMatchScore >= 80 ? "#16A34A" : builderMatchScore >= 60 ? "#3B82F6" : "#DC2626") : (builderIsVerified ? "#2E5FA3" : null);
 
   return (
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        background: "#fff",
+        background: builderCardBg,
         border: "0.5px solid #e0e0e0",
         borderLeft: builderLeftBorder ? `3px solid ${builderLeftBorder}` : "0.5px solid #e0e0e0",
         borderRadius: 12, padding: "24px",
@@ -5558,6 +5574,7 @@ function FindBuilderPage({ user, setPage, onMessage, onViewProfile, viewerRolePr
   const [verifiedOnlyB,     setVerifiedOnlyB]    = useState(false);
   const [minProjectsFilter, setMinProjectsFilter] = useState("any");
   const [sortByB,           setSortByB]          = useState("newest");
+  const [matchFilterB,      setMatchFilterB]      = useState("all");
   const [realBuilders,      setRealBuilders]      = useState([]);
   const [loadingReal,       setLoadingReal]       = useState(true);
   const [filterOpen,        setFilterOpen]        = useState(false);
@@ -5636,6 +5653,12 @@ function FindBuilderPage({ user, setPage, onMessage, onViewProfile, viewerRolePr
     if (minProjectsFilter === "1-5"  && !(b.props >= 1  && b.props <= 5))  return false;
     if (minProjectsFilter === "5-10" && !(b.props >= 5  && b.props <= 10)) return false;
     if (minProjectsFilter === "10+"  && b.props < 10)                return false;
+    if (matchFilterB !== "all" && viewerRoleProfile) {
+      const m = computeMatch(viewerRoleProfile, b, "lender");
+      const s = m?.score || 0;
+      if (matchFilterB === "great" && s < 80) return false;
+      if (matchFilterB === "good"  && s < 60) return false;
+    }
     return true;
   }
 
@@ -5654,7 +5677,7 @@ function FindBuilderPage({ user, setPage, onMessage, onViewProfile, viewerRolePr
 
   const filteredReal = sortBuilders(realCards.filter(matchesFilters));
   const allFiltered  = filteredReal;
-  const activeBuilderFiltersCount = [specFilter !== "any", locationFilter !== "any", completionFilter !== "any", verifiedOnlyB, minProjectsFilter !== "any"].filter(Boolean).length;
+  const activeBuilderFiltersCount = [specFilter !== "any", locationFilter !== "any", completionFilter !== "any", verifiedOnlyB, minProjectsFilter !== "any", matchFilterB !== "all"].filter(Boolean).length;
 
   return (
     <div style={{ padding: "1.5rem 1.25rem" }}>
@@ -5700,8 +5723,15 @@ function FindBuilderPage({ user, setPage, onMessage, onViewProfile, viewerRolePr
           <option value="completion">Sort: Highest completion</option>
           <option value="compatibility">Sort: Best match</option>
         </select>
+        {user && viewerRoleProfile && (
+          <select value={matchFilterB} onChange={e => setMatchFilterB(e.target.value)} style={{ height: 44, border: matchFilterB !== "all" ? "1.5px solid #3B82F6" : "0.5px solid #ccc", borderRadius: 8, padding: "0 12px", fontSize: 13, background: matchFilterB !== "all" ? "#EBF2FF" : "#fff", color: matchFilterB !== "all" ? "#1E3A5F" : undefined, cursor: "pointer", fontWeight: matchFilterB !== "all" ? 600 : 400 }}>
+            <option value="all">All matches</option>
+            <option value="great">Great matches only (80%+)</option>
+            <option value="good">Good matches &amp; above (60%+)</option>
+          </select>
+        )}
         {activeBuilderFiltersCount > 0 && (
-          <button onClick={() => { setSpecFilter("any"); setLocationFilter("any"); setCompletionFilter("any"); setVerifiedOnlyB(false); setMinProjectsFilter("any"); }}
+          <button onClick={() => { setSpecFilter("any"); setLocationFilter("any"); setCompletionFilter("any"); setVerifiedOnlyB(false); setMinProjectsFilter("any"); setMatchFilterB("all"); }}
             style={{ background: "#FEE2E2", color: "#DC2626", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
             Clear all
           </button>
@@ -17680,8 +17710,8 @@ export default function App() {
           {(page === "home" || page === "home-dashboard") && (!user ? <HomePage setPage={navigateTo} user={user} onViewProfile={handleViewProfile} /> : <DashboardPage user={user} setPage={navigateTo} onViewProfile={handleViewProfile} onViewBuilderProfile={handleViewBuilderProfile} onMessage={handleOpenConversation} viewerRoleProfile={viewerRoleProfile} userProfile={userProfile} page={page} />)}
           {page === "search"           && <SearchPage         setPage={navigateTo} user={user} onViewProfile={handleViewProfile} viewerRoleProfile={viewerRoleProfile} />}
           {page === "find-builder"     && <FindBuilderPage    setPage={navigateTo} user={user} onMessage={handleOpenConversation} onViewProfile={handleViewBuilderProfile} viewerRoleProfile={viewerRoleProfile} />}
-          {page === "posts"            && <PostsFeedPage      setPage={navigateTo} user={user} />}
-          {page === "post-detail"      && (selectedPost ? <PostDetailPage post={selectedPost} user={user} setPage={navigateTo} onMessage={handleOpenConversation} /> : <PostsFeedPage setPage={navigateTo} user={user} />)}
+          {page === "posts"            && <CommunityPage user={user} setPage={navigateTo} onMessage={handleOpenConversation} />}
+          {page === "post-detail"      && (selectedPost ? <PostDetailPage post={selectedPost} user={user} setPage={navigateTo} onMessage={handleOpenConversation} /> : <CommunityPage user={user} setPage={navigateTo} onMessage={handleOpenConversation} />)}
           {page === "my-posts"         && user && <MyPostsPage        user={user} setPage={navigateTo} />}
           {page === "create-post"      && user && <CreateEditPostPage user={user} setPage={navigateTo} />}
           {page === "edit-post"        && user && <CreateEditPostPage user={user} setPage={navigateTo} editPost={editingPost} />}
