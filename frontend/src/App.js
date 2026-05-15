@@ -3365,6 +3365,7 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
             </div>
           </div>
         </div>
+      </div>
       )}
 
       {/* ─── SUB: APPEARANCE ──────────────────────────────── */}
