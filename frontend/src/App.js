@@ -1154,19 +1154,29 @@ function BottomNav({ page, setPage, user, unreadCount = 0, communityBadge = fals
       key: "home",
       label: "Home",
       icon: (active) => (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill={active ? activeColor : "none"} stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
         </svg>
       ),
     },
     {
       key: role === "lender" ? "find-builder" : "search",
-      label: "Search",
+      label: "Find",
       icon: (active) => (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
         </svg>
       ),
+    },
+    {
+      key: "posts",
+      label: "Posts",
+      icon: (active) => (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+        </svg>
+      ),
+      dotBadge: communityBadge,
     },
     {
       key: "messages",
@@ -1177,25 +1187,6 @@ function BottomNav({ page, setPage, user, unreadCount = 0, communityBadge = fals
         </svg>
       ),
       badge: unreadCount,
-    },
-    {
-      key: "community",
-      label: "Community",
-      icon: (active) => (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-        </svg>
-      ),
-      dotBadge: communityBadge,
-    },
-    {
-      key: "deals",
-      label: "Projects",
-      icon: (active) => (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
-        </svg>
-      ),
     },
     {
       key: "profile-menu",
@@ -1209,7 +1200,7 @@ function BottomNav({ page, setPage, user, unreadCount = 0, communityBadge = fals
   ];
 
   const profilePages = ["profile-menu", "profile-setup", "account", "saved-profiles", "saved-searches", "notifications", "lender-dashboard", "disputes"];
-  const communityPages = ["community", "posts", "post-detail", "my-posts", "create-post", "edit-post"];
+  const postsPages = ["community", "posts", "post-detail", "my-posts", "create-post", "edit-post"];
 
   return (
     <nav style={{
@@ -1222,7 +1213,7 @@ function BottomNav({ page, setPage, user, unreadCount = 0, communityBadge = fals
       {tabs.map(tab => {
         const isActive =
           tab.key === "profile-menu" ? profilePages.includes(page) :
-          tab.key === "community" ? communityPages.includes(page) :
+          tab.key === "posts" ? postsPages.includes(page) :
           page === tab.key;
         return (
           <button
@@ -17033,6 +17024,35 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
   const [switchPassword, setSwitchPassword] = useState("");
   const [switchLoading, setSwitchLoading] = useState(false);
   const [switchError, setSwitchError] = useState("");
+  const [savedAccountsError, setSavedAccountsError] = useState("");
+
+  const savedAccounts = getSavedAccounts().filter(a => a.user_id !== user?.id);
+
+  async function handleSwitchToSaved(acct) {
+    setSavedAccountsError("");
+    const { error: sessErr } = await supabase.auth.setSession({
+      access_token: acct.access_token,
+      refresh_token: acct.refresh_token,
+    });
+    if (sessErr) {
+      removeSavedAccount(acct.user_id);
+      setSavedAccountsError("Session expired for " + acct.email + ". Please log in again.");
+      return;
+    }
+    setPage("home");
+  }
+
+  async function handleAddAccount() {
+    const { data: { session: curSess } } = await supabase.auth.getSession();
+    if (curSess && user) {
+      upsertSavedAccount({
+        user_id: user.id, email: user.email, name: displayName,
+        avatar_url: avatarUrl || null,
+        access_token: curSess.access_token, refresh_token: curSess.refresh_token,
+      });
+    }
+    setSwitchModal(true);
+  }
 
   async function handleSwitchLogin(e) {
     e.preventDefault();
@@ -17099,6 +17119,50 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
         </div>
       </div>
 
+      {/* Saved accounts */}
+      {(savedAccounts.length > 0 || getSavedAccounts().length < 3) && (
+        <div style={{ background: "#fff", marginTop: 12, paddingBottom: 4 }}>
+          <div style={{ padding: "10px 20px 6px", fontSize: 11, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.07em" }}>Saved accounts</div>
+          {savedAccounts.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: "0 20px 8px" }}>
+              {savedAccounts.map(acct => (
+                <button key={acct.user_id} onClick={() => handleSwitchToSaved(acct)}
+                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 6px 8px", borderRadius: 24, border: "1px solid #E2E8F0", background: "#F8FAFC", cursor: "pointer", maxWidth: "100%" }}
+                  onTouchStart={e => e.currentTarget.style.background = "#EEF2FF"}
+                  onTouchEnd={e => e.currentTarget.style.background = "#F8FAFC"}
+                  onMouseEnter={e => e.currentTarget.style.background = "#EEF2FF"}
+                  onMouseLeave={e => e.currentTarget.style.background = "#F8FAFC"}
+                >
+                  {acct.avatar_url
+                    ? <img src={acct.avatar_url} alt="" style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+                    : <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#1E3A5F", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{nameInitials(acct.name || acct.email)}</div>
+                  }
+                  <div style={{ textAlign: "left", minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.name || acct.email.split("@")[0]}</div>
+                    <div style={{ fontSize: 11, color: "#94A3B8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Tap to switch</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+          {savedAccountsError && <div style={{ fontSize: 12, color: "#DC2626", padding: "0 20px 8px" }}>{savedAccountsError}</div>}
+          {getSavedAccounts().length < 3 && (
+            <button onClick={handleAddAccount}
+              style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "0 20px", fontSize: 14, background: "transparent", border: "none", cursor: "pointer", minHeight: 44, color: "#3B82F6", fontWeight: 500 }}
+              onTouchStart={e => e.currentTarget.style.background = "#EFF6FF"}
+              onTouchEnd={e => e.currentTarget.style.background = "transparent"}
+              onMouseEnter={e => e.currentTarget.style.background = "#EFF6FF"}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >
+              <div style={{ width: 28, height: 28, borderRadius: "50%", border: "1.5px dashed #3B82F6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </div>
+              Add account
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Nav links */}
       <div style={{ background: "#fff", marginTop: 12 }}>
         {navItems.map((item, i) => (
@@ -17135,23 +17199,25 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
       {switchModal && (
         <>
           <div onClick={() => { setSwitchModal(false); setSwitchError(""); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9998 }} />
-          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "min(360px, 92vw)", background: "#fff", borderRadius: 16, padding: 24, zIndex: 9999, boxShadow: "0 16px 56px rgba(0,0,0,0.25)" }}>
-            <div style={{ fontWeight: 700, fontSize: 18, color: "#1E3A5F", marginBottom: 20 }}>Switch account</div>
-            {switchError && <div style={{ background: "#FEF2F2", color: "#DC2626", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{switchError}</div>}
-            <form onSubmit={handleSwitchLogin} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <input type="email" placeholder="Email address" value={switchEmail} onChange={e => setSwitchEmail(e.target.value)} required autoFocus
-                style={{ height: 44, border: "1px solid #E2E8F0", borderRadius: 8, padding: "0 12px", fontSize: 14, outline: "none" }} />
-              <input type="password" placeholder="Password" value={switchPassword} onChange={e => setSwitchPassword(e.target.value)} required
-                style={{ height: 44, border: "1px solid #E2E8F0", borderRadius: 8, padding: "0 12px", fontSize: 14, outline: "none" }} />
-              <button type="submit" disabled={switchLoading}
-                style={{ height: 44, background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: switchLoading ? "default" : "pointer", marginTop: 4 }}>
-                {switchLoading ? "Logging in…" : "Log in as different user"}
-              </button>
-              <button type="button" onClick={() => { setSwitchModal(false); setSwitchError(""); setSwitchEmail(""); setSwitchPassword(""); }}
-                style={{ height: 44, background: "transparent", color: "#64748B", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 15, cursor: "pointer" }}>
-                Cancel
-              </button>
-            </form>
+          <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: "0 16px", maxWidth: "100vw", overflow: "hidden", pointerEvents: "none" }}>
+            <div style={{ width: "100%", maxWidth: 360, background: "#fff", borderRadius: 16, padding: 24, boxShadow: "0 16px 56px rgba(0,0,0,0.25)", pointerEvents: "auto", overflow: "hidden" }}>
+              <div style={{ fontWeight: 700, fontSize: 18, color: "#1E3A5F", marginBottom: 20 }}>Switch account</div>
+              {switchError && <div style={{ background: "#FEF2F2", color: "#DC2626", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{switchError}</div>}
+              <form onSubmit={handleSwitchLogin} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <input type="email" placeholder="Email address" value={switchEmail} onChange={e => setSwitchEmail(e.target.value)} required autoFocus
+                  style={{ height: 44, border: "1px solid #E2E8F0", borderRadius: 8, padding: "0 12px", fontSize: 16, outline: "none" }} />
+                <input type="password" placeholder="Password" value={switchPassword} onChange={e => setSwitchPassword(e.target.value)} required
+                  style={{ height: 44, border: "1px solid #E2E8F0", borderRadius: 8, padding: "0 12px", fontSize: 16, outline: "none" }} />
+                <button type="submit" disabled={switchLoading}
+                  style={{ height: 44, background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: switchLoading ? "default" : "pointer", marginTop: 4 }}>
+                  {switchLoading ? "Logging in…" : "Log in as different user"}
+                </button>
+                <button type="button" onClick={() => { setSwitchModal(false); setSwitchError(""); setSwitchEmail(""); setSwitchPassword(""); }}
+                  style={{ height: 44, background: "transparent", color: "#64748B", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 15, cursor: "pointer" }}>
+                  Cancel
+                </button>
+              </form>
+            </div>
           </div>
         </>
       )}
