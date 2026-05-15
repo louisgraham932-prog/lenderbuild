@@ -133,7 +133,29 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    return res.status(400).json({ error: "action must be create, update, delete, or view" });
+    if (action === "interest") {
+      const { author_id } = req.body || {};
+      if (!post_id || !author_id) return res.status(400).json({ error: "post_id and author_id required" });
+      const { data: { user: author }, error: ae } = await supabase.auth.admin.getUserById(author_id);
+      if (ae || !author) return res.status(404).json({ error: "Author not found" });
+      const authorPosts = author.user_metadata?.posts || [];
+      const idx = authorPosts.findIndex(p => p.id === post_id);
+      if (idx < 0) return res.status(404).json({ error: "Post not found" });
+      const interestedBy = authorPosts[idx].interested_by || [];
+      const hasInterest = interestedBy.includes(user.id);
+      authorPosts[idx] = {
+        ...authorPosts[idx],
+        interested_by: hasInterest
+          ? interestedBy.filter(id => id !== user.id)
+          : [...interestedBy, user.id],
+      };
+      await supabase.auth.admin.updateUserById(author_id, {
+        user_metadata: { ...author.user_metadata, posts: authorPosts },
+      });
+      return res.status(200).json({ ok: true, liked: !hasInterest });
+    }
+
+    return res.status(400).json({ error: "action must be create, update, delete, view, or interest" });
   }
 
   return res.status(405).json({ error: "Method not allowed" });

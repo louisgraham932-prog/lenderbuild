@@ -1144,16 +1144,8 @@ function DesktopSidebar({ page, setPage, user, collapsed, onToggle }) {
 }
 
 // ─── BOTTOM NAV ───────────────────────────────────────────────────────────────
-function BottomNav({ page, setPage, user, unreadCount = 0, onLogout, userProfile, darkMode, setDarkMode, accentColor, setAccentColor }) {
+function BottomNav({ page, setPage, user, unreadCount = 0, communityBadge = false }) {
   const role = user?.user_metadata?.role;
-  const avatarUrl = user?.user_metadata?.avatar_url;
-  const displayName = user?.user_metadata?.name || user?.email?.split("@")[0] || "";
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-
-  function closeSheetClean() {
-    setProfileMenuOpen(false);
-  }
-
   const activeColor = "var(--accent, #1E3A5F)";
   const inactiveColor = "#94A3B8";
 
@@ -1162,7 +1154,7 @@ function BottomNav({ page, setPage, user, unreadCount = 0, onLogout, userProfile
       key: "home",
       label: "Home",
       icon: (active) => (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill={active ? activeColor : "none"} stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill={active ? activeColor : "none"} stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
         </svg>
       ),
@@ -1171,7 +1163,7 @@ function BottomNav({ page, setPage, user, unreadCount = 0, onLogout, userProfile
       key: role === "lender" ? "find-builder" : "search",
       label: "Search",
       icon: (active) => (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
         </svg>
       ),
@@ -1180,139 +1172,82 @@ function BottomNav({ page, setPage, user, unreadCount = 0, onLogout, userProfile
       key: "messages",
       label: "Messages",
       icon: (active) => (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill={active ? activeColor : "none"} stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill={active ? activeColor : "none"} stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
         </svg>
       ),
       badge: unreadCount,
     },
     {
+      key: "community",
+      label: "Community",
+      icon: (active) => (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+      ),
+      dotBadge: communityBadge,
+    },
+    {
       key: "deals",
       label: "Projects",
       icon: (active) => (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
         </svg>
       ),
     },
     {
-      key: "profile",
+      key: "profile-menu",
       label: "Profile",
       icon: (active) => (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill={active ? activeColor : "none"} stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill={active ? activeColor : "none"} stroke={active ? activeColor : inactiveColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
         </svg>
       ),
     },
   ];
 
-  const profilePages = ["profile-setup", "account", "saved-profiles", "saved-searches", "notifications", "deals", "lender-dashboard", "disputes"];
-  const isProfileActive = profileMenuOpen || profilePages.includes(page);
+  const profilePages = ["profile-menu", "profile-setup", "account", "saved-profiles", "saved-searches", "notifications", "lender-dashboard", "disputes"];
+  const communityPages = ["community", "posts", "post-detail", "my-posts", "create-post", "edit-post"];
 
   return (
-    <>
-      {profileMenuOpen && (
-        <div onClick={closeSheetClean} style={{ position: "fixed", inset: 0, zIndex: 9997, background: "rgba(0,0,0,0.4)" }} />
-      )}
-      {profileMenuOpen && (
-        <div style={{ position: "fixed", bottom: "calc(60px + env(safe-area-inset-bottom, 0px))", left: 0, right: 0, background: "var(--bg-card, #fff)", borderRadius: "20px 20px 0 0", zIndex: 9998, boxShadow: "0 -4px 28px rgba(0,0,0,0.18)", maxHeight: "82vh", display: "flex", flexDirection: "column", animation: "slideUpSheet 0.25s ease" }}>
-          {/* Drag handle + X close button */}
-          <div style={{ width: "100%", padding: "12px 16px 8px", display: "flex", justifyContent: "center", alignItems: "center", flexShrink: 0, position: "relative" }}>
-            <div style={{ width: 60, height: 5, background: "#9CA3AF", borderRadius: 3 }} />
-            <button
-              onClick={closeSheetClean}
-              aria-label="Close"
-              style={{ position: "absolute", right: 12, top: 12, width: 32, height: 32, minWidth: 32, minHeight: 32, aspectRatio: "1", flexShrink: 0, borderRadius: "50%", border: "none", background: "#1E3A5F", color: "#fff", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0 }}
-            >×</button>
-          </div>
-
-          {/* Scrollable content */}
-          <div style={{ overflowY: "auto", flex: 1 }}>
-
-          {/* User header */}
-          <div style={{ padding: "12px 16px 14px", borderBottom: "0.5px solid #f0f0f0", display: "flex", alignItems: "center", gap: 12 }}>
-            {avatarUrl
-              ? <img src={avatarUrl} alt="" style={{ width: 52, height: 52, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
-              : <div style={{ width: 52, height: 52, borderRadius: "50%", background: "var(--accent,#3B82F6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 700, flexShrink: 0 }}>{displayName.charAt(0).toUpperCase()}</div>
-            }
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 15, color: "var(--text-heading,#1E3A5F)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayName}</div>
-              <div style={{ fontSize: 12, color: "#aaa", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.email}</div>
-              {role && <div style={{ marginTop: 4 }}><RoleBadge userRole={role} authRole={role} /></div>}
-            </div>
-          </div>
-
-          {/* Nav items */}
-          {[
-            { label: "My profile",      target: "profile-setup", icon: "👤" },
-            { label: "Saved profiles",  target: "saved-profiles", icon: "🤍" },
-            { label: "Saved searches",  target: "saved-searches", icon: "🔍" },
-            { label: "Project tracker", target: "deals",          icon: "📊" },
-            { label: "Notifications",   target: "notifications",  icon: "🔔" },
-            { label: "Settings",        target: "account",        icon: "⚙️" },
-          ].map(item => (
-            <button key={item.target} onClick={() => { closeSheetClean(); setPage(item.target); window.scrollTo({ top: 0, behavior: "instant" }); }}
-              style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "13px 16px", fontSize: 14, background: "transparent", border: "none", cursor: "pointer", textAlign: "left", minHeight: 48, color: "var(--text-primary,#2C3E50)" }}
-              onTouchStart={e => e.currentTarget.style.background = "#f0f0f0"}
-              onTouchEnd={e => e.currentTarget.style.background = "transparent"}
-              onMouseEnter={e => e.currentTarget.style.background = "#f9f9f7"}
-              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-            >
-              <span style={{ fontSize: 18 }}>{item.icon}</span>
-              <span style={{ fontWeight: 500 }}>{item.label}</span>
-            </button>
-          ))}
-          <div style={{ borderTop: "0.5px solid #f0f0f0", margin: "4px 0" }} />
-          <button onClick={() => { closeSheetClean(); onLogout(); }}
-            style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "13px 16px", fontSize: 14, background: "transparent", border: "none", cursor: "pointer", color: "#D85A30", minHeight: 48 }}>
-            <span style={{ fontSize: 18 }}>→</span>
-            <span style={{ fontWeight: 500 }}>Log out</span>
+    <nav style={{
+      position: "fixed", bottom: 0, left: 0, right: 0, width: "100%",
+      height: "calc(60px + env(safe-area-inset-bottom, 0px))",
+      paddingBottom: "env(safe-area-inset-bottom, 0px)",
+      background: "#fff", zIndex: 9999, boxShadow: "0 -2px 12px rgba(0,0,0,0.1)",
+      display: "flex", alignItems: "flex-start",
+    }}>
+      {tabs.map(tab => {
+        const isActive =
+          tab.key === "profile-menu" ? profilePages.includes(page) :
+          tab.key === "community" ? communityPages.includes(page) :
+          page === tab.key;
+        return (
+          <button
+            key={tab.key}
+            onClick={() => { setPage(tab.key); window.scrollTo({ top: 0, behavior: "instant" }); }}
+            style={{
+              flex: 1, height: 60, display: "flex", flexDirection: "column", alignItems: "center",
+              justifyContent: "center", gap: 3, background: "transparent", border: "none", cursor: "pointer",
+              position: "relative",
+            }}
+          >
+            {tab.badge > 0 && (
+              <span style={{ position: "absolute", top: 8, left: "50%", marginLeft: 4, background: "#3B82F6", color: "#fff", borderRadius: 10, fontSize: 9, fontWeight: 700, padding: "1px 4px", minWidth: 14, textAlign: "center" }}>
+                {tab.badge > 9 ? "9+" : tab.badge}
+              </span>
+            )}
+            {tab.dotBadge && (
+              <span style={{ position: "absolute", top: 8, right: "calc(50% - 16px)", width: 8, height: 8, borderRadius: "50%", background: "#22C55E", border: "1.5px solid #fff" }} />
+            )}
+            {tab.icon(isActive)}
+            <span style={{ fontSize: 10, fontWeight: isActive ? 600 : 400, color: isActive ? activeColor : inactiveColor }}>{tab.label}</span>
           </button>
-          {/* Safe area spacer */}
-          <div style={{ height: "env(safe-area-inset-bottom, 8px)" }} />
-
-          </div>{/* end scrollable content */}
-        </div>
-      )}
-      <nav style={{
-        position: "fixed", bottom: 0, left: 0, right: 0, width: "100%",
-        height: "calc(60px + env(safe-area-inset-bottom, 0px))",
-        paddingBottom: "env(safe-area-inset-bottom, 0px)",
-        background: "#fff", zIndex: 9999, boxShadow: "0 -2px 12px rgba(0,0,0,0.1)",
-        display: "flex", alignItems: "flex-start",
-      }}>
-        {tabs.map(tab => {
-          const isActive = tab.key === "profile" ? isProfileActive : page === tab.key;
-          return (
-            <button
-              key={tab.key}
-              onClick={() => {
-                if (tab.key === "profile") {
-                  setProfileMenuOpen(o => !o);
-                } else {
-                  setProfileMenuOpen(false);
-                  setPage(tab.key);
-                  window.scrollTo({ top: 0, behavior: "instant" });
-                }
-              }}
-              style={{
-                flex: 1, height: 60, display: "flex", flexDirection: "column", alignItems: "center",
-                justifyContent: "center", gap: 3, background: "transparent", border: "none", cursor: "pointer",
-                position: "relative",
-              }}
-            >
-              {tab.badge > 0 && (
-                <span style={{ position: "absolute", top: 8, left: "50%", marginLeft: 4, background: "#3B82F6", color: "#fff", borderRadius: 10, fontSize: 9, fontWeight: 700, padding: "1px 4px", minWidth: 14, textAlign: "center" }}>
-                  {tab.badge > 9 ? "9+" : tab.badge}
-                </span>
-              )}
-              {tab.icon(isActive)}
-              <span style={{ fontSize: 10, fontWeight: isActive ? 600 : 400, color: isActive ? activeColor : inactiveColor }}>{tab.label}</span>
-            </button>
-          );
-        })}
-      </nav>
-    </>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -1731,21 +1666,6 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
                       </button>
                 )}
                 <div style={{ borderTop: "0.5px solid #f0f0f0", margin: "4px 0" }} />
-                {setDarkMode && (
-                  <button onClick={() => setDarkMode(d => !d)} style={{ ...ddItemStyle(false), justifyContent: "space-between" }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.75, flexShrink: 0 }}>
-                        {darkMode
-                          ? <><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></>
-                          : <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>}
-                      </svg>
-                      {darkMode ? "Light mode" : "Dark mode"}
-                    </span>
-                    <div style={{ width: 32, height: 18, borderRadius: 9, background: darkMode ? "#3B82F6" : "#CBD5E1", position: "relative", flexShrink: 0, transition: "background 0.2s" }}>
-                      <div style={{ position: "absolute", top: 2, left: darkMode ? 15 : 2, width: 14, height: 14, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.25)", transition: "left 0.2s" }} />
-                    </div>
-                  </button>
-                )}
                 { /* Saved searches */ }
                 <button onClick={() => go("saved-searches")} style={ddItemStyle(page === "saved-searches")}>
                   <span style={{ fontSize: 15 }}>🔍</span>Saved searches
@@ -1830,7 +1750,7 @@ function AuthPage({ setPage, onLoginSuccess, initialTab = "login" }) {
       });
     }
     if (freshUser?.user_metadata?.profile_complete) {
-      onLoginSuccess ? onLoginSuccess() : setPage("home");
+      onLoginSuccess ? onLoginSuccess(freshUser) : setPage("home");
     } else {
       setPage("profile-setup");
     }
@@ -1859,7 +1779,7 @@ function AuthPage({ setPage, onLoginSuccess, initialTab = "login" }) {
       });
     }
     if (freshUser?.user_metadata?.profile_complete) {
-      onLoginSuccess ? onLoginSuccess() : setPage("home");
+      onLoginSuccess ? onLoginSuccess(freshUser) : setPage("home");
     } else {
       setPage("profile-setup");
     }
@@ -3033,7 +2953,7 @@ function ProfileSetupPage({ user, setPage, setCelebration }) {
             type="submit"
             disabled={saving}
             style={{
-              flex: 2, height: 44, background: saving ? "#aaa" : "#3B82F6", color: saving ? "#fff" : "#1E3A5F",
+              flex: 2, height: 44, background: saving ? "#aaa" : "#3B82F6", color: "#fff",
               border: "none", borderRadius: 8, fontSize: 14, fontWeight: 500,
               cursor: saving ? "default" : "pointer",
             }}
@@ -3196,7 +3116,7 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
     padding: "0 12px", fontSize: 14, background: "#fff", boxSizing: "border-box",
   };
 
-  const [openSection, setOpenSection] = useState("account");
+  const [openSection, setOpenSection] = useState(null);
   const [acctWidth, setAcctWidth] = useState(() => typeof window !== "undefined" ? window.innerWidth : 1200);
   useEffect(() => {
     const onResize = () => setAcctWidth(window.innerWidth);
@@ -3250,101 +3170,94 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
     }, 1000);
   }
 
-  function SectionCard({ id, icon, title, children }) {
-    const isOpen = openSection === id;
+  const avatarUrl = user?.user_metadata?.avatar_url;
+
+  // Reusable sub-page nav header
+  function SubNav({ title }) {
     return (
-      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, marginBottom: "1rem", overflow: "hidden" }}>
-        <button onClick={() => setOpenSection(isOpen ? null : id)}
-          style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "14px 20px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
-          <span style={{ fontSize: 18 }}>{icon}</span>
-          <span style={{ flex: 1, fontSize: 15, fontWeight: 600, color: "#1E3A5F" }}>{title}</span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }}><path d="M6 9l6 6 6-6"/></svg>
+      <div style={{ background: "#1E3A5F", position: "sticky", top: 60, zIndex: 99, height: 52, display: "flex", alignItems: "center", flexShrink: 0 }}>
+        <button onClick={() => { setOpenSection(null); window.scrollTo({ top: 0, behavior: "instant" }); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#fff", display: "flex", alignItems: "center", padding: "8px 14px", lineHeight: 0 }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
         </button>
-        {isOpen && <div style={{ padding: "0 20px 20px", borderTop: "0.5px solid #f0f0f0" }}>{children}</div>}
+        <div style={{ flex: 1, textAlign: "center", color: "#fff", fontWeight: 600, fontSize: 16, marginRight: 44 }}>{title}</div>
       </div>
     );
   }
 
-  const avatarUrl = user?.user_metadata?.avatar_url;
+  const subPageWrap = { minHeight: "100vh", background: "#f5f5f5", paddingBottom: "calc(80px + env(safe-area-inset-bottom,0px))" };
+  const card = { background: "#fff", borderRadius: 14, padding: "20px", marginBottom: 12 };
 
   return (
-    <div ref={settingsPageRef} style={{ padding: "1.5rem 1.25rem", maxWidth: 600, margin: "0 auto" }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.75rem" }}>
-        <h2 style={{ fontSize: 22, fontWeight: 600, margin: 0, color: "#1E3A5F" }}>Settings</h2>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 13, color: "#64748B" }}>{darkMode ? "🌙 Dark" : "☀️ Light"}</span>
-          <button onClick={() => setDarkMode && setDarkMode(d => !d)}
-            style={{ width: 48, height: 26, borderRadius: 13, border: "none", background: darkMode ? "#3B82F6" : "#CBD5E1", cursor: "pointer", position: "relative", transition: "background 0.2s", padding: 0, flexShrink: 0 }}>
-            <div style={{ position: "absolute", top: 3, left: darkMode ? 24 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.2)", transition: "left 0.2s" }} />
-          </button>
-        </div>
-      </div>
+    <div>
 
-      {/* 1 — Account */}
-      <SectionCard id="account" icon="👤" title="Account">
-        <div style={{ paddingTop: 14 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: "1.25rem" }}>
-            {avatarUrl
-              ? <div style={{ width: 56, height: 56, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><img src={avatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
-              : <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#3B82F6", color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 600, flexShrink: 0 }}>{displayName.charAt(0).toUpperCase()}</div>}
-            <div style={{ flex: 1 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <div style={{ fontSize: 16, fontWeight: 600 }}>{displayName}</div>
-                <RoleBadge userRole={userProfile?.user_role} authRole={role} />
-              </div>
-              <div style={{ fontSize: 13, color: "#64748B", marginTop: 2 }}>{user?.email}</div>
-              {userProfile?.sequential_id && <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>{fmtId(userProfile.sequential_id)}</div>}
-            </div>
-          </div>
-          <button onClick={() => setPage("profile-setup")} style={{ padding: "9px 20px", borderRadius: 8, fontSize: 13, fontWeight: 500, border: "1.5px solid #1E3A5F", background: "transparent", color: "#1E3A5F", cursor: "pointer", minHeight: 44 }}>
-            Edit profile
-          </button>
-          {/* Profile completeness */}
-          {viewerRoleProfile && (() => {
-            const data = role === "lender"
-              ? { avatar_url: avatarUrl, bio: userProfile?.bio, location: userProfile?.location, budget_max: viewerRoleProfile.budget_max, return_type: viewerRoleProfile.return_type, preferred_projects: viewerRoleProfile.preferred_projects }
-              : { avatar_url: avatarUrl, bio: userProfile?.bio, location: userProfile?.location, specialization: viewerRoleProfile.specialization, projects_completed: viewerRoleProfile.projects_completed, verified_documents: user?.user_metadata?.verified_documents };
-            const { score, missing } = computeProfileCompleteness(data, role);
-            const barColor = score >= 80 ? "#1D9E75" : score >= 50 ? "var(--accent)" : "#D85A30";
-            return (
-              <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: "0.5px solid #f0f0f0" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                  <span style={{ fontSize: 13, fontWeight: 500, color: "#1E3A5F" }}>Profile completeness</span>
-                  <span style={{ fontSize: 15, fontWeight: 700, color: barColor }}>{score}%</span>
+      {/* ─── SUB: ACCOUNT ─────────────────────────────── */}
+      {openSection === "account" && (
+        <div style={subPageWrap}>
+          <SubNav title="Account" />
+          <div style={{ padding: "16px", maxWidth: 600, margin: "0 auto" }}>
+            <div style={card}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: "1.25rem" }}>
+                {avatarUrl
+                  ? <div style={{ width: 56, height: 56, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><img src={avatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
+                  : <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#3B82F6", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 600, flexShrink: 0 }}>{displayName.charAt(0).toUpperCase()}</div>}
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <div style={{ fontSize: 16, fontWeight: 600 }}>{displayName}</div>
+                    <RoleBadge userRole={userProfile?.user_role} authRole={role} />
+                  </div>
+                  <div style={{ fontSize: 13, color: "#64748B", marginTop: 2 }}>{user?.email}</div>
+                  {userProfile?.sequential_id && <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>{fmtId(userProfile.sequential_id)}</div>}
                 </div>
-                <div style={{ height: 6, background: "#f0f0f0", borderRadius: 3, marginBottom: 8 }}>
-                  <div style={{ height: 6, borderRadius: 3, background: barColor, width: `${score}%`, transition: "width 0.5s" }} />
-                </div>
-                {missing.length > 0 && <div style={{ fontSize: 12, color: "#64748B" }}>Still needed: {missing.map((m, i) => <span key={m.label}><span style={{ fontWeight: 500, color: "#555" }}>{m.label}</span>{i < missing.length - 1 ? " · " : ""}</span>)}</div>}
               </div>
-            );
-          })()}
-          {/* Connection requests */}
-          {role === "builder" && (user?.user_metadata?.connections || []).length > 0 && (
-            <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: "0.5px solid #f0f0f0" }}>
-              <div style={{ fontSize: 13, fontWeight: 500, color: "#64748B", marginBottom: 8 }}>Connection requests</div>
-              {(user.user_metadata.connections).map((conn, i) => {
-                const statusMap = { pending: { bg: "#DBEAFE", text: "#1D4ED8", label: "Pending" }, accepted: { bg: "#E1F5EE", text: "#0F6E56", label: "Accepted" }, declined: { bg: "#FAECE7", text: "#993C1D", label: "Declined" } };
-                const s = statusMap[conn.status] || statusMap.pending;
+              <button onClick={() => setPage("profile-setup")} style={{ padding: "9px 20px", borderRadius: 8, fontSize: 13, fontWeight: 500, border: "1.5px solid #1E3A5F", background: "transparent", color: "#1E3A5F", cursor: "pointer", minHeight: 44 }}>Edit profile</button>
+              {viewerRoleProfile && (() => {
+                const data = role === "lender"
+                  ? { avatar_url: avatarUrl, bio: userProfile?.bio, location: userProfile?.location, budget_max: viewerRoleProfile.budget_max, return_type: viewerRoleProfile.return_type, preferred_projects: viewerRoleProfile.preferred_projects }
+                  : { avatar_url: avatarUrl, bio: userProfile?.bio, location: userProfile?.location, specialization: viewerRoleProfile.specialization, projects_completed: viewerRoleProfile.projects_completed, verified_documents: user?.user_metadata?.verified_documents };
+                const { score, missing } = computeProfileCompleteness(data, role);
+                const barColor = score >= 80 ? "#1D9E75" : score >= 50 ? "var(--accent)" : "#D85A30";
                 return (
-                  <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: i < user.user_metadata.connections.length - 1 ? "0.5px solid #f0f0f0" : "none", gap: 10 }}>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 500 }}>{conn.lender_name}</div>
-                      <div style={{ fontSize: 11, color: "#64748B" }}>{conn.lender_type} · {new Date(conn.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</div>
+                  <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: "0.5px solid #f0f0f0" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 500, color: "#1E3A5F" }}>Profile completeness</span>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: barColor }}>{score}%</span>
                     </div>
-                    <span style={{ background: s.bg, color: s.text, fontSize: 11, padding: "3px 8px", borderRadius: 20, fontWeight: 500, flexShrink: 0 }}>{s.label}</span>
+                    <div style={{ height: 6, background: "#f0f0f0", borderRadius: 3, marginBottom: 8 }}>
+                      <div style={{ height: 6, borderRadius: 3, background: barColor, width: `${score}%`, transition: "width 0.5s" }} />
+                    </div>
+                    {missing.length > 0 && <div style={{ fontSize: 12, color: "#64748B" }}>Still needed: {missing.map((m, i) => <span key={m.label}><span style={{ fontWeight: 500, color: "#555" }}>{m.label}</span>{i < missing.length - 1 ? " · " : ""}</span>)}</div>}
                   </div>
                 );
-              })}
+              })()}
+              {role === "builder" && (user?.user_metadata?.connections || []).length > 0 && (
+                <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: "0.5px solid #f0f0f0" }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: "#64748B", marginBottom: 8 }}>Connection requests</div>
+                  {(user.user_metadata.connections).map((conn, i) => {
+                    const statusMap = { pending: { bg: "#DBEAFE", text: "#1D4ED8", label: "Pending" }, accepted: { bg: "#E1F5EE", text: "#0F6E56", label: "Accepted" }, declined: { bg: "#FAECE7", text: "#993C1D", label: "Declined" } };
+                    const s = statusMap[conn.status] || statusMap.pending;
+                    return (
+                      <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: i < user.user_metadata.connections.length - 1 ? "0.5px solid #f0f0f0" : "none", gap: 10 }}>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 500 }}>{conn.lender_name}</div>
+                          <div style={{ fontSize: 11, color: "#64748B" }}>{conn.lender_type} · {new Date(conn.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</div>
+                        </div>
+                        <span style={{ background: s.bg, color: s.text, fontSize: 11, padding: "3px 8px", borderRadius: 20, fontWeight: 500, flexShrink: 0 }}>{s.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
-      </SectionCard>
+      )}
 
-      {/* Companies House — builders only */}
-      {role === "builder" && (
-        <SectionCard id="companies-house" icon="🏢" title="Companies House Verification">
+      {/* ─── SUB: COMPANIES HOUSE ─────────────────────── */}
+      {openSection === "companies-house" && role === "builder" && (
+        <div style={subPageWrap}>
+          <SubNav title="Companies House" />
+          <div style={{ padding: "16px", maxWidth: 600, margin: "0 auto" }}>
+            <div style={card}>
           <div style={{ paddingTop: 14 }}>
             <label style={{ fontSize: 14, fontWeight: 700, color: "#1E3A5F", display: "block", marginBottom: 4 }}>
               Companies House number
@@ -3449,410 +3362,353 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
               {chPending && !chVerified && <span style={{ fontSize: 11, background: "#92400E", color: "#fff", padding: "2px 8px", borderRadius: 20, fontWeight: 600 }}>⏳ Pending Verification</span>}
               <span style={{ fontSize: 11, color: "#94a3b8" }}>Registration number is on your incorporation certificate</span>
             </div>
+            </div>
           </div>
-        </SectionCard>
+        </div>
       )}
 
-      {/* 2 — Appearance */}
-      <SectionCard id="appearance" icon="🎨" title="Appearance">
-        <div style={{ paddingTop: 16, overflowAnchor: "none" }}>
+      {/* ─── SUB: APPEARANCE ──────────────────────────────── */}
+      {openSection === "appearance" && (
+        <div style={{ ...subPageWrap, paddingBottom: "calc(120px + env(safe-area-inset-bottom,0px))" }}>
+          <SubNav title="Appearance" />
+          <div style={{ padding: "16px 20px", maxWidth: 600, margin: "0 auto" }}>
 
-          {/* ── Dark mode ───────────────────────────────────────────────── */}
-          <div style={{ marginBottom: "1.5rem" }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Theme</div>
-            <button
-              onClick={() => setDarkMode && setDarkMode(d => !d)}
-              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "12px 14px", borderRadius: 12, border: "1.5px solid", borderColor: "#e0e0e0", background: "transparent", cursor: "pointer", minHeight: 52, gap: 10 }}
-              aria-label="Toggle dark mode"
-            >
-              <span style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontWeight: 500, color: "#374151" }}>
-                <span style={{ fontSize: 20 }}>{darkMode ? "🌙" : "☀️"}</span>
-                {darkMode ? "Dark mode" : "Light mode"}
-              </span>
-              <div style={{ position: "relative", width: 56, height: 30, borderRadius: 15, background: darkMode ? "var(--accent,#3B82F6)" : "#CBD5E1", flexShrink: 0, transition: "background 0.2s" }}>
-                <div style={{ position: "absolute", top: 5, left: darkMode ? 29 : 5, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.25)", transition: "left 0.2s" }} />
-              </div>
-            </button>
-          </div>
-
-          {/* ── Colour scheme ───────────────────────────────────────────── */}
-          <div style={{ marginBottom: "1.5rem" }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 4 }}>Colour scheme</div>
-            <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 12 }}>
-              {ACCENT_PRESETS.find(p => p.value === accentColor)?.label ?? "Custom"} — applies instantly
-            </div>
-            {/* 4×2 grid of colour circles */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: isMobileAcct ? 16 : 12 }}>
-              {ACCENT_PRESETS.map(p => {
-                const isSelected = accentColor === p.value;
-                return (
-                  <button
-                    key={p.value}
-                    onClick={() => setAccentColor && setAccentColor(p.value)}
-                    title={p.label}
-                    style={{
-                      width: 56, height: 56, borderRadius: "50%", padding: 0, cursor: "pointer",
-                      background: p.value, justifySelf: "center",
-                      border: "none", outline: "none",
-                      boxShadow: isSelected ? `0 0 0 3px #fff, 0 0 0 5px ${p.value}` : "none",
-                      transition: "box-shadow 0.15s",
-                      transform: "none",
-                      position: "relative",
-                      flexShrink: 0,
-                    }}
-                  >
-                    {isSelected && (
-                      <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 20, fontWeight: 700, lineHeight: 1, pointerEvents: "none" }}>✓</span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* ── Font size ───────────────────────────────────────────────── */}
-          <div style={{ marginBottom: "1.5rem" }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Font size</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              {[
-                { key: "small",  label: isMobileAcct ? "S" : "Small",  desc: "13px" },
-                { key: "normal", label: isMobileAcct ? "M" : "Normal", desc: "15px" },
-                { key: "large",  label: isMobileAcct ? "L" : "Large",  desc: "18px" },
-              ].map(f => {
-                const isSelected = fontSize === f.key;
-                return (
-                  <button key={f.key} onClick={e => { e.preventDefault(); const sy = window.scrollY; setFontSize && setFontSize(f.key); requestAnimationFrame(() => window.scrollTo({ top: sy, behavior: "instant" })); }}
-                    style={{ flex: 1, padding: "10px 8px", borderRadius: 10, border: "1.5px solid", borderColor: isSelected ? "var(--accent,#3B82F6)" : "#e0e0e0", background: isSelected ? "var(--accent-bg,#EBF2FF)" : "transparent", color: isSelected ? "var(--accent,#1E3A5F)" : "#64748B", fontSize: isMobileAcct ? 16 : 13, fontWeight: 600, cursor: "pointer", transition: "color 0.15s, background 0.15s, border-color 0.15s", minHeight: 52, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3 }}>
-                    <span style={{ fontSize: isMobileAcct ? 18 : 14, fontWeight: 700 }}>{f.label}</span>
-                    {!isMobileAcct && <span style={{ fontSize: 10, opacity: 0.7 }}>{f.desc}</span>}
-                  </button>
-                );
-              })}
-            </div>
-            <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 6 }}>S = 13px · M = 15px · L = 18px — applies instantly</div>
-          </div>
-
-          {/* ── Layout density ──────────────────────────────────────────── */}
-          <div style={{ marginBottom: "1.5rem" }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Layout density</div>
-            <div style={{ display: "flex", flexDirection: isMobileAcct ? "column" : "row", gap: 8 }}>
-              {[
-                { key: "comfortable", label: "Comfortable", desc: "More breathing room", icon: "⬜" },
-                { key: "compact",     label: "Compact",     desc: "Denser layout", icon: "▪️" },
-              ].map(d => {
-                const isSelected = density === d.key;
-                return (
-                  <button key={d.key} onClick={e => { e.preventDefault(); setDensity && setDensity(d.key); }}
-                    style={{ flex: 1, padding: isMobileAcct ? "14px 16px" : "8px 16px", borderRadius: 10, border: "1.5px solid", borderColor: isSelected ? "var(--accent,#3B82F6)" : "#e0e0e0", background: isSelected ? "var(--accent-bg,#EBF2FF)" : "transparent", color: isSelected ? "var(--accent,#1E3A5F)" : "#64748B", fontSize: 14, fontWeight: 600, cursor: "pointer", transition: "color 0.15s, background 0.15s, border-color 0.15s", minHeight: 52, display: "flex", alignItems: "center", justifyContent: isMobileAcct ? "flex-start" : "center", gap: 8 }}>
-                    <span style={{ fontSize: 16 }}>{d.icon}</span>
-                    <span>{d.label}</span>
-                    {isMobileAcct && <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: 4 }}>{d.desc}</span>}
-                    {isSelected && <span style={{ marginLeft: "auto", color: "var(--accent,#3B82F6)", fontSize: 16 }}>✓</span>}
-                  </button>
-                );
-              })}
-            </div>
-            <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 6 }}>Compact reduces padding by ~30%</div>
-          </div>
-
-          {/* ── Device layout ───────────────────────────────────────────── */}
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Device layout</div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {[
-                { key: "auto",    label: "Auto",    icon: "🔄" },
-                { key: "mobile",  label: "Mobile",  icon: "📱" },
-                { key: "desktop", label: "Desktop", icon: "💻" },
-              ].map(d => {
-                const isSelected = devPref === d.key;
-                return (
-                  <button key={d.key} onClick={e => {
-                    e.preventDefault();
-                    try { localStorage.setItem("lb_device_preference", d.key); } catch {}
-                    setDevPrefState(d.key);
-                    document.body.classList.remove("lb-mobile-layout", "lb-desktop-layout");
-                    if (d.key === "mobile") document.body.classList.add("lb-mobile-layout");
-                    if (d.key === "desktop") document.body.classList.add("lb-desktop-layout");
-                  }}
-                    style={{ flex: 1, padding: "10px 8px", borderRadius: 10, border: "1.5px solid", borderColor: isSelected ? "var(--accent,#3B82F6)" : "#e0e0e0", background: isSelected ? "var(--accent-bg,#EBF2FF)" : "transparent", color: isSelected ? "var(--accent,#1E3A5F)" : "#64748B", fontSize: 13, fontWeight: 600, cursor: "pointer", transition: "color 0.15s, background 0.15s, border-color 0.15s", minHeight: 48, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
-                    <span style={{ fontSize: 18 }}>{d.icon}</span>
-                    <span>{d.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 6 }}>Controls bottom nav vs. sidebar layout</div>
-          </div>
-
-          {/* ── Save appearance ──────────────────────────────────────────── */}
-          <div style={{ marginTop: "1.5rem", display: "flex", alignItems: "center", gap: 12 }}>
-            <button
-              onClick={saveAppearance}
-              style={{ flex: 1, height: 46, background: "var(--accent,#3B82F6)", color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 600, cursor: "pointer" }}
-            >
-              Save preferences
-            </button>
-            {appearanceSaved && (
-              <span style={{ fontSize: 13, color: "#16A34A", fontWeight: 600, display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                ✓ Saved!
-              </span>
-            )}
-          </div>
-
-        </div>
-      </SectionCard>
-
-      {/* 3 — Notifications */}
-      <SectionCard id="notifications" icon="🔔" title="Notifications">
-        <div style={{ paddingTop: 14 }}>
-          {[
-            { key: "new_connections", label: "New connection requests" },
-            { key: "new_messages",    label: "New messages" },
-            { key: "deal_updates",    label: "Deal updates" },
-            { key: "milestones",      label: "Milestone approvals" },
-          ].map(({ key, label }) => (
-            <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "0.5px solid #f8f8f8" }}>
-              <span style={{ fontSize: 14, color: "#374151" }}>{label}</span>
-              <button onClick={() => toggleNotif(key)}
-                style={{ width: 44, height: 24, borderRadius: 12, border: "none", background: notifPrefs[key] !== false ? "#3B82F6" : "#CBD5E1", cursor: "pointer", position: "relative", transition: "background 0.2s", padding: 0 }}>
-                <div style={{ position: "absolute", top: 3, left: notifPrefs[key] !== false ? 22 : 3, width: 18, height: 18, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", transition: "left 0.2s" }} />
-              </button>
-            </div>
-          ))}
-        </div>
-      </SectionCard>
-
-      {/* 4 — Privacy */}
-      <SectionCard id="privacy" icon="🔐" title="Privacy">
-        <div style={{ paddingTop: 14 }}>
-          {[
-            { key: "hide_from_search",   label: "Hide profile from search",     desc: "Your profile won't appear in lender/builder search results" },
-            { key: "hide_email",         label: "Hide email from connections",   desc: "Connections can only contact you through in-app messages" },
-            { key: "hide_online_status", label: "Hide online status",            desc: "Others won't see when you were last active" },
-            { key: "hide_deal_count",    label: "Hide deal count from profile",  desc: "Your number of completed deals won't be public" },
-          ].map(({ key, label, desc }) => (
-            <div key={key} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: "10px 0", borderBottom: "0.5px solid #f8f8f8", gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 14, color: "#374151", fontWeight: 500 }}>{label}</div>
-                <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 2, lineHeight: 1.4 }}>{desc}</div>
-              </div>
-              <button onClick={() => togglePrivacy(key)}
-                style={{ width: 44, height: 24, borderRadius: 12, border: "none", background: privacyPrefs[key] ? "#3B82F6" : "#CBD5E1", cursor: "pointer", position: "relative", transition: "background 0.2s", padding: 0, flexShrink: 0, marginTop: 2 }}>
-                <div style={{ position: "absolute", top: 3, left: privacyPrefs[key] ? 22 : 3, width: 18, height: 18, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", transition: "left 0.2s" }} />
-              </button>
-            </div>
-          ))}
-          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "0.5px solid #f0f0f0", display: "flex", flexDirection: "column", gap: 4 }}>
-            <button onClick={() => setPage("privacy")}
-              style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", background: "transparent", border: "none", cursor: "pointer", width: "100%", textAlign: "left", fontSize: 14, color: "#374151" }}
-              onMouseEnter={e => e.currentTarget.style.color = "#1E3A5F"}
-              onMouseLeave={e => e.currentTarget.style.color = "#374151"}>
-              <span style={{ fontSize: 16 }}>📄</span>
-              Privacy Policy
-              <svg style={{ marginLeft: "auto" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
-            </button>
-            <button onClick={() => { if (window.confirm("Are you sure you want to delete your account? This is permanent and cannot be undone.")) { window.location.href = "mailto:lenderbuild.support@gmail.com?subject=Account deletion request"; } }}
-              style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", background: "transparent", border: "none", cursor: "pointer", width: "100%", textAlign: "left", fontSize: 14, color: "#DC2626" }}>
-              <span style={{ fontSize: 16 }}>🗑️</span>
-              Request account deletion
-            </button>
-          </div>
-        </div>
-      </SectionCard>
-
-      {/* 5 — Security (2FA + Identity Verification) */}
-      <SectionCard id="security" icon="🔒" title="Security">
-        <div style={{ paddingTop: 14 }}>
-          {error && <div style={{ background: "#FAECE7", color: "#993C1D", border: "0.5px solid #F5C9BB", borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: "1rem" }}>{error}</div>}
-          {success && <div style={{ background: "#EBF2FF", color: "#1E3A5F", border: "0.5px solid #A8DFC9", borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: "1rem" }}>{success}</div>}
-
-          {/* Identity Verification */}
-          <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: "0.5px solid #f0f0f0" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Identity verification</div>
-              {idVerified && <span style={{ fontSize: 11, background: "#D97706", color: "#fff", padding: "2px 8px", borderRadius: 20, fontWeight: 600 }}>🪪 ID Verified</span>}
-            </div>
-            {idVerified ? (
-              <p style={{ fontSize: 13, color: "#666", lineHeight: 1.6, margin: 0 }}>
-                Your identity has been verified. A gold <strong>ID Verified</strong> badge appears on your profile.
-              </p>
-            ) : (
-              <>
-                <p style={{ fontSize: 13, color: "#666", lineHeight: 1.6, marginTop: 0, marginBottom: "0.75rem" }}>
-                  Verify your identity with a government-issued ID and selfie (powered by Stripe Identity). Adds a gold <strong>ID Verified</strong> badge to your profile. ~£1.50 charge applies.
-                </p>
-                {idError && <div style={{ background: "#FEE2E2", color: "#991B1B", borderRadius: 8, padding: "8px 12px", fontSize: 13, marginBottom: 10 }}>{idError}</div>}
-                <button
-                  disabled={idLoading}
-                  onClick={async () => {
-                    setIdLoading(true); setIdError("");
-                    try {
-                      const { data: { session } } = await supabase.auth.getSession();
-                      const r = await fetch("/api/save-profile", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-                        body: JSON.stringify({ action: "create-identity-session" }),
-                      });
-                      const d = await r.json();
-                      if (!r.ok) setIdError(d.error || "Could not start verification.");
-                      else if (d.url) window.location.href = d.url;
-                    } catch { setIdError("Something went wrong. Please try again."); }
-                    setIdLoading(false);
-                  }}
-                  style={{ padding: "8px 20px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 600, border: "none", background: idLoading ? "#aaa" : "#D97706", color: "#fff", cursor: idLoading ? "default" : "pointer" }}
-                >
-                  {idLoading ? "Starting…" : "Verify your identity →"}
-                </button>
-              </>
-            )}
-          </div>
-
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Two-factor authentication</div>
-          {enrollStep === "idle" && (
-            activeFactor ? (
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "1rem" }}>
-                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#3B82F6", flexShrink: 0 }} />
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 500 }}>Authenticator app enabled</div>
-                    <div style={{ fontSize: 12, color: "#64748B" }}>Your account is protected with 2FA.</div>
-                  </div>
+            {/* Dark mode */}
+            <div style={{ marginBottom: "1.5rem" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Theme</div>
+              <button onClick={() => setDarkMode && setDarkMode(d => !d)}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "12px 14px", borderRadius: 12, border: "1.5px solid #e0e0e0", background: "#fff", cursor: "pointer", minHeight: 52, gap: 10 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontWeight: 500, color: "#374151" }}>
+                  <span style={{ fontSize: 20 }}>{darkMode ? "🌙" : "☀️"}</span>
+                  {darkMode ? "Dark mode" : "Light mode"}
+                </span>
+                <div style={{ position: "relative", width: 56, height: 30, borderRadius: 15, background: darkMode ? "var(--accent,#3B82F6)" : "#CBD5E1", flexShrink: 0, transition: "background 0.2s" }}>
+                  <div style={{ position: "absolute", top: 5, left: darkMode ? 29 : 5, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.25)", transition: "left 0.2s" }} />
                 </div>
-                <button onClick={() => unenroll(activeFactor.id)} disabled={loading}
-                  style={{ padding: "8px 16px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, border: "0.5px solid #F5C9BB", background: "#FAECE7", color: "#993C1D", cursor: loading ? "default" : "pointer" }}>
-                  {loading ? "Disabling..." : "Disable 2FA"}
-                </button>
+              </button>
+            </div>
+
+            {/* Colour scheme */}
+            <div style={{ marginBottom: "1.5rem" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 4 }}>Colour scheme</div>
+              <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 12 }}>{ACCENT_PRESETS.find(p => p.value === accentColor)?.label ?? "Custom"} — applies instantly</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+                {ACCENT_PRESETS.map(p => {
+                  const isSelected = accentColor === p.value;
+                  return (
+                    <button key={p.value} onClick={() => setAccentColor && setAccentColor(p.value)} title={p.label}
+                      style={{ width: 56, height: 56, borderRadius: "50%", padding: 0, cursor: "pointer", background: p.value, justifySelf: "center", border: "none", outline: "none", boxShadow: isSelected ? `0 0 0 3px #fff, 0 0 0 5px ${p.value}` : "none", transition: "box-shadow 0.15s", position: "relative" }}>
+                      {isSelected && <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 20, fontWeight: 700, pointerEvents: "none" }}>✓</span>}
+                    </button>
+                  );
+                })}
               </div>
-            ) : (
-              <div>
-                <p style={{ fontSize: 13, color: "#666", lineHeight: 1.6, marginTop: 0, marginBottom: "1rem" }}>
-                  Add an extra layer of security. Once enabled, you'll need a code from your authenticator app each time you log in.
-                </p>
-                <button onClick={startEnroll} disabled={loading}
-                  style={{ padding: "8px 20px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, border: "none", background: "#3B82F6", color: "#FFFFFF", cursor: loading ? "default" : "pointer" }}>
-                  {loading ? "Setting up..." : "Set up authenticator app"}
-                </button>
+            </div>
+
+            {/* Font size */}
+            <div style={{ marginBottom: "1.5rem" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Font size</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[{ key: "small", label: "Small", desc: "13px" }, { key: "normal", label: "Normal", desc: "15px" }, { key: "large", label: "Large", desc: "18px" }].map(f => {
+                  const isSel = fontSize === f.key;
+                  return (
+                    <button key={f.key} onClick={e => { e.preventDefault(); const sy = window.scrollY; setFontSize && setFontSize(f.key); requestAnimationFrame(() => window.scrollTo({ top: sy, behavior: "instant" })); }}
+                      style={{ flex: 1, padding: "10px 8px", borderRadius: 10, border: "1.5px solid", borderColor: isSel ? "var(--accent,#3B82F6)" : "#e0e0e0", background: isSel ? "var(--accent-bg,#EBF2FF)" : "#fff", color: isSel ? "var(--accent,#1E3A5F)" : "#64748B", fontSize: 13, fontWeight: 600, cursor: "pointer", minHeight: 52, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3 }}>
+                      <span style={{ fontSize: 14, fontWeight: 700 }}>{f.label}</span>
+                      <span style={{ fontSize: 10, opacity: 0.7 }}>{f.desc}</span>
+                    </button>
+                  );
+                })}
               </div>
-            )
-          )}
-          {enrollStep === "scan" && enrollData && (
+            </div>
+
+            {/* Density */}
+            <div style={{ marginBottom: "1.5rem" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Layout density</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[{ key: "comfortable", label: "Comfortable", icon: "⬜" }, { key: "compact", label: "Compact", icon: "▪️" }].map(d => {
+                  const isSel = density === d.key;
+                  return (
+                    <button key={d.key} onClick={e => { e.preventDefault(); setDensity && setDensity(d.key); }}
+                      style={{ flex: 1, padding: "14px 16px", borderRadius: 10, border: "1.5px solid", borderColor: isSel ? "var(--accent,#3B82F6)" : "#e0e0e0", background: isSel ? "var(--accent-bg,#EBF2FF)" : "#fff", color: isSel ? "var(--accent,#1E3A5F)" : "#64748B", fontSize: 14, fontWeight: 600, cursor: "pointer", minHeight: 52, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 16 }}>{d.icon}</span><span>{d.label}</span>
+                      {isSel && <span style={{ marginLeft: "auto", color: "var(--accent,#3B82F6)" }}>✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Device layout */}
             <div>
-              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Step 1 — Scan QR code</div>
-              <p style={{ fontSize: 13, color: "#666", lineHeight: 1.6, marginTop: 0, marginBottom: "1.25rem" }}>Open Google Authenticator, Authy or any TOTP app and scan this QR code.</p>
-              <div style={{ display: "flex", justifyContent: "center", marginBottom: "1.25rem" }}>
-                <div style={{ padding: 12, background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, display: "inline-block" }}>
-                  <img src={enrollData.qr_code} alt="QR code" style={{ width: 180, height: 180, display: "block" }} />
-                </div>
-              </div>
-              <details style={{ marginBottom: "1.25rem" }}>
-                <summary style={{ fontSize: 12, color: "#64748B", cursor: "pointer" }}>Can't scan? Enter secret manually</summary>
-                <div style={{ marginTop: 8, padding: "8px 12px", background: "#f5f5f3", borderRadius: 8, fontFamily: "monospace", fontSize: 13, letterSpacing: "0.1em", wordBreak: "break-all" }}>{enrollData.secret}</div>
-              </details>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Device layout</div>
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => setEnrollStep("verify")} style={{ flex: 1, height: 44, background: "#3B82F6", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Next — Enter code</button>
-                <button onClick={cancelEnroll} style={{ padding: "0 16px", height: 44, background: "transparent", color: "#555", border: "0.5px solid #ccc", borderRadius: 8, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+                {[{ key: "auto", label: "Auto", icon: "🔄" }, { key: "mobile", label: "Mobile", icon: "📱" }, { key: "desktop", label: "Desktop", icon: "💻" }].map(d => {
+                  const isSel = devPref === d.key;
+                  return (
+                    <button key={d.key} onClick={e => { e.preventDefault(); try { localStorage.setItem("lb_device_preference", d.key); } catch {} setDevPrefState(d.key); document.body.classList.remove("lb-mobile-layout", "lb-desktop-layout"); if (d.key === "mobile") document.body.classList.add("lb-mobile-layout"); if (d.key === "desktop") document.body.classList.add("lb-desktop-layout"); }}
+                      style={{ flex: 1, padding: "10px 8px", borderRadius: 10, border: "1.5px solid", borderColor: isSel ? "var(--accent,#3B82F6)" : "#e0e0e0", background: isSel ? "var(--accent-bg,#EBF2FF)" : "#fff", color: isSel ? "var(--accent,#1E3A5F)" : "#64748B", fontSize: 13, fontWeight: 600, cursor: "pointer", minHeight: 48, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                      <span style={{ fontSize: 18 }}>{d.icon}</span><span>{d.label}</span>
+                    </button>
+                  );
+                })}
               </div>
+              <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 6 }}>Controls bottom nav vs. sidebar layout</div>
             </div>
-          )}
-          {enrollStep === "verify" && (
-            <form onSubmit={verifyEnroll}>
-              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Step 2 — Verify code</div>
-              <p style={{ fontSize: 13, color: "#666", lineHeight: 1.6, marginTop: 0, marginBottom: "1.25rem" }}>Enter the 6-digit code from your authenticator app.</p>
-              <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6} required value={verifyCode} onChange={e => setVerifyCode(e.target.value.replace(/\D/g, ""))} placeholder="000000"
-                style={{ width: "100%", height: 44, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 12px", fontSize: 20, background: "#fff", boxSizing: "border-box", letterSpacing: "0.3em", textAlign: "center", marginBottom: "1rem" }} autoFocus />
-              <div style={{ display: "flex", gap: 8 }}>
-                <button type="submit" disabled={loading || verifyCode.length < 6} style={{ flex: 1, height: 44, background: loading ? "#aaa" : "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: loading ? "default" : "pointer" }}>{loading ? "Verifying..." : "Enable 2FA"}</button>
-                <button type="button" onClick={() => setEnrollStep("scan")} style={{ padding: "0 16px", height: 44, background: "transparent", color: "#555", border: "0.5px solid #ccc", borderRadius: 8, fontSize: 13, cursor: "pointer" }}>Back</button>
-              </div>
-            </form>
-          )}
-        </div>
-      </SectionCard>
-
-      {/* 5b — My Connections (Feature 2) */}
-      <SectionCard id="connections" icon="🤝" title="My Connections">
-        <div style={{ paddingTop: 14 }}>
-          {(() => {
-            const connections = user?.user_metadata?.connections || [];
-            const accepted = connections.filter(c => c.status === "accepted");
-            const pending  = connections.filter(c => c.status === "pending");
-            const builderConnections = user?.user_metadata?.builder_connections || [];
-            const sentToBuilders = builderConnections.filter(c => c.status === "sent" || c.status === "accepted");
-
-            return (
-              <>
-                {accepted.length > 0 && (
-                  <div style={{ marginBottom: 20 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "#166534", marginBottom: 10 }}>
-                      Connected ({accepted.length})
-                    </div>
-                    {accepted.map((c, i) => (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "0.5px solid #f8f8f8" }}>
-                        <Avatar initials={nameInitials(c.lender_name)} color={pickColor(c.lender_name || "")} size={32} />
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 500 }}>{c.lender_name}</div>
-                          <div style={{ fontSize: 11, color: "#64748B" }}>{c.lender_type || "Lender"}</div>
-                        </div>
-                        <span style={{ fontSize: 11, background: "#DCFCE7", color: "#166534", padding: "2px 8px", borderRadius: 20, fontWeight: 500 }}>Connected</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {pending.length > 0 && (
-                  <PendingSentRequests requests={pending} user={user} />
-                )}
-
-                {sentToBuilders.length > 0 && (
-                  <div style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "#2E5FA3", marginBottom: 10 }}>
-                      Builder connections ({sentToBuilders.length})
-                    </div>
-                    {sentToBuilders.map((c, i) => (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "0.5px solid #f8f8f8" }}>
-                        <Avatar initials={nameInitials(c.builder_name)} color={pickColor(c.builder_name || "")} size={32} />
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 500 }}>{c.builder_name}</div>
-                          <div style={{ fontSize: 11, color: "#64748B" }}>{c.builder_type || "Builder"}</div>
-                        </div>
-                        <span style={{ fontSize: 11, background: c.status === "accepted" ? "#DCFCE7" : "#EBF2FF", color: c.status === "accepted" ? "#166534" : "#1E3A5F", padding: "2px 8px", borderRadius: 20, fontWeight: 500, textTransform: "capitalize" }}>{c.status}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {accepted.length === 0 && pending.length === 0 && sentToBuilders.length === 0 && (
-                  <div style={{ textAlign: "center", padding: "1.5rem 0", color: "#94A3B8", fontSize: 13 }}>
-                    No connections yet. Browse lenders or builders to connect.
-                  </div>
-                )}
-              </>
-            );
-          })()}
-        </div>
-      </SectionCard>
-
-      {/* 6 — Help & Support */}
-      <SectionCard id="help" icon="❓" title="Help & Support">
-        <div style={{ paddingTop: 14, display: "flex", flexDirection: "column", gap: 4 }}>
-          {[
-            { label: "How it works", action: () => setPage("how-it-works"), icon: "📖" },
-            { label: "Trust & Safety", action: () => setPage("safety"), icon: "🛡️" },
-            { label: "Contact support", action: () => { window.location.href = "mailto:lenderbuild.support@gmail.com"; }, icon: "✉️" },
-            { label: "Replay onboarding tour", action: onReplayTour, icon: "🎬" },
-            { label: "System status", action: () => setPage("status"), icon: "🟢" },
-          ].map(({ label, action, icon }) => (
-            <button key={label} onClick={action}
-              style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", background: "transparent", border: "none", borderBottom: "0.5px solid #f8f8f8", cursor: "pointer", width: "100%", textAlign: "left", fontSize: 14, color: "#374151" }}
-              onMouseEnter={e => e.currentTarget.style.color = "#1E3A5F"}
-              onMouseLeave={e => e.currentTarget.style.color = "#374151"}>
-              <span style={{ fontSize: 16 }}>{icon}</span>
-              {label}
-              <svg style={{ marginLeft: "auto" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+          </div>
+          {/* Sticky save button */}
+          <div style={{ position: "fixed", bottom: "calc(60px + env(safe-area-inset-bottom,0px))", left: 0, right: 0, padding: "12px 20px", background: "#fff", borderTop: "1px solid #f0f0f0", zIndex: 90 }}>
+            <button onClick={saveAppearance} style={{ width: "100%", height: 46, background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+              {appearanceSaved ? "✓ Saved!" : "Save preferences"}
             </button>
-          ))}
+          </div>
         </div>
-      </SectionCard>
+      )}
+
+      {/* ─── SUB: NOTIFICATIONS ───────────────────────────── */}
+      {openSection === "notifications" && (
+        <div style={subPageWrap}>
+          <SubNav title="Notifications" />
+          <div style={{ padding: "16px", maxWidth: 600, margin: "0 auto" }}>
+            <div style={card}>
+              {[
+                { key: "new_connections", label: "New connection requests" },
+                { key: "new_messages",    label: "New messages" },
+                { key: "deal_updates",    label: "Deal updates" },
+                { key: "milestones",      label: "Milestone approvals" },
+              ].map(({ key, label }) => (
+                <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0", borderBottom: "0.5px solid #f5f5f5" }}>
+                  <span style={{ fontSize: 15, color: "#1E3A5F", fontWeight: 500 }}>{label}</span>
+                  <button onClick={() => toggleNotif(key)}
+                    style={{ width: 48, height: 26, borderRadius: 13, border: "none", background: notifPrefs[key] !== false ? "#3B82F6" : "#CBD5E1", cursor: "pointer", position: "relative", transition: "background 0.2s", padding: 0, flexShrink: 0 }}>
+                    <div style={{ position: "absolute", top: 3, left: notifPrefs[key] !== false ? 24 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", transition: "left 0.2s" }} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── SUB: PRIVACY ─────────────────────────────────── */}
+      {openSection === "privacy" && (
+        <div style={subPageWrap}>
+          <SubNav title="Privacy" />
+          <div style={{ padding: "16px", maxWidth: 600, margin: "0 auto" }}>
+            <div style={card}>
+              {[
+                { key: "hide_from_search",   label: "Hide profile from search",    desc: "Won't appear in lender/builder search results" },
+                { key: "hide_email",         label: "Hide email from connections",  desc: "Contact only through in-app messages" },
+                { key: "hide_online_status", label: "Hide online status",           desc: "Others won't see when you were last active" },
+                { key: "hide_deal_count",    label: "Hide deal count",              desc: "Your completed deal count won't be public" },
+              ].map(({ key, label, desc }) => (
+                <div key={key} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: "12px 0", borderBottom: "0.5px solid #f5f5f5", gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 15, color: "#1E3A5F", fontWeight: 500 }}>{label}</div>
+                    <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 3, lineHeight: 1.4 }}>{desc}</div>
+                  </div>
+                  <button onClick={() => togglePrivacy(key)}
+                    style={{ width: 48, height: 26, borderRadius: 13, border: "none", background: privacyPrefs[key] ? "#3B82F6" : "#CBD5E1", cursor: "pointer", position: "relative", transition: "background 0.2s", padding: 0, flexShrink: 0, marginTop: 2 }}>
+                    <div style={{ position: "absolute", top: 3, left: privacyPrefs[key] ? 24 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", transition: "left 0.2s" }} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div style={{ ...card, marginTop: 0 }}>
+              <button onClick={() => setPage("privacy")} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "4px 0", background: "transparent", border: "none", cursor: "pointer", fontSize: 15, color: "#1E3A5F", fontWeight: 500 }}>
+                <span>📄</span><span style={{ flex: 1 }}>Privacy Policy</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+              <div style={{ height: 1, background: "#f5f5f5", margin: "12px 0" }} />
+              <button onClick={() => { if (window.confirm("Are you sure? This cannot be undone.")) { window.location.href = "mailto:lenderbuild.support@gmail.com?subject=Account deletion request"; } }}
+                style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "4px 0", background: "transparent", border: "none", cursor: "pointer", fontSize: 15, color: "#DC2626", fontWeight: 500 }}>
+                <span>🗑️</span>Request account deletion
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── SUB: SECURITY ────────────────────────────────── */}
+      {openSection === "security" && (
+        <div style={subPageWrap}>
+          <SubNav title="Security" />
+          <div style={{ padding: "16px", maxWidth: 600, margin: "0 auto" }}>
+            {error   && <div style={{ background: "#FAECE7", color: "#993C1D", borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: 12 }}>{error}</div>}
+            {success && <div style={{ background: "#EBF2FF", color: "#1E3A5F", borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: 12 }}>{success}</div>}
+            <div style={{ ...card, marginBottom: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#1E3A5F", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                Identity verification
+                {idVerified && <span style={{ fontSize: 11, background: "#D97706", color: "#fff", padding: "2px 8px", borderRadius: 20, fontWeight: 600 }}>🪪 ID Verified</span>}
+              </div>
+              {idVerified ? (
+                <p style={{ fontSize: 13, color: "#666", lineHeight: 1.6, margin: 0 }}>Your identity is verified. A gold ID Verified badge appears on your profile.</p>
+              ) : (
+                <>
+                  <p style={{ fontSize: 13, color: "#666", lineHeight: 1.6, margin: "0 0 12px" }}>Verify with a government ID and selfie (Stripe Identity). Adds a gold badge. ~£1.50 charge.</p>
+                  {idError && <div style={{ background: "#FEE2E2", color: "#991B1B", borderRadius: 8, padding: "8px 12px", fontSize: 13, marginBottom: 10 }}>{idError}</div>}
+                  <button disabled={idLoading} onClick={async () => { setIdLoading(true); setIdError(""); try { const { data: { session } } = await supabase.auth.getSession(); const r = await fetch("/api/save-profile", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ action: "create-identity-session" }) }); const d = await r.json(); if (!r.ok) setIdError(d.error || "Could not start verification."); else if (d.url) window.location.href = d.url; } catch { setIdError("Something went wrong."); } setIdLoading(false); }}
+                    style={{ padding: "8px 20px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 600, border: "none", background: idLoading ? "#aaa" : "#D97706", color: "#fff", cursor: idLoading ? "default" : "pointer" }}>
+                    {idLoading ? "Starting…" : "Verify your identity →"}
+                  </button>
+                </>
+              )}
+            </div>
+            <div style={card}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#1E3A5F", marginBottom: 12 }}>Two-factor authentication</div>
+              {enrollStep === "idle" && (activeFactor ? (
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "1rem" }}>
+                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#3B82F6", flexShrink: 0 }} />
+                    <div><div style={{ fontSize: 14, fontWeight: 500 }}>Authenticator app enabled</div><div style={{ fontSize: 12, color: "#64748B" }}>Your account is protected with 2FA.</div></div>
+                  </div>
+                  <button onClick={() => unenroll(activeFactor.id)} disabled={loading} style={{ padding: "8px 16px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, border: "0.5px solid #F5C9BB", background: "#FAECE7", color: "#993C1D", cursor: loading ? "default" : "pointer" }}>{loading ? "Disabling..." : "Disable 2FA"}</button>
+                </div>
+              ) : (
+                <div>
+                  <p style={{ fontSize: 13, color: "#666", lineHeight: 1.6, margin: "0 0 1rem" }}>Add an extra layer of security. You'll need a code from your authenticator app each time you log in.</p>
+                  <button onClick={startEnroll} disabled={loading} style={{ padding: "8px 20px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, border: "none", background: "#3B82F6", color: "#fff", cursor: loading ? "default" : "pointer" }}>{loading ? "Setting up..." : "Set up authenticator app"}</button>
+                </div>
+              ))}
+              {enrollStep === "scan" && enrollData && (
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Step 1 — Scan QR code</div>
+                  <p style={{ fontSize: 13, color: "#666", lineHeight: 1.6, margin: "0 0 1.25rem" }}>Open your authenticator app and scan this QR code.</p>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: "1.25rem" }}>
+                    <div style={{ padding: 12, background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, display: "inline-block" }}>
+                      <img src={enrollData.qr_code} alt="QR code" style={{ width: 180, height: 180, display: "block" }} />
+                    </div>
+                  </div>
+                  <details style={{ marginBottom: "1.25rem" }}>
+                    <summary style={{ fontSize: 12, color: "#64748B", cursor: "pointer" }}>Can't scan? Enter secret manually</summary>
+                    <div style={{ marginTop: 8, padding: "8px 12px", background: "#f5f5f3", borderRadius: 8, fontFamily: "monospace", fontSize: 13, letterSpacing: "0.1em", wordBreak: "break-all" }}>{enrollData.secret}</div>
+                  </details>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setEnrollStep("verify")} style={{ flex: 1, height: 44, background: "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Next — Enter code</button>
+                    <button onClick={cancelEnroll} style={{ padding: "0 16px", height: 44, background: "transparent", color: "#555", border: "0.5px solid #ccc", borderRadius: 8, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+                  </div>
+                </div>
+              )}
+              {enrollStep === "verify" && (
+                <form onSubmit={verifyEnroll}>
+                  <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Step 2 — Verify code</div>
+                  <p style={{ fontSize: 13, color: "#666", lineHeight: 1.6, margin: "0 0 1.25rem" }}>Enter the 6-digit code from your authenticator app.</p>
+                  <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6} required value={verifyCode} onChange={e => setVerifyCode(e.target.value.replace(/\D/g, ""))} placeholder="000000"
+                    style={{ width: "100%", height: 44, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 12px", fontSize: 20, background: "#fff", boxSizing: "border-box", letterSpacing: "0.3em", textAlign: "center", marginBottom: "1rem" }} autoFocus />
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button type="submit" disabled={loading || verifyCode.length < 6} style={{ flex: 1, height: 44, background: loading ? "#aaa" : "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: loading ? "default" : "pointer" }}>{loading ? "Verifying..." : "Enable 2FA"}</button>
+                    <button type="button" onClick={() => setEnrollStep("scan")} style={{ padding: "0 16px", height: 44, background: "transparent", color: "#555", border: "0.5px solid #ccc", borderRadius: 8, fontSize: 13, cursor: "pointer" }}>Back</button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── SUB: CONNECTIONS ─────────────────────────────── */}
+      {openSection === "connections" && (
+        <div style={subPageWrap}>
+          <SubNav title="My Connections" />
+          <div style={{ padding: "16px", maxWidth: 600, margin: "0 auto" }}>
+            <div style={card}>
+              {(() => {
+                const connections = user?.user_metadata?.connections || [];
+                const accepted = connections.filter(c => c.status === "accepted");
+                const pending  = connections.filter(c => c.status === "pending");
+                const builderConnections = user?.user_metadata?.builder_connections || [];
+                const sentToBuilders = builderConnections.filter(c => c.status === "sent" || c.status === "accepted");
+                return (
+                  <>
+                    {accepted.length > 0 && (
+                      <div style={{ marginBottom: 20 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#166534", marginBottom: 10 }}>Connected ({accepted.length})</div>
+                        {accepted.map((c, i) => (
+                          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "0.5px solid #f8f8f8" }}>
+                            <Avatar initials={nameInitials(c.lender_name)} color={pickColor(c.lender_name || "")} size={32} />
+                            <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 500 }}>{c.lender_name}</div><div style={{ fontSize: 11, color: "#64748B" }}>{c.lender_type || "Lender"}</div></div>
+                            <span style={{ fontSize: 11, background: "#DCFCE7", color: "#166534", padding: "2px 8px", borderRadius: 20, fontWeight: 500 }}>Connected</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {pending.length > 0 && <PendingSentRequests requests={pending} user={user} />}
+                    {sentToBuilders.length > 0 && (
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#2E5FA3", marginBottom: 10 }}>Builder connections ({sentToBuilders.length})</div>
+                        {sentToBuilders.map((c, i) => (
+                          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "0.5px solid #f8f8f8" }}>
+                            <Avatar initials={nameInitials(c.builder_name)} color={pickColor(c.builder_name || "")} size={32} />
+                            <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 500 }}>{c.builder_name}</div><div style={{ fontSize: 11, color: "#64748B" }}>{c.builder_type || "Builder"}</div></div>
+                            <span style={{ fontSize: 11, background: c.status === "accepted" ? "#DCFCE7" : "#EBF2FF", color: c.status === "accepted" ? "#166534" : "#1E3A5F", padding: "2px 8px", borderRadius: 20, fontWeight: 500, textTransform: "capitalize" }}>{c.status}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {accepted.length === 0 && pending.length === 0 && sentToBuilders.length === 0 && (
+                      <div style={{ textAlign: "center", padding: "1.5rem 0", color: "#94A3B8", fontSize: 13 }}>No connections yet.</div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── SUB: HELP ────────────────────────────────────── */}
+      {openSection === "help" && (
+        <div style={subPageWrap}>
+          <SubNav title="Help & Support" />
+          <div style={{ padding: "16px", maxWidth: 600, margin: "0 auto" }}>
+            <div style={card}>
+              {[
+                { label: "How it works",          action: () => setPage("how-it-works"), icon: "📖" },
+                { label: "Trust & Safety",         action: () => setPage("safety"),       icon: "🛡️" },
+                { label: "Contact support",        action: () => { window.location.href = "mailto:lenderbuild.support@gmail.com"; }, icon: "✉️" },
+                { label: "Replay onboarding tour", action: onReplayTour,                  icon: "🎬" },
+                { label: "System status",          action: () => setPage("status"),       icon: "🟢" },
+              ].map(({ label, action, icon }, i, arr) => (
+                <button key={label} onClick={action}
+                  style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", padding: "0 0", fontSize: 15, background: "transparent", border: "none", borderBottom: i < arr.length - 1 ? "0.5px solid #f5f5f5" : "none", cursor: "pointer", minHeight: 52, color: "#1E3A5F", textAlign: "left", fontWeight: 500 }}
+                  onTouchStart={e => e.currentTarget.style.background = "#f5f5f5"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}
+                  onMouseEnter={e => e.currentTarget.style.background = "#f9f9f7"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <span style={{ fontSize: 18, flexShrink: 0 }}>{icon}</span>
+                  <span style={{ flex: 1 }}>{label}</span>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MAIN SETTINGS MENU ───────────────────────────── */}
+      {!openSection && (
+        <div style={{ padding: "1.5rem 1.25rem", maxWidth: 600, margin: "0 auto", paddingBottom: "calc(80px + env(safe-area-inset-bottom,0px))" }}>
+          <h2 style={{ fontSize: 22, fontWeight: 600, margin: "0 0 1.5rem", color: "#1E3A5F" }}>Settings</h2>
+          <div style={{ background: "#fff", borderRadius: 12, overflow: "hidden", border: "0.5px solid #e8e8e8" }}>
+            {[
+              { id: "account",       icon: "👤", title: "Account" },
+              ...(role === "builder" ? [{ id: "companies-house", icon: "🏢", title: "Companies House" }] : []),
+              { id: "appearance",    icon: "🎨", title: "Appearance" },
+              { id: "notifications", icon: "🔔", title: "Notifications" },
+              { id: "privacy",       icon: "🔐", title: "Privacy" },
+              { id: "security",      icon: "🔒", title: "Security" },
+              { id: "connections",   icon: "🤝", title: "My Connections" },
+              { id: "help",          icon: "❓", title: "Help & Support" },
+            ].map((s, i, arr) => (
+              <button key={s.id} onClick={() => { setOpenSection(s.id); window.scrollTo({ top: 0, behavior: "instant" }); }}
+                style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", padding: "0 20px", fontSize: 15, background: "transparent", border: "none", borderBottom: i < arr.length - 1 ? "1px solid #f5f5f5" : "none", cursor: "pointer", minHeight: 52, color: "#1E3A5F", textAlign: "left" }}
+                onTouchStart={e => e.currentTarget.style.background = "#f5f5f5"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}
+                onMouseEnter={e => e.currentTarget.style.background = "#f9f9f7"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ fontSize: 20, flexShrink: 0 }}>{s.icon}</span>
+                <span style={{ fontWeight: 500, flex: 1 }}>{s.title}</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -4358,15 +4214,6 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
               />
             )}
 
-            {/* Builder quick actions */}
-            <div style={{ background: "#f9f9f7", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#64748B", letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 12 }}>Quick actions</div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {[["Post a project","create-project-listing","#3B82F6","#fff"],["Browse lenders","search","#E1F5EE","#0F6E56"],["View messages","messages","#EBF2FF","#1E3A5F"],["Project tracker","deals","#EEEDFE","#534AB7"]].map(([label, target, bg, color]) => (
-                  <button key={label} onClick={() => setPage(target)} style={{ padding: "9px 16px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, border: "none", cursor: "pointer", background: bg, color }}>{label}</button>
-                ))}
-              </div>
-            </div>
           </>
         );
       })()}
@@ -4545,15 +4392,6 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
               <div style={{ fontSize: 12, opacity: 0.7 }}>Track returns, download statements, see portfolio breakdown</div>
             </div>
 
-            {/* Lender quick actions */}
-            <div style={{ background: "#f9f9f7", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#64748B", letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 12 }}>Quick actions</div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {[["Browse projects","browse-projects","#1D9E75","#fff"],["Find builders","find-builder","#E1F5EE","#0F6E56"],["View messages","messages","#EBF2FF","#1E3A5F"],["Project tracker","deals","#EEEDFE","#534AB7"]].map(([label, target, bg, color]) => (
-                  <button key={label} onClick={() => setPage(target)} style={{ padding: "9px 16px", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, border: "none", cursor: "pointer", background: bg, color }}>{label}</button>
-                ))}
-              </div>
-            </div>
           </>
         );
       })()}
@@ -5117,10 +4955,15 @@ function LenderCard({ lc, user, setPage, settings, onViewProfile, viewerProfile 
             View profile
           </button>
         </div>
+        {connectStatus === "done" && (
+          <div style={{ fontSize: 12, color: "#16A34A", textAlign: "center", marginTop: 2 }}>
+            ✓ Request sent — they'll be notified and can accept or decline.
+          </div>
+        )}
         {connectStatus === "idle" && !notAccepting && (
           <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#64748B", justifyContent: "center" }}>
             <svg width="10" height="12" viewBox="0 0 10 12" fill="none"><rect x="1" y="5" width="8" height="6" rx="1" stroke="#64748B" strokeWidth="1.2"/><path d="M3 5V3.5a2 2 0 014 0V5" stroke="#64748B" strokeWidth="1.2" strokeLinecap="round"/></svg>
-            Secured connection
+            Requests are reviewed before connecting
           </div>
         )}
       </div>
@@ -5634,6 +5477,11 @@ function BuilderCard({ builder, user, setPage, onMessage, onViewProfile, viewerP
           View profile
         </button>
       </div>
+      {connectStatus === "done" && (
+        <div style={{ fontSize: 12, color: "#16A34A", textAlign: "center", marginTop: 8, paddingTop: 8, borderTop: "0.5px solid #f0f0f0" }}>
+          ✓ Request sent — they'll be notified and can accept or decline.
+        </div>
+      )}
     </div>
   );
 }
@@ -7511,19 +7359,24 @@ function AdminPage({ user }) {
 const CATEGORY_META = {
   "looking-for-lender":  { label: "Looking for funding",  bg: "#EBF2FF", text: "#1E3A5F" },
   "looking-for-builder": { label: "Available to lend",    bg: "#E1F5EE", text: "#0F6E56" },
+  "project-update":      { label: "Project update",       bg: "#FFF7ED", text: "#C2410C" },
+  "question":            { label: "Question",             bg: "#F5F3FF", text: "#6D28D9" },
   "general":             { label: "General",              bg: "#F1EFE8", text: "#5F5E5A" },
 };
 
 function PostCard({ post, isOwn, onView, onEdit, onDelete }) {
   const cat = CATEGORY_META[post.category] || CATEGORY_META.general;
-  const [deleting, setDeleting] = useState(false);
+  const [deleting,        setDeleting]        = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const preview = post.body.length > 180 ? post.body.slice(0, 180).trimEnd() + "…" : post.body;
 
   async function handleDelete(e) {
     e.stopPropagation();
+    if (!confirmingDelete) { setConfirmingDelete(true); return; }
     setDeleting(true);
     await onDelete(post.id);
     setDeleting(false);
+    setConfirmingDelete(false);
   }
 
   return (
@@ -7565,13 +7418,31 @@ function PostCard({ post, isOwn, onView, onEdit, onDelete }) {
           >
             Edit
           </button>
-          <button
-            onClick={handleDelete}
-            disabled={deleting}
-            style={{ background: "transparent", color: "#993C1D", border: "0.5px solid #F5C9BB", padding: "5px 12px", minHeight: 44, borderRadius: 8, fontSize: 12, cursor: deleting ? "default" : "pointer" }}
-          >
-            {deleting ? "Deleting…" : "Delete"}
-          </button>
+          {confirmingDelete ? (
+            <>
+              <span style={{ fontSize: 12, color: "#64748B", alignSelf: "center" }}>Delete?</span>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                style={{ background: "#DC2626", color: "#fff", border: "none", padding: "5px 12px", minHeight: 44, borderRadius: 8, fontSize: 12, cursor: deleting ? "default" : "pointer" }}
+              >
+                {deleting ? "Deleting…" : "Yes, delete"}
+              </button>
+              <button
+                onClick={e => { e.stopPropagation(); setConfirmingDelete(false); }}
+                style={{ background: "transparent", color: "#555", border: "0.5px solid #ccc", padding: "5px 10px", minHeight: 44, borderRadius: 8, fontSize: 12, cursor: "pointer" }}
+              >
+                Keep
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={handleDelete}
+              style={{ background: "transparent", color: "#993C1D", border: "0.5px solid #F5C9BB", padding: "5px 12px", minHeight: 44, borderRadius: 8, fontSize: 12, cursor: "pointer" }}
+            >
+              Delete
+            </button>
+          )}
         </div>
       ) : (
         <div style={{ marginTop: 10, fontSize: 12, color: "#3B82F6", fontWeight: 500 }}>Read more →</div>
@@ -7580,7 +7451,7 @@ function PostCard({ post, isOwn, onView, onEdit, onDelete }) {
   );
 }
 
-function PostDetailPage({ post, user, setPage, onMessage }) {
+function PostDetailPage({ post, user, setPage, onMessage, onBack }) {
   const cat = CATEGORY_META[post.category] || CATEGORY_META.general;
   const isOwn = user && post.author_id === user.id;
   const [msgStatus, setMsgStatus] = useState("idle");
@@ -7607,7 +7478,7 @@ function PostDetailPage({ post, user, setPage, onMessage }) {
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "1.5rem 1.25rem", minHeight: "calc(100vh - 56px)" }}>
       <button
-        onClick={() => setPage("posts")}
+        onClick={() => onBack ? onBack() : setPage("posts")}
         style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 13, color: "#3B82F6", padding: 0, marginBottom: "1.5rem", display: "flex", alignItems: "center", gap: 4 }}
       >
         ← Back to posts
@@ -7676,9 +7547,11 @@ function PostDetailPage({ post, user, setPage, onMessage }) {
 }
 
 const POST_CATEGORY_FILTERS = [
-  { key: "all",                 label: "All posts" },
+  { key: "all",                 label: "All" },
   { key: "looking-for-lender",  label: "Looking for funding" },
   { key: "looking-for-builder", label: "Available to lend" },
+  { key: "project-update",      label: "Project updates" },
+  { key: "question",            label: "Questions" },
   { key: "general",             label: "General" },
 ];
 
@@ -7930,6 +7803,12 @@ function CreateEditPostPage({ user, setPage, editPost = null }) {
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState("");
 
+  function handleBack() {
+    const hasContent = title.trim() || (body.trim() && body !== (editPost?.body || ""));
+    if (hasContent && !window.confirm("Discard changes?")) return;
+    setPage("community");
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     if (!title.trim() || !body.trim()) { setError("Title and body are required."); return; }
@@ -7960,10 +7839,10 @@ function CreateEditPostPage({ user, setPage, editPost = null }) {
   return (
     <div style={{ padding: "1.5rem 1.25rem", maxWidth: 640, margin: "0 auto" }}>
       <button
-        onClick={() => setPage("my-posts")}
+        onClick={handleBack}
         style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: "#555", fontSize: 14, cursor: "pointer", padding: 0, marginBottom: "1.5rem" }}
       >
-        ← Back to my posts
+        ← Back
       </button>
 
       <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>
@@ -7986,8 +7865,10 @@ function CreateEditPostPage({ user, setPage, editPost = null }) {
             value={category} onChange={e => setCategory(e.target.value)}
             style={{ ...inputStyle, height: 44 }}
           >
-            <option value="looking-for-lender">Looking for a lender</option>
-            <option value="looking-for-builder">Looking for a builder</option>
+            <option value="looking-for-lender">Looking for funding</option>
+            <option value="looking-for-builder">Available to lend</option>
+            <option value="project-update">Project update</option>
+            <option value="question">Question</option>
             <option value="general">General</option>
           </select>
         </div>
@@ -8013,14 +7894,14 @@ function CreateEditPostPage({ user, setPage, editPost = null }) {
           <button
             type="submit" disabled={loading}
             style={{
-              flex: 1, height: 44, background: loading ? "#aaa" : "#3B82F6", color: loading ? "#fff" : "#1E3A5F",
+              flex: 1, height: 44, background: loading ? "#aaa" : "#3B82F6", color: "#fff",
               border: "none", borderRadius: 8, fontSize: 15, fontWeight: 500, cursor: loading ? "default" : "pointer",
             }}
           >
             {loading ? "Saving…" : isEdit ? "Save changes" : "Publish post"}
           </button>
           <button
-            type="button" onClick={() => setPage("my-posts")}
+            type="button" onClick={handleBack}
             style={{ padding: "0 20px", height: 44, background: "transparent", color: "#555", border: "0.5px solid #ccc", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
           >
             Cancel
@@ -8344,6 +8225,11 @@ function LenderProfilePage({ lc, user, setPage, settings, onBack, onMessage, vie
             </button>
           )}
         </div>
+        {user && connectStatus === "done" && (
+          <div style={{ fontSize: 13, color: "#16A34A", textAlign: "center", padding: "8px 12px", background: "#F0FDF4", borderRadius: 8 }}>
+            ✓ Request sent — they'll be notified and can accept or decline.
+          </div>
+        )}
         {user && connectStatus === "idle" && !notAccepting && (!settings || isListed) && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#64748B", justifyContent: "center", padding: "8px 12px", background: "#F8FAFC", borderRadius: 8 }}>
             <svg width="12" height="14" viewBox="0 0 12 14" fill="none"><rect x="1" y="6" width="10" height="7" rx="1.5" stroke="#64748B" strokeWidth="1.3"/><path d="M3.5 6V4.5a2.5 2.5 0 015 0V6" stroke="#64748B" strokeWidth="1.3" strokeLinecap="round"/></svg>
@@ -8970,8 +8856,16 @@ function MessagesPage({ user, initialConversationId, setPage, onViewProfile, onV
               <div style={{ padding: "2.5rem 1.5rem", textAlign: "center" }}>
                 <div style={{ fontSize: 36, marginBottom: 10 }}>💬</div>
                 <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>No conversations yet</div>
-                <div style={{ fontSize: 13, color: "#64748B", lineHeight: 1.55 }}>
-                  Message any lender or builder directly from their profile page.
+                <div style={{ fontSize: 13, color: "#64748B", lineHeight: 1.55, marginBottom: 16 }}>
+                  Find someone to connect with and start a conversation.
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "center" }}>
+                  <button onClick={() => setPage("search")} style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "9px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", width: "100%", maxWidth: 200 }}>
+                    Find lenders →
+                  </button>
+                  <button onClick={() => setPage("find-builder")} style={{ background: "transparent", color: "#1E3A5F", border: "1px solid #1E3A5F", padding: "9px 20px", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer", width: "100%", maxWidth: 200 }}>
+                    Find builders →
+                  </button>
                 </div>
               </div>
             ) : (
@@ -9341,7 +9235,193 @@ function ScamWarningModal({ onClose }) {
   );
 }
 
-function CommunityPage({ user, setPage }) {
+// ─── COMMUNITY POST CARD (social-style) ──────────────────────────────────────
+
+function CommunityPostCard({ post, user, onView, onLike }) {
+  const cat = CATEGORY_META[post.category] || CATEGORY_META.general;
+  const [liked,      setLiked]      = useState(post.user_has_interest || false);
+  const [likeCount,  setLikeCount]  = useState(post.interest_count || 0);
+  const [animating,  setAnimating]  = useState(false);
+
+  async function handleLike(e) {
+    e.stopPropagation();
+    if (!user) { onView(); return; }
+    const wasLiked = liked;
+    setLiked(!wasLiked);
+    setLikeCount(c => wasLiked ? c - 1 : c + 1);
+    setAnimating(true);
+    setTimeout(() => setAnimating(false), 500);
+    onLike(post, !wasLiked);
+  }
+
+  return (
+    <div
+      onClick={onView}
+      style={{ background: "#fff", border: "0.5px solid #e5e7eb", borderRadius: 16, padding: "1.25rem", marginBottom: 12, cursor: "pointer", transition: "box-shadow 0.15s" }}
+      onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 18px rgba(0,0,0,0.08)"}
+      onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
+    >
+      <div style={{ marginBottom: 10 }}>
+        <span style={{ background: cat.bg, color: cat.text, fontSize: 12, padding: "4px 10px", borderRadius: 20, fontWeight: 600 }}>{cat.label}</span>
+      </div>
+      <div style={{ fontSize: 17, fontWeight: 700, color: "#1E3A5F", marginBottom: 8, lineHeight: 1.3 }}>{post.title}</div>
+      <p style={{ fontSize: 14, color: "#64748B", lineHeight: 1.6, margin: "0 0 14px", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{post.body}</p>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
+          <div style={{ width: 30, height: 30, borderRadius: "50%", background: cat.bg, color: cat.text, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+            {(post.author_name || "?").charAt(0).toUpperCase()}
+          </div>
+          <span style={{ fontSize: 13, fontWeight: 500, color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{post.author_name}</span>
+          <span style={{ fontSize: 12, color: "#9CA3AF", flexShrink: 0 }}>·</span>
+          <span style={{ fontSize: 12, color: "#9CA3AF", flexShrink: 0, whiteSpace: "nowrap" }}>{fmtTimeAgo(post.created_at)}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          {(post.view_count || 0) > 0 && (
+            <span style={{ fontSize: 12, color: "#9CA3AF", display: "flex", alignItems: "center", gap: 3 }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              {post.view_count}
+            </span>
+          )}
+          <button
+            onClick={handleLike}
+            style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", cursor: "pointer", padding: "5px 8px", borderRadius: 10, transition: "background 0.15s", color: liked ? "#E53E3E" : "#9CA3AF" }}
+            onMouseEnter={e => e.currentTarget.style.background = "#FFF5F5"}
+            onMouseLeave={e => e.currentTarget.style.background = "none"}
+          >
+            <span style={{ fontSize: 17, display: "inline-block", transform: animating ? "scale(1.5)" : "scale(1)", transition: "transform 0.35s cubic-bezier(0.34,1.56,0.64,1)" }}>
+              {liked ? "❤️" : "🤍"}
+            </span>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{likeCount}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── POSTS SECTION (embedded in Community Hub) ────────────────────────────────
+
+function PostsSection({ user, setPage, onMessage }) {
+  const [posts,       setPosts]       = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState("");
+  const [catFilter,   setCatFilter]   = useState("all");
+  const [viewingPost, setViewingPost] = useState(null);
+
+  useEffect(() => { loadPosts(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadPosts() {
+    setLoading(true);
+    try {
+      const headers = {};
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) headers.Authorization = `Bearer ${session.access_token}`;
+      const res  = await fetch("/api/posts", { headers });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to load posts");
+      setPosts(json.posts || []);
+    } catch (e) {
+      setError(e.message);
+    }
+    setLoading(false);
+  }
+
+  async function handleLike(post) {
+    if (!user) { setPage("auth"); return; }
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    fetch("/api/posts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "interest", post_id: post.id, author_id: post.author_id }),
+    }).catch(() => {});
+  }
+
+  async function handleView(post) {
+    if (user && post.author_id !== user.id) {
+      const key = `lb_pv_${post.id}`;
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, "1");
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          fetch("/api/posts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ action: "view", post_id: post.id, author_id: post.author_id }),
+          }).catch(() => {});
+        }
+      }
+    }
+    setViewingPost(post);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }
+
+  if (viewingPost) {
+    return (
+      <PostDetailPage
+        post={viewingPost}
+        user={user}
+        setPage={setPage}
+        onMessage={onMessage}
+        onBack={() => { setViewingPost(null); window.scrollTo({ top: 0, behavior: "instant" }); }}
+      />
+    );
+  }
+
+  const filtered = catFilter === "all" ? posts : posts.filter(p => p.category === catFilter);
+  const sorted   = [...filtered].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.25rem", gap: 12 }}>
+        <p style={{ margin: 0, fontSize: 13, color: "#64748B" }}>What builders and lenders are saying</p>
+        <button
+          onClick={() => user ? setPage("create-post") : setPage("auth")}
+          style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "9px 18px", minHeight: 44, borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
+        >
+          + Create post
+        </button>
+      </div>
+
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: "1.25rem" }}>
+        {POST_CATEGORY_FILTERS.map(f => (
+          <button key={f.key} onClick={() => setCatFilter(f.key)}
+            style={{ padding: "7px 14px", borderRadius: 20, fontSize: 13, fontWeight: 500, cursor: "pointer", border: "none", minHeight: 36, background: catFilter === f.key ? "#1E3A5F" : "#F1F5F9", color: catFilter === f.key ? "#fff" : "#475569", transition: "background 0.15s" }}>
+            {f.label}
+            {f.key !== "all" && posts.filter(p => p.category === f.key).length > 0 && (
+              <span style={{ marginLeft: 5, fontSize: 11, opacity: 0.65 }}>({posts.filter(p => p.category === f.key).length})</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {loading && <div style={{ textAlign: "center", padding: "3rem", color: "#64748B", fontSize: 14 }}>Loading posts…</div>}
+      {error && <div style={{ background: "#FAECE7", color: "#993C1D", borderRadius: 8, padding: "12px 16px", fontSize: 13, marginBottom: "1rem" }}>{error}</div>}
+
+      {!loading && !error && sorted.length === 0 && (
+        <div style={{ textAlign: "center", padding: "3rem 2rem", color: "#64748B" }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>📝</div>
+          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 8 }}>
+            {catFilter !== "all" ? "No posts in this category yet" : "No posts yet"}
+          </div>
+          <span style={{ fontSize: 13 }}>Be the first to share something with the community.</span>
+        </div>
+      )}
+
+      {sorted.map(p => (
+        <CommunityPostCard
+          key={p.id}
+          post={p}
+          user={user}
+          onView={() => handleView(p)}
+          onLike={(post) => handleLike(post)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CommunityPage({ user, setPage, onMessage }) {
   const [channel,   setChannel]   = useState("general");
   const [messages,  setMessages]  = useState([]);
   const [loading,   setLoading]   = useState(true);
@@ -9350,7 +9430,7 @@ function CommunityPage({ user, setPage }) {
   const [cooldown,  setCooldown]  = useState(0);
   const [coolMsg,   setCoolMsg]   = useState("");
   const [banned,    setBanned]    = useState(null); // null | { ban_type, banned_until, reason }
-  const [communityTab, setCommunityTab] = useState("chat");
+  const [communityTab, setCommunityTab] = useState("posts");
   const [showWarn,  setShowWarn]  = useState(!localStorage.getItem(COMMUNITY_WARN_KEY));
   const [reported,  setReported]  = useState({}); // { messageId: true }
   const messagesEndRef  = useRef(null);
@@ -9508,20 +9588,28 @@ function CommunityPage({ user, setPage }) {
 
       <div style={{ maxWidth: 820, margin: "0 auto", padding: "1.5rem 1.25rem", minHeight: "calc(100vh - 120px)", display: "flex", flexDirection: "column" }}>
         <div style={{ marginBottom: "1rem" }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Community</div>
-          <h1 style={{ fontSize: 22, fontWeight: 500, margin: "0 0 4px" }}>Community</h1>
-          <p style={{ fontSize: 13, color: "#64748B", margin: 0 }}>Chat rooms and local area groups for builders and lenders</p>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>LenderBuild</div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>Community Hub</h1>
+          <p style={{ fontSize: 13, color: "#64748B", margin: 0 }}>Posts, groups and live chat for builders and lenders</p>
         </div>
 
-        {/* Section tabs: Chat | Groups */}
-        <div style={{ display: "flex", gap: 0, marginBottom: "1.25rem", borderBottom: "1.5px solid #e8e8e8" }}>
-          {[{ id: "chat", label: "💬 Chat" }, { id: "groups", label: "👥 Groups" }].map(tab => (
+        {/* Section tabs: Posts | Groups | Chat */}
+        <div style={{ display: "flex", gap: 0, marginBottom: "1.5rem", borderBottom: "2px solid #e8e8e8" }}>
+          {[
+            { id: "posts",  label: "📝 Posts" },
+            { id: "groups", label: "👥 Groups" },
+            { id: "chat",   label: "💬 Chat" },
+          ].map(tab => (
             <button key={tab.id} onClick={() => setCommunityTab(tab.id)}
-              style={{ padding: "8px 18px", border: "none", borderBottom: communityTab === tab.id ? "2.5px solid #3B82F6" : "2.5px solid transparent", marginBottom: "-1.5px", background: "none", fontSize: 14, fontWeight: communityTab === tab.id ? 600 : 400, color: communityTab === tab.id ? "#2E5FA3" : "#64748B", cursor: "pointer", transition: "all 0.15s" }}>
+              style={{ padding: "10px 20px", border: "none", borderBottom: communityTab === tab.id ? "2.5px solid #3B82F6" : "2.5px solid transparent", marginBottom: "-2px", background: "none", fontSize: 14, fontWeight: communityTab === tab.id ? 700 : 400, color: communityTab === tab.id ? "#2E5FA3" : "#64748B", cursor: "pointer", transition: "all 0.15s" }}>
               {tab.label}
             </button>
           ))}
         </div>
+
+        {communityTab === "posts" && (
+          <PostsSection user={user} setPage={setPage} onMessage={onMessage} />
+        )}
 
         {communityTab === "chat" && (
           <>
@@ -9633,6 +9721,10 @@ function genInviteCode() {
   return code;
 }
 
+const GROUP_REGION_FILTERS = [
+  "All UK", "London", "North", "Midlands", "South", "Scotland", "Wales",
+];
+
 function GroupsTab({ user, setPage }) {
   const [view,          setView]          = useState("browse"); // "browse" | "create"
   const [groups,        setGroups]        = useState([]);
@@ -9646,7 +9738,16 @@ function GroupsTab({ user, setPage }) {
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteError,   setInviteError]   = useState("");
   const [inviteSuccess, setInviteSuccess] = useState("");
-  const myId = user?.id;
+  const [regionFilter,  setRegionFilter]  = useState("All UK");
+  const [myLocation,    setMyLocation]    = useState("");
+  const myId   = user?.id;
+  const myRole = user?.user_metadata?.role || "";
+
+  useEffect(() => {
+    if (!myId) return;
+    supabase.from("profiles").select("location").eq("id", myId).maybeSingle()
+      .then(({ data }) => setMyLocation(data?.location || ""));
+  }, [myId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { loadGroups(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -9799,22 +9900,59 @@ function GroupsTab({ user, setPage }) {
 
   const myGroups = groups.filter(g => myMemberships.includes(g.id));
 
+  // Region filter logic
+  const REGION_MATCH = {
+    "London":   ["London"],
+    "North":    ["North West", "North East", "Yorkshire"],
+    "Midlands": ["Midlands"],
+    "South":    ["South East", "South West"],
+    "Scotland": ["Scotland"],
+    "Wales":    ["Wales", "Northern Ireland"],
+  };
+  const visibleGroups = regionFilter === "All UK"
+    ? groups
+    : groups.filter(g => (REGION_MATCH[regionFilter] || []).includes(g.region));
+
+  // "You might like" suggestions
+  const userRegion = ukRegion(myLocation);
+  const suggestions = groups
+    .filter(g => !myMemberships.includes(g.id) && !g.is_private)
+    .filter(g => {
+      const desc = (g.name + " " + (g.description || "")).toLowerCase();
+      if (userRegion && g.region && (g.region.toLowerCase().includes(userRegion.toLowerCase()) || userRegion.toLowerCase().includes(g.region.toLowerCase()))) return true;
+      if (myRole === "lender" && (desc.includes("lend") || desc.includes("invest") || desc.includes("fund"))) return true;
+      if (myRole === "builder" && (desc.includes("build") || desc.includes("develop") || desc.includes("construct"))) return true;
+      return false;
+    })
+    .slice(0, 3);
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", gap: 12 }}>
-        <p style={{ margin: 0, fontSize: 13, color: "#64748B" }}>Local area groups created by the community</p>
+        <p style={{ margin: 0, fontSize: 13, color: "#64748B" }}>Local area groups for builders and lenders</p>
         <button onClick={() => user ? setView("create") : setPage("auth")}
-          style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>
+          style={{ background: "#16A34A", color: "#fff", border: "none", padding: "9px 18px", minHeight: 44, borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
           + Create group
         </button>
       </div>
 
-      <div style={{ marginBottom: "1.25rem" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Join a private group</div>
+      {/* Region filter */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: "1.25rem" }}>
+        {GROUP_REGION_FILTERS.map(r => (
+          <button key={r} onClick={() => setRegionFilter(r)}
+            style={{ padding: "7px 14px", borderRadius: 20, fontSize: 13, fontWeight: 500, cursor: "pointer", border: "none", minHeight: 36, background: regionFilter === r ? "#1E3A5F" : "#F1F5F9", color: regionFilter === r ? "#fff" : "#475569", transition: "background 0.15s" }}>
+            {r}
+          </button>
+        ))}
+      </div>
+
+      {/* Private group join */}
+      <div style={{ background: "#F8FAFC", border: "0.5px solid #e5e7eb", borderRadius: 12, padding: "12px 16px", marginBottom: "1.25rem" }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Join a private group</div>
         <form onSubmit={handleJoinByCode} style={{ display: "flex", gap: 8 }}>
           <input value={inviteInput} onChange={e => setInviteInput(e.target.value.toUpperCase())}
             placeholder="Enter invite code (e.g. A1B2C3D4)" maxLength={8}
-            style={{ flex: 1, height: 38, border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "0 12px", fontSize: 13, outline: "none", fontFamily: "monospace", letterSpacing: "0.1em", textTransform: "uppercase" }} />
+            style={{ flex: 1, height: 38, border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "0 12px", fontSize: 13, outline: "none", fontFamily: "monospace", letterSpacing: "0.1em", textTransform: "uppercase", background: "#fff" }} />
           <button type="submit" disabled={!inviteInput.trim() || inviteLoading}
             style={{ padding: "0 16px", height: 38, borderRadius: 8, border: "none", fontSize: 13, fontWeight: 600, background: inviteInput.trim() && !inviteLoading ? "#3B82F6" : "#e0e0e0", color: inviteInput.trim() && !inviteLoading ? "#fff" : "#aaa", cursor: inviteInput.trim() && !inviteLoading ? "pointer" : "default", flexShrink: 0 }}>
             {inviteLoading ? "Joining…" : "Join"}
@@ -9828,10 +9966,11 @@ function GroupsTab({ user, setPage }) {
         <div style={{ textAlign: "center", color: "#aaa", padding: "2rem", fontSize: 14 }}>Loading groups…</div>
       ) : (
         <>
+          {/* My groups */}
           {myGroups.length > 0 && (
             <div style={{ marginBottom: "1.5rem" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>My groups</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", letterSpacing: "0.05em", marginBottom: 10 }}>MY GROUPS</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {myGroups.map(g => (
                   <GroupCard key={g.id} group={g} isMember={true} isOwner={g.created_by === myId}
                     onOpen={() => setSelectedGroup(g)} onLeave={() => handleLeave(g.id)} onJoin={() => {}} />
@@ -9840,13 +9979,29 @@ function GroupsTab({ user, setPage }) {
             </div>
           )}
 
-          {groups.length > 0 ? (
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
-                {myGroups.length > 0 ? "All groups" : "Browse groups"}
+          {/* You might like */}
+          {user && suggestions.length > 0 && (
+            <div style={{ marginBottom: "1.5rem" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#6D28D9", letterSpacing: "0.05em", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                <span>✨</span> YOU MIGHT LIKE THESE GROUPS
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {groups.map(g => (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {suggestions.map(g => (
+                  <GroupCard key={g.id} group={g} isMember={false} isOwner={false}
+                    onOpen={() => setSelectedGroup(g)} onLeave={() => {}} onJoin={() => handleJoin(g.id)} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* All groups */}
+          {visibleGroups.length > 0 ? (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#64748B", letterSpacing: "0.05em", marginBottom: 10 }}>
+                {regionFilter === "All UK" ? "ALL GROUPS" : `${regionFilter.toUpperCase()} GROUPS`}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {visibleGroups.map(g => (
                   <GroupCard key={g.id} group={g} isMember={myMemberships.includes(g.id)} isOwner={g.created_by === myId}
                     onOpen={() => setSelectedGroup(g)} onLeave={() => handleLeave(g.id)} onJoin={() => handleJoin(g.id)} />
                 ))}
@@ -9855,11 +10010,13 @@ function GroupsTab({ user, setPage }) {
           ) : (
             <div style={{ textAlign: "center", padding: "3rem 1rem", background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12 }}>
               <div style={{ fontSize: 36, marginBottom: 8 }}>👥</div>
-              <div style={{ fontSize: 15, fontWeight: 500, color: "#1E3A5F", marginBottom: 6 }}>No groups yet</div>
-              <div style={{ fontSize: 13, color: "#64748B", marginBottom: 16 }}>Be the first to create a local area group!</div>
+              <div style={{ fontSize: 15, fontWeight: 500, color: "#1E3A5F", marginBottom: 6 }}>
+                {regionFilter === "All UK" ? "No groups yet" : `No groups in ${regionFilter} yet`}
+              </div>
+              <div style={{ fontSize: 13, color: "#64748B", marginBottom: 16 }}>Be the first to create one!</div>
               <button onClick={() => user ? setView("create") : setPage("auth")}
-                style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "10px 22px", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
-                Create the first group
+                style={{ background: "#16A34A", color: "#fff", border: "none", padding: "10px 22px", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+                Create group
               </button>
             </div>
           )}
@@ -9870,57 +10027,89 @@ function GroupsTab({ user, setPage }) {
 }
 
 function GroupCard({ group, isMember, isOwner, onOpen, onJoin, onLeave }) {
+  const regionColors = {
+    "London": { bg: "#EBF2FF", text: "#1E3A5F" },
+    "South East": { bg: "#E1F5EE", text: "#0F6E56" },
+    "South West": { bg: "#E1F5EE", text: "#0F6E56" },
+    "Midlands": { bg: "#FFF7ED", text: "#C2410C" },
+    "North West": { bg: "#F5F3FF", text: "#6D28D9" },
+    "North East": { bg: "#F5F3FF", text: "#6D28D9" },
+    "Yorkshire": { bg: "#FFF7ED", text: "#C2410C" },
+    "Scotland": { bg: "#EFF6FF", text: "#1D4ED8" },
+    "Wales": { bg: "#F0FDF4", text: "#166534" },
+    "Northern Ireland": { bg: "#FDF4FF", text: "#86198F" },
+    "Online/National": { bg: "#F1F5F9", text: "#475569" },
+  };
+  const rc = regionColors[group.region] || { bg: "#F1F5F9", text: "#475569" };
+
   return (
-    <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", transition: "box-shadow 0.15s" }}
-      onClick={onOpen}>
+    <div
+      style={{ background: "#fff", border: "0.5px solid #e5e7eb", borderRadius: 14, padding: "14px 16px", display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer", transition: "box-shadow 0.15s" }}
+      onClick={onOpen}
+      onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 14px rgba(0,0,0,0.07)"}
+      onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
+    >
+      {/* Group avatar */}
+      <div style={{ width: 44, height: 44, borderRadius: 12, background: rc.bg, color: rc.text, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19, fontWeight: 700, flexShrink: 0 }}>
+        {group.name.charAt(0).toUpperCase()}
+      </div>
+
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F" }}>{group.name}</span>
-          {group.is_private && <span title="Private group — invite only" style={{ fontSize: 12 }}>🔒</span>}
-          {isOwner && <span title="You created this group" style={{ fontSize: 13 }}>👑</span>}
-          {isMember && !isOwner && <span style={{ fontSize: 11, background: "#DCFCE7", color: "#166534", padding: "1px 6px", borderRadius: 10, fontWeight: 500 }}>Joined</span>}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: "#1E3A5F" }}>{group.name}</span>
+          {group.is_private && <span title="Private — invite only" style={{ fontSize: 11 }}>🔒</span>}
+          {isOwner && <span title="You created this" style={{ fontSize: 12 }}>👑</span>}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, background: rc.bg, color: rc.text, padding: "2px 8px", borderRadius: 20, fontWeight: 600 }}>{group.region}</span>
+          <span style={{ fontSize: 12, color: "#64748B" }}>·</span>
+          <span style={{ fontSize: 12, color: "#64748B", display: "flex", alignItems: "center", gap: 3 }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            {group.member_count || 0} members
+          </span>
+          {isMember && <span style={{ fontSize: 11, background: "#DCFCE7", color: "#166534", padding: "2px 8px", borderRadius: 20, fontWeight: 600 }}>✓ Joined</span>}
         </div>
         {group.description && (
-          <div style={{ fontSize: 12, color: "#64748B", marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{group.description}</div>
+          <div style={{ fontSize: 13, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{group.description}</div>
         )}
-        <div style={{ fontSize: 11, color: "#94A3B8", display: "flex", flexWrap: "wrap", gap: "4px 10px" }}>
-          <span>📍 {group.region}</span>
-          <span>👥 {group.member_count || 0} {group.member_count === 1 ? "member" : "members"}</span>
-          {group.last_activity && <span>Active {fmtTimeAgo(group.last_activity)}</span>}
-        </div>
       </div>
-      <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-        <button onClick={onOpen}
-          style={{ padding: "6px 12px", borderRadius: 6, border: "0.5px solid #3B82F6", fontSize: 12, fontWeight: 500, background: "#EBF2FF", color: "#2E5FA3", cursor: "pointer" }}>
-          Open
-        </button>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0, alignItems: "flex-end" }} onClick={e => e.stopPropagation()}>
         {!isMember ? (
           <button onClick={onJoin}
-            style={{ padding: "6px 12px", borderRadius: 6, border: "none", fontSize: 12, fontWeight: 500, background: "#3B82F6", color: "#fff", cursor: "pointer" }}>
+            style={{ padding: "8px 16px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 700, background: "#16A34A", color: "#fff", cursor: "pointer", minHeight: 38 }}>
             Join
           </button>
-        ) : !isOwner ? (
+        ) : (
+          <button onClick={onOpen}
+            style={{ padding: "8px 14px", borderRadius: 8, border: "0.5px solid #3B82F6", fontSize: 13, fontWeight: 600, background: "#EBF2FF", color: "#2E5FA3", cursor: "pointer", minHeight: 38, whiteSpace: "nowrap" }}>
+            Open chat
+          </button>
+        )}
+        {isMember && !isOwner && (
           <button onClick={onLeave}
-            style={{ padding: "6px 12px", borderRadius: 6, border: "0.5px solid #e0e0e0", fontSize: 12, fontWeight: 500, background: "#fff", color: "#64748B", cursor: "pointer" }}>
+            style={{ padding: "4px 10px", borderRadius: 6, border: "0.5px solid #e0e0e0", fontSize: 11, background: "transparent", color: "#94A3B8", cursor: "pointer" }}>
             Leave
           </button>
-        ) : null}
+        )}
       </div>
     </div>
   );
 }
 
 function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, onLeave }) {
-  const [messages,  setMessages]  = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [text,      setText]      = useState("");
-  const [sending,   setSending]   = useState(false);
-  const [cooldown,  setCooldown]  = useState(0);
-  const [coolMsg,   setCoolMsg]   = useState("");
-  const [banned,    setBanned]    = useState(null);
-  const [reported,  setReported]  = useState({});
+  const [messages,     setMessages]     = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [text,         setText]         = useState("");
+  const [sending,      setSending]      = useState(false);
+  const [cooldown,     setCooldown]     = useState(0);
+  const [coolMsg,      setCoolMsg]      = useState("");
+  const [banned,       setBanned]       = useState(null);
+  const [reported,     setReported]     = useState({});
+  const [onlineCount,  setOnlineCount]  = useState(1);
   const chatScrollRef   = useRef(null);
   const realtimeChanRef = useRef(null);
+  const presenceChanRef = useRef(null);
   const cooldownRef     = useRef(null);
   const myId    = user?.id;
   const isMember  = myMemberships.includes(group.id);
@@ -9936,6 +10125,23 @@ function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, on
         setBanned(null);
       });
   }, [myId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Presence channel for online count
+  useEffect(() => {
+    if (!myId) return;
+    const pChan = supabase.channel(`presence-grp-${group.id}`, { config: { presence: { key: myId } } })
+      .on("presence", { event: "sync" }, () => {
+        const state = pChan.presenceState();
+        setOnlineCount(Math.max(1, Object.keys(state).length));
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await pChan.track({ user_id: myId, online_at: new Date().toISOString() });
+        }
+      });
+    presenceChanRef.current = pChan;
+    return () => { supabase.removeChannel(pChan); };
+  }, [group.id, myId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     loadMessages();
@@ -10049,9 +10255,13 @@ function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, on
             {isCreator && <span title="You created this group" style={{ fontSize: 16 }}>👑</span>}
           </div>
           {group.description && <p style={{ fontSize: 13, color: "#64748B", margin: "0 0 4px" }}>{group.description}</p>}
-          <div style={{ fontSize: 12, color: "#94A3B8", display: "flex", flexWrap: "wrap", gap: "3px 10px" }}>
+          <div style={{ fontSize: 12, color: "#94A3B8", display: "flex", flexWrap: "wrap", gap: "3px 10px", alignItems: "center" }}>
             <span>📍 {group.region}</span>
             <span>👥 {group.member_count || 0} {group.member_count === 1 ? "member" : "members"}</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22C55E", display: "inline-block", flexShrink: 0 }} />
+              <span style={{ color: "#22C55E", fontWeight: 600 }}>{onlineCount} online</span>
+            </span>
           </div>
         </div>
         {user && !isCreator && (
@@ -10080,8 +10290,24 @@ function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, on
       )}
 
       {!isMember && user && !banned && (
-        <div style={{ background: "#FFFBEB", border: "0.5px solid #FDE68A", borderRadius: 10, padding: "10px 14px", marginBottom: "0.75rem", fontSize: 13, color: "#92400E" }}>
-          Join this group to send messages.
+        <div style={{ background: "#EFF6FF", border: "1.5px solid #BFDBFE", borderRadius: 12, padding: "16px 18px", marginBottom: "1rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#1E3A5F", marginBottom: 3 }}>Join to participate</div>
+            <div style={{ fontSize: 13, color: "#3B82F6" }}>Join this group to send messages and see the full conversation.</div>
+          </div>
+          <button onClick={onJoin}
+            style={{ background: "#16A34A", color: "#fff", border: "none", padding: "10px 22px", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer", minHeight: 44, flexShrink: 0, whiteSpace: "nowrap" }}>
+            Join group
+          </button>
+        </div>
+      )}
+      {!user && (
+        <div style={{ background: "#EFF6FF", border: "1.5px solid #BFDBFE", borderRadius: 12, padding: "14px 18px", marginBottom: "1rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 14, color: "#1E3A5F", fontWeight: 500 }}>Log in to join and chat</div>
+          <button onClick={() => setPage("auth")}
+            style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "9px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", minHeight: 40, flexShrink: 0 }}>
+            Log in
+          </button>
         </div>
       )}
 
@@ -10126,12 +10352,9 @@ function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, on
               </svg>
             </button>
           </form>
-        ) : !user ? (
-          <div style={{ padding: "1rem", borderTop: "0.5px solid #f0f0f0", textAlign: "center", flexShrink: 0 }}>
-            <button onClick={() => setPage("auth")}
-              style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "9px 24px", minHeight: 44, borderRadius: 8, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>
-              Log in to join the conversation
-            </button>
+        ) : !isMember ? (
+          <div style={{ padding: "10px 1rem", borderTop: "0.5px solid #f0f0f0", textAlign: "center", fontSize: 13, color: "#64748B", flexShrink: 0 }}>
+            Join this group above to start chatting.
           </div>
         ) : null}
       </div>
@@ -11092,7 +11315,7 @@ function CreateProjectListingPage({ user, setPage }) {
           type="submit"
           disabled={saving || uploading}
           style={{
-            background: saving || uploading ? "#aaa" : "#3B82F6", color: (saving || uploading) ? "#fff" : "#1E3A5F",
+            background: saving || uploading ? "#aaa" : "#3B82F6", color: "#fff",
             border: "none", padding: "12px", borderRadius: 8,
             fontSize: 15, fontWeight: 500,
             cursor: saving || uploading ? "default" : "pointer",
@@ -12914,8 +13137,9 @@ const ADMIN_EMAIL_CONTACT = "lenderbuild.support@gmail.com";
 function MyRepaymentsPage({ user, setPage }) {
   const [deals,   setDeals]   = useState([]);
   const [loading, setLoading] = useState(true);
-  const [chasing,   setChasing]   = useState(null);
-  const [receiving, setReceiving] = useState(null);
+  const [chasing,           setChasing]           = useState(null);
+  const [receiving,         setReceiving]         = useState(null);
+  const [confirmingReceive, setConfirmingReceive] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -12952,7 +13176,8 @@ function MyRepaymentsPage({ user, setPage }) {
   }
 
   async function markReceived(repaymentId) {
-    if (!window.confirm("Mark this repayment as received? This cannot be undone.")) return;
+    if (confirmingReceive !== repaymentId) { setConfirmingReceive(repaymentId); return; }
+    setConfirmingReceive(null);
     setReceiving(repaymentId);
     const { data: { session } } = await supabase.auth.getSession();
     const res = await fetch("/api/deals", {
@@ -12988,10 +13213,24 @@ function MyRepaymentsPage({ user, setPage }) {
                   {chasing === r.id ? "Sending…" : "Chase payment"}
                 </button>
               )}
-              <button onClick={() => markReceived(r.id)} disabled={receiving === r.id}
-                style={{ padding: "6px 14px", background: "#E1F5EE", color: "#0F6E56", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: receiving === r.id ? "default" : "pointer", minHeight: 32 }}>
-                {receiving === r.id ? "Saving…" : "Mark as received"}
-              </button>
+              {confirmingReceive === r.id ? (
+                <>
+                  <span style={{ fontSize: 12, color: "#64748B", alignSelf: "center" }}>Confirm?</span>
+                  <button onClick={() => markReceived(r.id)} disabled={receiving === r.id}
+                    style={{ padding: "6px 14px", background: "#16A34A", color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 32 }}>
+                    {receiving === r.id ? "Saving…" : "Yes, received"}
+                  </button>
+                  <button onClick={() => setConfirmingReceive(null)}
+                    style={{ padding: "6px 10px", background: "transparent", color: "#64748B", border: "0.5px solid #ccc", borderRadius: 7, fontSize: 12, cursor: "pointer", minHeight: 32 }}>
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button onClick={() => markReceived(r.id)} disabled={receiving === r.id}
+                  style={{ padding: "6px 14px", background: "#E1F5EE", color: "#0F6E56", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: receiving === r.id ? "default" : "pointer", minHeight: 32 }}>
+                  {receiving === r.id ? "Saving…" : "Mark as received"}
+                </button>
+              )}
               {isVeryOverdue && (
                 <button onClick={() => { const d = deals.find(dl => dl.id === r.deal_id); if (d) setPage("deal-detail", d); }}
                   style={{ padding: "6px 14px", background: "#FEE2E2", color: "#DC2626", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 32 }}>
@@ -13198,8 +13437,9 @@ function DealDetailPage({ user, setPage, deal: initialDeal, setCelebration }) {
   const [savingLegal,       setSavingLegal]       = useState(false);
   const [confirmingBank,    setConfirmingBank]    = useState(false);
   const [bankDetailsProvided, setBankDetailsProvided] = useState(!!initialDeal?.builder_bank_details_provided);
-  const [chasingRepayment,  setChasingRepayment]  = useState(null);
-  const [markingReceived,   setMarkingReceived]   = useState(null);
+  const [chasingRepayment,      setChasingRepayment]      = useState(null);
+  const [markingReceived,       setMarkingReceived]       = useState(null);
+  const [confirmingReceiveDD,   setConfirmingReceiveDD]   = useState(null);
   const [makingRepayment,   setMakingRepayment]   = useState(null);
   const [agreementSignedSelf,  setAgreementSignedSelf]  = useState(role === "lender" ? !!initialDeal?.agreement_signed_lender : !!initialDeal?.agreement_signed_builder);
   const agreementSignedOther = role === "lender" ? !!initialDeal?.agreement_signed_builder : !!initialDeal?.agreement_signed_lender;
@@ -13321,7 +13561,8 @@ function DealDetailPage({ user, setPage, deal: initialDeal, setCelebration }) {
   }
 
   async function handleMarkReceived(repaymentId) {
-    if (!window.confirm("Mark this repayment as received? This cannot be undone.")) return;
+    if (confirmingReceiveDD !== repaymentId) { setConfirmingReceiveDD(repaymentId); return; }
+    setConfirmingReceiveDD(null);
     setMarkingReceived(repaymentId);
     const { data: { session } } = await supabase.auth.getSession();
     const res = await fetch("/api/deals", {
@@ -16746,6 +16987,142 @@ function OnboardingChecklist({ user, setPage }) {
   );
 }
 
+// ─── PROFILE MENU PAGE ────────────────────────────────────────────────────────
+function ProfileMenuPage({ user, setPage, onLogout }) {
+  const role = user?.user_metadata?.role;
+  const avatarUrl = user?.user_metadata?.avatar_url;
+  const displayName = user?.user_metadata?.name || user?.email?.split("@")[0] || "";
+  const [switchModal, setSwitchModal] = useState(false);
+  const [switchEmail, setSwitchEmail] = useState("");
+  const [switchPassword, setSwitchPassword] = useState("");
+  const [switchLoading, setSwitchLoading] = useState(false);
+  const [switchError, setSwitchError] = useState("");
+
+  async function handleSwitchLogin(e) {
+    e.preventDefault();
+    setSwitchLoading(true);
+    setSwitchError("");
+    const { data, error } = await supabase.auth.signInWithPassword({ email: switchEmail, password: switchPassword });
+    setSwitchLoading(false);
+    if (error) { setSwitchError(error.message); return; }
+    if (data?.user && data?.session) {
+      upsertSavedAccount({
+        user_id: data.user.id, email: data.user.email,
+        name: data.user.user_metadata?.name || data.user.email.split("@")[0],
+        avatar_url: data.user.user_metadata?.avatar_url || null,
+        access_token: data.session.access_token, refresh_token: data.session.refresh_token,
+      });
+    }
+    setSwitchModal(false);
+    setPage("home");
+  }
+
+  const navItems = [
+    { label: "My profile",    target: "profile-setup",
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> },
+    { label: "My deals",      target: "deals",
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg> },
+    { label: "Messages",      target: "messages",
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> },
+    { label: "Notifications", target: "notifications",
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg> },
+    { label: "Settings",      target: "account",
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg> },
+  ];
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#f5f5f5", paddingBottom: "calc(60px + env(safe-area-inset-bottom, 0px))" }}>
+      {/* Navbar */}
+      <div style={{ background: "#1E3A5F", position: "sticky", top: 0, zIndex: 100, height: 56, display: "flex", alignItems: "center" }}>
+        <button onClick={() => setPage("home")} style={{ background: "none", border: "none", cursor: "pointer", color: "#fff", display: "flex", alignItems: "center", padding: "8px 14px", lineHeight: 0 }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+        </button>
+        <div style={{ flex: 1, textAlign: "center", color: "#fff", fontWeight: 600, fontSize: 17, marginRight: 44 }}>Account</div>
+      </div>
+
+      {/* User card */}
+      <div style={{ background: "#fff", display: "flex", flexDirection: "column", alignItems: "center", padding: "28px 20px 24px", borderBottom: "1px solid #efefef" }}>
+        {avatarUrl
+          ? <img src={avatarUrl} alt="" style={{ width: 80, height: 80, borderRadius: "50%", objectFit: "cover", marginBottom: 12 }} />
+          : <div style={{ width: 80, height: 80, borderRadius: "50%", background: "#1E3A5F", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30, fontWeight: 700, marginBottom: 12 }}>{displayName.charAt(0).toUpperCase()}</div>
+        }
+        <div style={{ fontWeight: 700, fontSize: 18, color: "#1E3A5F", marginBottom: 8 }}>{displayName}</div>
+        {role && <RoleBadge userRole={role} authRole={role} />}
+        {/* Action pills */}
+        <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+          <button onClick={onLogout}
+            style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 18px", borderRadius: 24, border: "1.5px solid #D1D5DB", background: "transparent", color: "#374151", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Log out
+          </button>
+          <button onClick={() => setSwitchModal(true)}
+            style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 18px", borderRadius: 24, border: "1.5px solid #D1D5DB", background: "transparent", color: "#374151", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
+            Switch account
+          </button>
+        </div>
+      </div>
+
+      {/* Nav links */}
+      <div style={{ background: "#fff", marginTop: 12 }}>
+        {navItems.map((item, i) => (
+          <button key={item.target}
+            onClick={() => { setPage(item.target); window.scrollTo({ top: 0, behavior: "instant" }); }}
+            style={{ display: "flex", alignItems: "center", gap: 16, width: "100%", padding: "0 20px", fontSize: 15, background: "transparent", border: "none", borderBottom: i < navItems.length - 1 ? "1px solid #f5f5f5" : "none", cursor: "pointer", minHeight: 52, color: "#1E3A5F", textAlign: "left" }}
+            onTouchStart={e => e.currentTarget.style.background = "#f5f5f5"}
+            onTouchEnd={e => e.currentTarget.style.background = "transparent"}
+            onMouseEnter={e => e.currentTarget.style.background = "#f9f9f7"}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+          >
+            <span style={{ color: "#64748B", lineHeight: 0, flexShrink: 0 }}>{item.icon}</span>
+            <span style={{ fontWeight: 500, flex: 1 }}>{item.label}</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+        ))}
+      </div>
+
+      {/* Bottom log out */}
+      <div style={{ background: "#fff", marginTop: 12 }}>
+        <button onClick={onLogout}
+          style={{ display: "flex", alignItems: "center", gap: 16, width: "100%", padding: "0 20px", fontSize: 15, background: "transparent", border: "none", cursor: "pointer", color: "#DC2626", minHeight: 52, fontWeight: 500 }}
+          onTouchStart={e => e.currentTarget.style.background = "#FEF2F2"}
+          onTouchEnd={e => e.currentTarget.style.background = "transparent"}
+          onMouseEnter={e => e.currentTarget.style.background = "#FEF2F2"}
+          onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Log out
+        </button>
+      </div>
+
+      {/* Switch account modal */}
+      {switchModal && (
+        <>
+          <div onClick={() => { setSwitchModal(false); setSwitchError(""); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9998 }} />
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "min(360px, 92vw)", background: "#fff", borderRadius: 16, padding: 24, zIndex: 9999, boxShadow: "0 16px 56px rgba(0,0,0,0.25)" }}>
+            <div style={{ fontWeight: 700, fontSize: 18, color: "#1E3A5F", marginBottom: 20 }}>Switch account</div>
+            {switchError && <div style={{ background: "#FEF2F2", color: "#DC2626", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{switchError}</div>}
+            <form onSubmit={handleSwitchLogin} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <input type="email" placeholder="Email address" value={switchEmail} onChange={e => setSwitchEmail(e.target.value)} required autoFocus
+                style={{ height: 44, border: "1px solid #E2E8F0", borderRadius: 8, padding: "0 12px", fontSize: 14, outline: "none" }} />
+              <input type="password" placeholder="Password" value={switchPassword} onChange={e => setSwitchPassword(e.target.value)} required
+                style={{ height: 44, border: "1px solid #E2E8F0", borderRadius: 8, padding: "0 12px", fontSize: 14, outline: "none" }} />
+              <button type="submit" disabled={switchLoading}
+                style={{ height: 44, background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: switchLoading ? "default" : "pointer", marginTop: 4 }}>
+                {switchLoading ? "Logging in…" : "Log in as different user"}
+              </button>
+              <button type="button" onClick={() => { setSwitchModal(false); setSwitchError(""); setSwitchEmail(""); setSwitchPassword(""); }}
+                style={{ height: 44, background: "transparent", color: "#64748B", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 15, cursor: "pointer" }}>
+                Cancel
+              </button>
+            </form>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -16768,6 +17145,7 @@ export default function App() {
   const [selectedDeal,           setSelectedDeal]           = useState(null);
   const [selectedBuilderPassportId, setSelectedBuilderPassportId] = useState(null);
   const [unreadCount,       setUnreadCount]         = useState(0);
+  const [communityBadge,    setCommunityBadge]      = useState(false);
   const [userProfile,       setUserProfile]         = useState(null);
   const [viewerRoleProfile, setViewerRoleProfile]   = useState(null);
   const [tourStep,          setTourStep]            = useState(0); // 0 = inactive
@@ -16912,7 +17290,44 @@ export default function App() {
       setUnreadCount(0);
       localStorage.setItem(`msgs_read_${user.id}`, new Date().toISOString());
     }
+    if (page === "community") {
+      setCommunityBadge(false);
+      localStorage.setItem("lb_comm_last_visit", Date.now().toString());
+    }
   }, [page, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Page title ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    const titles = {
+      "home": "LenderBuild", "home-dashboard": "Dashboard — LenderBuild",
+      "search": "Find Lenders — LenderBuild", "find-builder": "Find Builders — LenderBuild",
+      "browse-projects": "Browse Projects — LenderBuild",
+      "community": "Community — LenderBuild", "posts": "Posts — LenderBuild",
+      "post-detail": "Post — LenderBuild", "create-post": "New Post — LenderBuild",
+      "edit-post": "Edit Post — LenderBuild", "my-posts": "My Posts — LenderBuild",
+      "messages": "Messages — LenderBuild", "deals": "My Deals — LenderBuild",
+      "deal-detail": "Deal — LenderBuild", "disputes": "Disputes — LenderBuild",
+      "profile-menu": "Account — LenderBuild",
+      "profile-setup": "Profile Setup — LenderBuild", "account": "Settings — LenderBuild",
+      "notifications": "Notifications — LenderBuild", "saved-profiles": "Saved Profiles — LenderBuild",
+      "auth": "Sign In — LenderBuild", "lender-dashboard": "Lender Dashboard — LenderBuild",
+      "legal-resources": "Legal Resources — LenderBuild", "my-repayments": "My Repayments — LenderBuild",
+      "leaderboard": "Leaderboard — LenderBuild", "admin": "Admin — LenderBuild",
+    };
+    document.title = titles[page] || "LenderBuild";
+  }, [page]);
+
+  // ── Community activity badge ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!user) { setCommunityBadge(false); return; }
+    const lastVisit = localStorage.getItem("lb_comm_last_visit");
+    if (!lastVisit) { setCommunityBadge(true); return; }
+    supabase
+      .from("community_messages")
+      .select("id", { count: "exact", head: true })
+      .gt("created_at", new Date(parseInt(lastVisit)).toISOString())
+      .then(({ count }) => { setCommunityBadge((count || 0) > 0); });
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -17024,13 +17439,14 @@ export default function App() {
     setTourStep(1);
   }
 
-  function handleLoginSuccess() {
+  function handleLoginSuccess(freshUser) {
+    if (freshUser) setUser(freshUser);
+    setPage("home");
     setLoginLoading(true);
   }
 
   function handleLoginDone() {
     setLoginLoading(false);
-    setPage("home");
     try {
       if (!localStorage.getItem("lb_device_preference")) {
         setTimeout(() => setShowDeviceModal(true), 600);
@@ -17110,6 +17526,7 @@ export default function App() {
           {page === "auth"             && <AuthPage           setPage={navigateTo} onLoginSuccess={handleLoginSuccess} initialTab={authInitialTab} />}
           {page === "forgot-password"  && <ForgotPasswordPage setPage={navigateTo} />}
           {page === "reset-password"   && <ResetPasswordPage  setPage={navigateTo} />}
+          {page === "profile-menu"     && user && <ProfileMenuPage   user={user} setPage={navigateTo} onLogout={handleLogout} />}
           {page === "account"          && user && <AccountPage      user={user} setPage={navigateTo} userProfile={userProfile} viewerRoleProfile={viewerRoleProfile} onReplayTour={handleReplayTour} darkMode={darkMode} setDarkMode={setDarkMode} accentColor={accentColor} setAccentColor={setAccentColor} fontSize={fontSize} setFontSize={setFontSize} density={density} setDensity={setDensity} />}
           {page === "profile-setup"   && user && <ProfileSetupPage user={user} setPage={navigateTo} setCelebration={setCelebration} />}
           {page === "messages"         && user && <MessagesPage user={user} initialConversationId={openConversationId} setPage={navigateTo} onViewProfile={handleViewProfile} onViewBuilderProfile={handleViewBuilderProfile} />}
@@ -17142,7 +17559,7 @@ export default function App() {
           {page === "disputes"                && user && <DisputesPage user={user} setPage={navigateTo} />}
           {page === "browse-projects"         && <BrowseProjectsPage user={user} setPage={navigateTo} />}
           {page === "create-project-listing"  && user && <CreateProjectListingPage user={user} setPage={navigateTo} />}
-          {page === "community"               && <CommunityPage user={user} setPage={navigateTo} />}
+          {page === "community"               && <CommunityPage user={user} setPage={navigateTo} onMessage={handleOpenConversation} />}
           {page === "analytics"               && user && user.user_metadata?.role === "admin" && <AnalyticsPage user={user} />}
           {page === "privacy"       && <PrivacyPolicyPage  setPage={navigateTo} />}
           {page === "terms"         && <TermsPage           setPage={navigateTo} />}
@@ -17181,7 +17598,7 @@ export default function App() {
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} setPage={navigateTo} user={user} onOpenDevPanel={() => setDevPanelOpen(true)} onViewProfile={handleViewProfile} onViewBuilderProfile={handleViewBuilderProfile} />
       {devPanelOpen && user && <DevPanel user={user} onClose={() => setDevPanelOpen(false)} devRoleOverride={devRoleOverride} setDevRoleOverride={setDevRoleOverride} setPage={navigateTo} />}
       {user && windowWidth <= 768 && (
-        <BottomNav page={page} setPage={navigateTo} user={user} unreadCount={unreadCount} onLogout={handleLogout} userProfile={userProfile} darkMode={darkMode} setDarkMode={setDarkMode} accentColor={accentColor} setAccentColor={setAccentColor} />
+        <BottomNav page={page} setPage={navigateTo} user={user} unreadCount={unreadCount} communityBadge={communityBadge} />
       )}
       {showDeviceModal && <DeviceDetectionModal onChoose={handleDeviceChoice} />}
       {celebration && <CelebrationOverlay message={celebration.message} subtitle={celebration.subtitle} onClose={() => setCelebration(null)} />}
