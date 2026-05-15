@@ -3897,6 +3897,16 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
   const [loading,         setLoading]         = useState(true);
   const [smartMatches,    setSmartMatches]    = useState([]);
 
+  const uid = user?.id || "";
+  const [dismissFunding,     setDismissFunding]     = useState(() => { try { return !!localStorage.getItem(`lb_dismiss_funding_${uid}`); } catch { return false; } });
+  const [dismissBuilderTools,setDismissBuilderTools] = useState(() => { try { return !!localStorage.getItem(`lb_dismiss_btools_${uid}`); } catch { return false; } });
+  const [dismissLenderTools, setDismissLenderTools]  = useState(() => { try { return !!localStorage.getItem(`lb_dismiss_ltools_${uid}`); } catch { return false; } });
+
+  function dismiss(key, setter) {
+    setter(true);
+    try { localStorage.setItem(key, "1"); } catch {}
+  }
+
   const myConnections = role === "builder"
     ? (user?.user_metadata?.connections || []).filter(c => c.status === "accepted")
     : (user?.user_metadata?.builder_connections || []).filter(c => c.status === "sent" || c.status === "accepted");
@@ -4059,7 +4069,9 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
         return (
           <>
             {/* Funding potential card */}
-            <div style={{ background: "linear-gradient(135deg, #1E3A5F 0%, #2E5FA3 100%)", borderRadius: 14, padding: "20px 24px", marginBottom: "1.5rem", color: "#fff" }}>
+            {!dismissFunding && (
+            <div style={{ background: "linear-gradient(135deg, #1E3A5F 0%, #2E5FA3 100%)", borderRadius: 14, padding: "20px 24px", marginBottom: "1.5rem", color: "#fff", position: "relative" }}>
+              <button onClick={() => dismiss(`lb_dismiss_funding_${uid}`, setDismissFunding)} aria-label="Dismiss" style={{ position: "absolute", top: 8, right: 8, width: 20, height: 20, borderRadius: "50%", background: "rgba(255,255,255,0.25)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#fff", lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
               <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.7, marginBottom: 8 }}>Your funding potential</div>
               <div style={{ fontSize: 34, fontWeight: 700, marginBottom: 4 }}>Up to {fmt(fundingPotential)}</div>
               <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 14 }}>
@@ -4073,9 +4085,12 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
                 <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.9 }}>Profile {profileScore}%</span>
               </div>
             </div>
+            )}
 
             {/* Quick tools row — Build Calculator + Market */}
-            <div style={{ display: "flex", gap: 10, marginBottom: "1.5rem" }}>
+            {!dismissBuilderTools && (
+            <div style={{ display: "flex", gap: 10, marginBottom: "1.5rem", position: "relative" }}>
+              <button onClick={() => dismiss(`lb_dismiss_btools_${uid}`, setDismissBuilderTools)} aria-label="Dismiss" style={{ position: "absolute", top: -8, right: -8, width: 20, height: 20, borderRadius: "50%", background: "#E5E7EB", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#374151", lineHeight: 1, padding: 0, zIndex: 1 }}>×</button>
               <button onClick={() => setPage("build-calculator")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2 }}>🧮 Build Calculator</div>
                 <div style={{ fontSize: 11, color: "#2E5FA3" }}>Not sure how much to ask for?</div>
@@ -4085,6 +4100,7 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
                 <div style={{ fontSize: 11, color: "#2E5FA3" }}>See UK market data →</div>
               </button>
             </div>
+            )}
 
             {/* Repayment reminder banner */}
             {(() => {
@@ -4250,7 +4266,9 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
             </div>
 
             {/* Quick tools row — Returns Calculator + Market */}
-            <div style={{ display: "flex", gap: 10, marginBottom: "1.5rem" }}>
+            {!dismissLenderTools && (
+            <div style={{ display: "flex", gap: 10, marginBottom: "1.5rem", position: "relative" }}>
+              <button onClick={() => dismiss(`lb_dismiss_ltools_${uid}`, setDismissLenderTools)} aria-label="Dismiss" style={{ position: "absolute", top: -8, right: -8, width: 20, height: 20, borderRadius: "50%", background: "#E5E7EB", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#374151", lineHeight: 1, padding: 0, zIndex: 1 }}>×</button>
               <button onClick={() => setPage("build-calculator")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2 }}>🧮 Returns Calculator</div>
                 <div style={{ fontSize: 11, color: "#2E5FA3" }}>Calculate your potential returns</div>
@@ -4260,6 +4278,7 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
                 <div style={{ fontSize: 11, color: "#2E5FA3" }}>See UK market data →</div>
               </button>
             </div>
+            )}
 
             {/* Pending connection requests */}
             {pendingRequests.length > 0 && (
@@ -4457,6 +4476,9 @@ function HomePage({ setPage, user, onViewProfile }) {
     ? (user?.user_metadata?.connections || []).filter(c => c.status === "accepted")
     : [];
 
+  const homeUid = user?.id || "";
+  const [dismissProfileBanner, setDismissProfileBanner] = useState(() => { try { return !!localStorage.getItem(`lb_dismiss_profile_banner_${homeUid}`); } catch { return false; } });
+
   // Live stats from Supabase — no fake fallbacks
   const [stats, setStats] = useState({ capital: null, lenders: null, projects: null });
 
@@ -4548,9 +4570,10 @@ function HomePage({ setPage, user, onViewProfile }) {
         </div>
       )}
       {/* Profile completion prompt */}
-      {user && !user.user_metadata?.profile_complete && (
-        <div style={{ background: "#FFFBEB", borderBottom: "0.5px solid #F6D860", padding: "12px 1.25rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      {user && !user.user_metadata?.profile_complete && !dismissProfileBanner && (
+        <div style={{ background: "#FFFBEB", borderBottom: "0.5px solid #F6D860", padding: "12px 1.25rem", position: "relative" }}>
+          <button onClick={() => { setDismissProfileBanner(true); try { localStorage.setItem(`lb_dismiss_profile_banner_${homeUid}`, "1"); } catch {} }} aria-label="Dismiss" style={{ position: "absolute", top: 8, right: 8, width: 20, height: 20, borderRadius: "50%", background: "#E5E7EB", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#374151", lineHeight: 1, padding: 0 }}>×</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", paddingRight: 28 }}>
             <div style={{ fontSize: 13, color: "#1E3A5F", flex: 1 }}>
               Complete your profile to appear in search results
             </div>
@@ -4975,6 +4998,7 @@ function LenderCard({ lc, user, setPage, settings, onViewProfile, viewerProfile 
 // ─── SEARCH PAGE ─────────────────────────────────────────────────────────────
 
 function SearchPage({ user, setPage, onViewProfile, viewerRoleProfile }) {
+  const [dismissCalcNudge, setDismissCalcNudge] = useState(() => { try { return !!localStorage.getItem("lb_dismiss_calc_nudge"); } catch { return false; } });
   const [budget,        setBudget]        = useState("any");
   const [returnType,    setReturnType]    = useState("any");
   const [project,       setProject]       = useState("any");
@@ -5135,10 +5159,13 @@ function SearchPage({ user, setPage, onViewProfile, viewerRoleProfile }) {
       <p style={{ fontSize: 14, color: "#64748B", margin: "0 0 1rem" }}>Browse lenders actively looking to fund UK property projects — filter by budget, return type, and project preference.</p>
 
       {/* Build Calculator nudge */}
-      <div style={{ background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, padding: "12px 16px", marginBottom: "1rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 13, color: "#1E3A5F" }}>🧮 Not sure how much to ask for? Use our build calculator</span>
+      {!dismissCalcNudge && (
+      <div style={{ background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, padding: "12px 16px", marginBottom: "1rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", position: "relative" }}>
+        <button onClick={() => { setDismissCalcNudge(true); try { localStorage.setItem("lb_dismiss_calc_nudge", "1"); } catch {} }} aria-label="Dismiss" style={{ position: "absolute", top: 6, right: 6, width: 20, height: 20, borderRadius: "50%", background: "#E5E7EB", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#374151", lineHeight: 1, padding: 0 }}>×</button>
+        <span style={{ fontSize: 13, color: "#1E3A5F", paddingRight: 20 }}>🧮 Not sure how much to ask for? Use our build calculator</span>
         <button onClick={() => setPage("build-calculator")} style={{ padding: "7px 16px", background: "var(--accent,#3B82F6)", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>Build Calculator</button>
       </div>
+      )}
 
       {/* Filter bar */}
       <div style={{ display: "flex", gap: 8, marginBottom: "1rem", flexWrap: "wrap", alignItems: "center" }}>
@@ -5490,6 +5517,7 @@ function BuilderCard({ builder, user, setPage, onMessage, onViewProfile, viewerP
 // ─── FIND A BUILDER PAGE ──────────────────────────────────────────────────────
 
 function FindBuilderPage({ user, setPage, onMessage, onViewProfile, viewerRoleProfile }) {
+  const [dismissReturnsNudge, setDismissReturnsNudge] = useState(() => { try { return !!localStorage.getItem("lb_dismiss_returns_nudge"); } catch { return false; } });
   const [specFilter,        setSpecFilter]       = useState("any");
   const [locationFilter,    setLocationFilter]   = useState("any");
   const [completionFilter,  setCompletionFilter] = useState("any");
@@ -5601,10 +5629,13 @@ function FindBuilderPage({ user, setPage, onMessage, onViewProfile, viewerRolePr
       <p style={{ fontSize: 14, color: "#64748B", margin: "0 0 1rem" }}>Find verified builders looking for funding — filter by specialisation, location, and track record.</p>
 
       {/* Returns Calculator nudge */}
-      <div style={{ background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, padding: "12px 16px", marginBottom: "1rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 13, color: "#1E3A5F" }}>🧮 Calculate your potential returns before you invest</span>
+      {!dismissReturnsNudge && (
+      <div style={{ background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, padding: "12px 16px", marginBottom: "1rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", position: "relative" }}>
+        <button onClick={() => { setDismissReturnsNudge(true); try { localStorage.setItem("lb_dismiss_returns_nudge", "1"); } catch {} }} aria-label="Dismiss" style={{ position: "absolute", top: 6, right: 6, width: 20, height: 20, borderRadius: "50%", background: "#E5E7EB", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#374151", lineHeight: 1, padding: 0 }}>×</button>
+        <span style={{ fontSize: 13, color: "#1E3A5F", paddingRight: 20 }}>🧮 Calculate your potential returns before you invest</span>
         <button onClick={() => setPage("build-calculator")} style={{ padding: "7px 16px", background: "var(--accent,#3B82F6)", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>Returns Calculator</button>
       </div>
+      )}
 
       {/* Filter bar */}
       <div style={{ display: "flex", gap: 8, marginBottom: "1rem", flexWrap: "wrap", alignItems: "center" }}>
@@ -9434,6 +9465,7 @@ function CommunityPage({ user, setPage, onMessage }) {
   const [communityTab, setCommunityTab] = useState("posts");
   const [showWarn,  setShowWarn]  = useState(!localStorage.getItem(COMMUNITY_WARN_KEY));
   const [reported,  setReported]  = useState({}); // { messageId: true }
+  const [dismissSafety, setDismissSafety] = useState(() => { try { return !!localStorage.getItem("lb_dismiss_community_safety"); } catch { return false; } });
   const messagesEndRef  = useRef(null);
   const chatScrollRef   = useRef(null);
   const realtimeChanRef = useRef(null);
@@ -9615,12 +9647,15 @@ function CommunityPage({ user, setPage, onMessage }) {
         {communityTab === "chat" && (
           <>
             {/* Safety banner */}
-            <div style={{ background: "#EBF5FF", border: "0.5px solid #BFDBFE", borderRadius: 10, padding: "10px 14px", marginBottom: "1rem", display: "flex", gap: 10, alignItems: "flex-start" }}>
+            {!dismissSafety && (
+            <div style={{ background: "#EBF5FF", border: "0.5px solid #BFDBFE", borderRadius: 10, padding: "10px 14px", marginBottom: "1rem", display: "flex", gap: 10, alignItems: "flex-start", position: "relative" }}>
+              <button onClick={() => { setDismissSafety(true); try { localStorage.setItem("lb_dismiss_community_safety", "1"); } catch {}; }} aria-label="Dismiss" style={{ position: "absolute", top: 6, right: 6, width: 20, height: 20, borderRadius: "50%", background: "#E5E7EB", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#374151", lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
               <span style={{ fontSize: 16, flexShrink: 0 }}>🛡️</span>
-              <p style={{ margin: 0, fontSize: 13, color: "#1E3A5F", lineHeight: 1.55 }}>
+              <p style={{ margin: 0, fontSize: 13, color: "#1E3A5F", lineHeight: 1.55, paddingRight: 20 }}>
                 <strong>For your protection:</strong> never share personal financial details in public chat. Always verify identities before connecting. Report suspicious behaviour using the flag button.
               </p>
             </div>
+            )}
 
             {/* Ban notice */}
             {banned && (
