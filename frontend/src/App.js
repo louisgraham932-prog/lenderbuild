@@ -3897,6 +3897,10 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
     setter(true);
     try { localStorage.setItem(key, "1"); } catch {}
   }
+  function show(key, setter) {
+    setter(false);
+    try { localStorage.removeItem(key); } catch {}
+  }
 
   const myConnections = role === "builder"
     ? (user?.user_metadata?.connections || []).filter(c => c.status === "accepted")
@@ -4079,17 +4083,30 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
             )}
 
             {/* Quick tools row — Build Calculator + Market */}
-            {!dismissBuilderTools && (
-            <div style={{ display: "flex", gap: 10, marginBottom: "1.5rem", position: "relative" }}>
-              <button onClick={() => dismiss(`lb_dismiss_btools_${uid}`, setDismissBuilderTools)} aria-label="Dismiss" style={{ position: "absolute", top: -8, right: -8, width: 20, height: 20, borderRadius: "50%", background: "#E5E7EB", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#374151", lineHeight: 1, padding: 0, zIndex: 1 }}>×</button>
-              <button onClick={() => setPage("build-calculator")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2 }}>🧮 Build Calculator</div>
-                <div style={{ fontSize: 11, color: "#2E5FA3" }}>Not sure how much to ask for?</div>
+            {dismissBuilderTools ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 14px", background: "#F8FAFC", border: "0.5px solid #E2E8F0", borderRadius: 8, marginBottom: "1.5rem" }}>
+              <span style={{ fontSize: 12, color: "#64748B" }}>🧮 Build Calculator & Market Intelligence</span>
+              <button onClick={() => show(`lb_dismiss_btools_${uid}`, setDismissBuilderTools)} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 3, padding: "2px 6px", fontWeight: 500, flexShrink: 0 }}>
+                Show <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
               </button>
-              <button onClick={() => setPage("market")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2 }}>📈 Market Intelligence</div>
-                <div style={{ fontSize: 11, color: "#2E5FA3" }}>See UK market data →</div>
-              </button>
+            </div>
+            ) : (
+            <div style={{ marginBottom: "1.5rem" }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                <button onClick={() => dismiss(`lb_dismiss_btools_${uid}`, setDismissBuilderTools)} style={{ display: "flex", alignItems: "center", gap: 3, padding: "3px 8px", background: "#F1F5F9", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, color: "#64748B", fontWeight: 500 }}>
+                  Hide <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={() => setPage("build-calculator")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2 }}>🧮 Build Calculator</div>
+                  <div style={{ fontSize: 11, color: "#2E5FA3" }}>Not sure how much to ask for?</div>
+                </button>
+                <button onClick={() => setPage("market")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2 }}>📈 Market Intelligence</div>
+                  <div style={{ fontSize: 11, color: "#2E5FA3" }}>See UK market data →</div>
+                </button>
+              </div>
             </div>
             )}
 
@@ -4257,17 +4274,30 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
             </div>
 
             {/* Quick tools row — Returns Calculator + Market */}
-            {!dismissLenderTools && (
-            <div style={{ display: "flex", gap: 10, marginBottom: "1.5rem", position: "relative" }}>
-              <button onClick={() => dismiss(`lb_dismiss_ltools_${uid}`, setDismissLenderTools)} aria-label="Dismiss" style={{ position: "absolute", top: -8, right: -8, width: 20, height: 20, borderRadius: "50%", background: "#E5E7EB", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#374151", lineHeight: 1, padding: 0, zIndex: 1 }}>×</button>
-              <button onClick={() => setPage("build-calculator")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2 }}>🧮 Returns Calculator</div>
-                <div style={{ fontSize: 11, color: "#2E5FA3" }}>Calculate your potential returns</div>
+            {dismissLenderTools ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 14px", background: "#F8FAFC", border: "0.5px solid #E2E8F0", borderRadius: 8, marginBottom: "1.5rem" }}>
+              <span style={{ fontSize: 12, color: "#64748B" }}>🧮 Returns Calculator & Market Intelligence</span>
+              <button onClick={() => show(`lb_dismiss_ltools_${uid}`, setDismissLenderTools)} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 3, padding: "2px 6px", fontWeight: 500, flexShrink: 0 }}>
+                Show <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
               </button>
-              <button onClick={() => setPage("market")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2 }}>📈 Market Intelligence</div>
-                <div style={{ fontSize: 11, color: "#2E5FA3" }}>See UK market data →</div>
-              </button>
+            </div>
+            ) : (
+            <div style={{ marginBottom: "1.5rem" }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                <button onClick={() => dismiss(`lb_dismiss_ltools_${uid}`, setDismissLenderTools)} style={{ display: "flex", alignItems: "center", gap: 3, padding: "3px 8px", background: "#F1F5F9", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, color: "#64748B", fontWeight: 500 }}>
+                  Hide <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={() => setPage("build-calculator")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2 }}>🧮 Returns Calculator</div>
+                  <div style={{ fontSize: 11, color: "#2E5FA3" }}>Calculate your potential returns</div>
+                </button>
+                <button onClick={() => setPage("market")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2 }}>📈 Market Intelligence</div>
+                  <div style={{ fontSize: 11, color: "#2E5FA3" }}>See UK market data →</div>
+                </button>
+              </div>
             </div>
             )}
 
@@ -5150,11 +5180,24 @@ function SearchPage({ user, setPage, onViewProfile, viewerRoleProfile }) {
       <p style={{ fontSize: 14, color: "#64748B", margin: "0 0 1rem" }}>Browse lenders actively looking to fund UK property projects — filter by budget, return type, and project preference.</p>
 
       {/* Build Calculator nudge */}
-      {!dismissCalcNudge && (
-      <div style={{ background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, padding: "12px 16px", marginBottom: "1rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", position: "relative" }}>
-        <button onClick={() => { setDismissCalcNudge(true); try { localStorage.setItem("lb_dismiss_calc_nudge", "1"); } catch {} }} aria-label="Dismiss" style={{ position: "absolute", top: 6, right: 6, width: 20, height: 20, borderRadius: "50%", background: "#E5E7EB", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#374151", lineHeight: 1, padding: 0 }}>×</button>
-        <span style={{ fontSize: 13, color: "#1E3A5F", paddingRight: 20 }}>🧮 Not sure how much to ask for? Use our build calculator</span>
-        <button onClick={() => setPage("build-calculator")} style={{ padding: "7px 16px", background: "var(--accent,#3B82F6)", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>Build Calculator</button>
+      {dismissCalcNudge ? (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 14px", background: "#F8FAFC", border: "0.5px solid #E2E8F0", borderRadius: 8, marginBottom: "1rem" }}>
+        <span style={{ fontSize: 12, color: "#64748B" }}>🧮 Build Calculator</span>
+        <button onClick={() => { setDismissCalcNudge(false); try { localStorage.removeItem("lb_dismiss_calc_nudge"); } catch {} }} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 3, padding: "2px 6px", fontWeight: 500 }}>
+          Show <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
+        </button>
+      </div>
+      ) : (
+      <div style={{ background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, padding: "10px 14px", marginBottom: "1rem" }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+          <button onClick={() => { setDismissCalcNudge(true); try { localStorage.setItem("lb_dismiss_calc_nudge", "1"); } catch {} }} style={{ display: "flex", alignItems: "center", gap: 3, padding: "3px 8px", background: "rgba(255,255,255,0.6)", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, color: "#64748B", fontWeight: 500 }}>
+            Hide <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 13, color: "#1E3A5F" }}>🧮 Not sure how much to ask for? Use our build calculator</span>
+          <button onClick={() => setPage("build-calculator")} style={{ padding: "7px 16px", background: "var(--accent,#3B82F6)", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>Build Calculator</button>
+        </div>
       </div>
       )}
 
@@ -5620,11 +5663,24 @@ function FindBuilderPage({ user, setPage, onMessage, onViewProfile, viewerRolePr
       <p style={{ fontSize: 14, color: "#64748B", margin: "0 0 1rem" }}>Find verified builders looking for funding — filter by specialisation, location, and track record.</p>
 
       {/* Returns Calculator nudge */}
-      {!dismissReturnsNudge && (
-      <div style={{ background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, padding: "12px 16px", marginBottom: "1rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", position: "relative" }}>
-        <button onClick={() => { setDismissReturnsNudge(true); try { localStorage.setItem("lb_dismiss_returns_nudge", "1"); } catch {} }} aria-label="Dismiss" style={{ position: "absolute", top: 6, right: 6, width: 20, height: 20, borderRadius: "50%", background: "#E5E7EB", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#374151", lineHeight: 1, padding: 0 }}>×</button>
-        <span style={{ fontSize: 13, color: "#1E3A5F", paddingRight: 20 }}>🧮 Calculate your potential returns before you invest</span>
-        <button onClick={() => setPage("build-calculator")} style={{ padding: "7px 16px", background: "var(--accent,#3B82F6)", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>Returns Calculator</button>
+      {dismissReturnsNudge ? (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 14px", background: "#F8FAFC", border: "0.5px solid #E2E8F0", borderRadius: 8, marginBottom: "1rem" }}>
+        <span style={{ fontSize: 12, color: "#64748B" }}>🧮 Returns Calculator</span>
+        <button onClick={() => { setDismissReturnsNudge(false); try { localStorage.removeItem("lb_dismiss_returns_nudge"); } catch {} }} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 3, padding: "2px 6px", fontWeight: 500 }}>
+          Show <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
+        </button>
+      </div>
+      ) : (
+      <div style={{ background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, padding: "10px 14px", marginBottom: "1rem" }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+          <button onClick={() => { setDismissReturnsNudge(true); try { localStorage.setItem("lb_dismiss_returns_nudge", "1"); } catch {} }} style={{ display: "flex", alignItems: "center", gap: 3, padding: "3px 8px", background: "rgba(255,255,255,0.6)", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, color: "#64748B", fontWeight: 500 }}>
+            Hide <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 13, color: "#1E3A5F" }}>🧮 Calculate your potential returns before you invest</span>
+          <button onClick={() => setPage("build-calculator")} style={{ padding: "7px 16px", background: "var(--accent,#3B82F6)", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>Returns Calculator</button>
+        </div>
       </div>
       )}
 
@@ -17014,16 +17070,66 @@ function OnboardingChecklist({ user, setPage }) {
   );
 }
 
+// ─── SWITCH ACCOUNT PAGE ──────────────────────────────────────────────────────
+function SwitchAccountPage({ user, setPage }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    const { data, error: loginErr } = await supabase.auth.signInWithPassword({ email, password });
+    setLoading(false);
+    if (loginErr) { setError(loginErr.message); return; }
+    if (data?.user && data?.session) {
+      upsertSavedAccount({
+        user_id: data.user.id, email: data.user.email,
+        name: data.user.user_metadata?.name || data.user.email.split("@")[0],
+        avatar_url: data.user.user_metadata?.avatar_url || null,
+        access_token: data.session.access_token, refresh_token: data.session.refresh_token,
+      });
+    }
+    setPage("home");
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#f5f5f5", paddingBottom: "calc(60px + env(safe-area-inset-bottom, 0px))" }}>
+      <div style={{ background: "#1E3A5F", position: "sticky", top: 0, zIndex: 100, height: 56, display: "flex", alignItems: "center" }}>
+        <button onClick={() => setPage("profile-menu")} style={{ background: "none", border: "none", cursor: "pointer", color: "#fff", display: "flex", alignItems: "center", padding: "8px 14px", lineHeight: 0 }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+        </button>
+        <div style={{ flex: 1, textAlign: "center", color: "#fff", fontWeight: 600, fontSize: 17, marginRight: 44 }}>Switch account</div>
+      </div>
+      <div style={{ padding: "28px 20px" }}>
+        <p style={{ fontSize: 14, color: "#64748B", marginBottom: 24, lineHeight: 1.5 }}>Log in as a different user. Your current account will be saved for quick switching.</p>
+        {error && <div style={{ background: "#FEF2F2", color: "#DC2626", padding: "12px 16px", borderRadius: 10, fontSize: 14, marginBottom: 16 }}>{error}</div>}
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <input type="email" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} required autoFocus
+            style={{ height: 52, border: "1px solid #E2E8F0", borderRadius: 10, padding: "0 16px", fontSize: 16, outline: "none", background: "#fff", width: "100%", boxSizing: "border-box" }} />
+          <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required
+            style={{ height: 52, border: "1px solid #E2E8F0", borderRadius: 10, padding: "0 16px", fontSize: 16, outline: "none", background: "#fff", width: "100%", boxSizing: "border-box" }} />
+          <button type="submit" disabled={loading}
+            style={{ height: 52, background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 10, fontSize: 16, fontWeight: 600, cursor: loading ? "default" : "pointer", marginTop: 4 }}>
+            {loading ? "Logging in…" : "Log in as different user"}
+          </button>
+          <button type="button" onClick={() => setPage("profile-menu")}
+            style={{ height: 52, background: "transparent", color: "#64748B", border: "1px solid #E2E8F0", borderRadius: 10, fontSize: 16, cursor: "pointer" }}>
+            Cancel
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── PROFILE MENU PAGE ────────────────────────────────────────────────────────
 function ProfileMenuPage({ user, setPage, onLogout }) {
   const role = user?.user_metadata?.role;
   const avatarUrl = user?.user_metadata?.avatar_url;
   const displayName = user?.user_metadata?.name || user?.email?.split("@")[0] || "";
-  const [switchModal, setSwitchModal] = useState(false);
-  const [switchEmail, setSwitchEmail] = useState("");
-  const [switchPassword, setSwitchPassword] = useState("");
-  const [switchLoading, setSwitchLoading] = useState(false);
-  const [switchError, setSwitchError] = useState("");
   const [savedAccountsError, setSavedAccountsError] = useState("");
 
   const savedAccounts = getSavedAccounts().filter(a => a.user_id !== user?.id);
@@ -17042,7 +17148,7 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
     setPage("home");
   }
 
-  async function handleAddAccount() {
+  async function handleGoToSwitchPage() {
     const { data: { session: curSess } } = await supabase.auth.getSession();
     if (curSess && user) {
       upsertSavedAccount({
@@ -17051,26 +17157,7 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
         access_token: curSess.access_token, refresh_token: curSess.refresh_token,
       });
     }
-    setSwitchModal(true);
-  }
-
-  async function handleSwitchLogin(e) {
-    e.preventDefault();
-    setSwitchLoading(true);
-    setSwitchError("");
-    const { data, error } = await supabase.auth.signInWithPassword({ email: switchEmail, password: switchPassword });
-    setSwitchLoading(false);
-    if (error) { setSwitchError(error.message); return; }
-    if (data?.user && data?.session) {
-      upsertSavedAccount({
-        user_id: data.user.id, email: data.user.email,
-        name: data.user.user_metadata?.name || data.user.email.split("@")[0],
-        avatar_url: data.user.user_metadata?.avatar_url || null,
-        access_token: data.session.access_token, refresh_token: data.session.refresh_token,
-      });
-    }
-    setSwitchModal(false);
-    setPage("home");
+    setPage("switch-account");
   }
 
   const navItems = [
@@ -17111,7 +17198,7 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
             Log out
           </button>
-          <button onClick={() => setSwitchModal(true)}
+          <button onClick={handleGoToSwitchPage}
             style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 18px", borderRadius: 24, border: "1.5px solid #D1D5DB", background: "transparent", color: "#374151", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
             Switch account
@@ -17147,7 +17234,7 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
           )}
           {savedAccountsError && <div style={{ fontSize: 12, color: "#DC2626", padding: "0 20px 8px" }}>{savedAccountsError}</div>}
           {getSavedAccounts().length < 3 && (
-            <button onClick={handleAddAccount}
+            <button onClick={handleGoToSwitchPage}
               style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "0 20px", fontSize: 14, background: "transparent", border: "none", cursor: "pointer", minHeight: 44, color: "#3B82F6", fontWeight: 500 }}
               onTouchStart={e => e.currentTarget.style.background = "#EFF6FF"}
               onTouchEnd={e => e.currentTarget.style.background = "transparent"}
@@ -17195,32 +17282,6 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
         </button>
       </div>
 
-      {/* Switch account modal */}
-      {switchModal && (
-        <>
-          <div onClick={() => { setSwitchModal(false); setSwitchError(""); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9998 }} />
-          <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: "0 16px", maxWidth: "100vw", overflow: "hidden", pointerEvents: "none" }}>
-            <div style={{ width: "100%", maxWidth: 360, background: "#fff", borderRadius: 16, padding: 24, boxShadow: "0 16px 56px rgba(0,0,0,0.25)", pointerEvents: "auto", overflow: "hidden" }}>
-              <div style={{ fontWeight: 700, fontSize: 18, color: "#1E3A5F", marginBottom: 20 }}>Switch account</div>
-              {switchError && <div style={{ background: "#FEF2F2", color: "#DC2626", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{switchError}</div>}
-              <form onSubmit={handleSwitchLogin} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <input type="email" placeholder="Email address" value={switchEmail} onChange={e => setSwitchEmail(e.target.value)} required autoFocus
-                  style={{ height: 44, border: "1px solid #E2E8F0", borderRadius: 8, padding: "0 12px", fontSize: 16, outline: "none" }} />
-                <input type="password" placeholder="Password" value={switchPassword} onChange={e => setSwitchPassword(e.target.value)} required
-                  style={{ height: 44, border: "1px solid #E2E8F0", borderRadius: 8, padding: "0 12px", fontSize: 16, outline: "none" }} />
-                <button type="submit" disabled={switchLoading}
-                  style={{ height: 44, background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: switchLoading ? "default" : "pointer", marginTop: 4 }}>
-                  {switchLoading ? "Logging in…" : "Log in as different user"}
-                </button>
-                <button type="button" onClick={() => { setSwitchModal(false); setSwitchError(""); setSwitchEmail(""); setSwitchPassword(""); }}
-                  style={{ height: 44, background: "transparent", color: "#64748B", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 15, cursor: "pointer" }}>
-                  Cancel
-                </button>
-              </form>
-            </div>
-          </div>
-        </>
-      )}
     </div>
   );
 }
@@ -17629,6 +17690,7 @@ export default function App() {
           {page === "forgot-password"  && <ForgotPasswordPage setPage={navigateTo} />}
           {page === "reset-password"   && <ResetPasswordPage  setPage={navigateTo} />}
           {page === "profile-menu"     && user && <ProfileMenuPage   user={user} setPage={navigateTo} onLogout={handleLogout} />}
+          {page === "switch-account"   && user && <SwitchAccountPage user={user} setPage={navigateTo} />}
           {page === "account"          && user && <AccountPage      user={user} setPage={navigateTo} userProfile={userProfile} viewerRoleProfile={viewerRoleProfile} onReplayTour={handleReplayTour} darkMode={darkMode} setDarkMode={setDarkMode} accentColor={accentColor} setAccentColor={setAccentColor} fontSize={fontSize} setFontSize={setFontSize} density={density} setDensity={setDensity} />}
           {page === "profile-setup"   && user && <ProfileSetupPage user={user} setPage={navigateTo} setCelebration={setCelebration} />}
           {page === "messages"         && user && <MessagesPage user={user} initialConversationId={openConversationId} setPage={navigateTo} onViewProfile={handleViewProfile} onViewBuilderProfile={handleViewBuilderProfile} />}
