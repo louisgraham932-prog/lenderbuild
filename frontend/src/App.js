@@ -1317,8 +1317,12 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
   }
 
   const Logo = (
-    <div onClick={() => go("home")} style={{ cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center" }}>
-      <img src="/logo.png" alt="LenderBuild" style={{ height: 40, width: "auto", display: "block" }} />
+    <div onClick={() => go("home")} style={{
+      fontFamily: "'Playfair Display', Georgia, serif",
+      fontSize: 20, fontWeight: 700, cursor: "pointer",
+      letterSpacing: -0.3, flexShrink: 0,
+    }}>
+      <span style={{ color: "#FFFFFF" }}>Lender</span><span style={{ color: "#3B82F6" }}>Build</span>
     </div>
   );
 
