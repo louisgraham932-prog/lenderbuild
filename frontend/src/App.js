@@ -1200,7 +1200,7 @@ function BottomNav({ page, setPage, user, unreadCount = 0, communityBadge = fals
   ];
 
   const profilePages = ["profile-menu", "profile-setup", "account", "saved-profiles", "saved-searches", "notifications", "lender-dashboard", "disputes"];
-  const postsPages = ["community", "posts", "post-detail", "my-posts", "create-post", "edit-post"];
+  const postsPages = ["community", "posts", "post-detail", "my-posts", "create-post", "edit-post", "community-posts", "community-groups", "community-chat"];
 
   return (
     <nav style={{
@@ -1209,6 +1209,7 @@ function BottomNav({ page, setPage, user, unreadCount = 0, communityBadge = fals
       paddingBottom: "env(safe-area-inset-bottom, 0px)",
       background: "#fff", zIndex: 9999, boxShadow: "0 -2px 12px rgba(0,0,0,0.1)",
       display: "flex", alignItems: "flex-start",
+      WebkitTransform: "translateZ(0)", transform: "translateZ(0)",
     }}>
       {tabs.map(tab => {
         const isActive =
@@ -1316,12 +1317,8 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
   }
 
   const Logo = (
-    <div onClick={() => go("home")} style={{
-      fontFamily: "'Playfair Display', Georgia, serif",
-      fontSize: 20, fontWeight: 700, cursor: "pointer",
-      letterSpacing: -0.3, flexShrink: 0, color: "#FFFFFF",
-    }}>
-      LenderBuild
+    <div onClick={() => go("home")} style={{ cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center" }}>
+      <img src="/logo.png" alt="LenderBuild" style={{ height: 40, width: "auto", display: "block" }} />
     </div>
   );
 
@@ -1380,6 +1377,10 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
             </button>
             {helpOpen && (
               <div style={{ ...NAV_DROPDOWN_STYLE, left: "50%", transform: "translateX(-50%)" }}>
+                <button onClick={() => { go("help"); setHelpOpen(false); }} style={ddItemStyle(page === "help")}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9.5" stroke="#2E5FA3" strokeWidth="1.5"/><path d="M12 8v4M12 16h.01" stroke="#2E5FA3" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                  Help Centre
+                </button>
                 <button onClick={() => { go("how-it-works"); setHelpOpen(false); }} style={ddItemStyle(page === "how-it-works")}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9.5" stroke="#2E5FA3" strokeWidth="1.5"/><path d="M8 12l3 3 5-6" stroke="#2E5FA3" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   How it works
@@ -1444,7 +1445,13 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
       <nav style={{ background: "var(--nav-bg)", borderBottom: "1px solid rgba(255,255,255,0.08)", position: "sticky", top: 0, zIndex: 100, boxShadow: scrolled ? "0 4px 20px rgba(0,0,0,0.35)" : "none", transition: "box-shadow 0.25s ease" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 1.25rem", height: 56 }}>
           {Logo}
-          <NotificationBell user={user} />
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <button onClick={() => go("help")} aria-label="Help Centre"
+              style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid rgba(255,255,255,0.18)", background: page === "help" ? "rgba(255,255,255,0.14)" : "transparent", color: "rgba(255,255,255,0.7)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, lineHeight: 1 }}>
+              ?
+            </button>
+            <NotificationBell user={user} />
+          </div>
         </div>
       </nav>
     );
@@ -1501,6 +1508,7 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
               {profileItems.filter(i => !i.divider).map(({ label, target }) => (
                 <button key={target} onClick={() => go(target)} style={mobileItemStyle(page === target)}>{label}</button>
               ))}
+              <button onClick={() => go("help")} style={mobileItemStyle(page === "help")}>Help Centre</button>
               <button onClick={onLogout} style={{ ...mobileItemStyle(false), color: "#D85A30" }}>Log out</button>
             </div>
           </div>
@@ -1556,6 +1564,11 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        {/* Help */}
+        <button onClick={() => go("help")} aria-label="Help Centre"
+          style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid rgba(255,255,255,0.18)", background: page === "help" ? "rgba(255,255,255,0.14)" : "transparent", color: page === "help" ? "var(--accent)" : "rgba(255,255,255,0.7)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, flexShrink: 0, lineHeight: 1 }}>
+          ?
+        </button>
         {/* Inbox */}
         <button id="tour-inbox-btn" onClick={() => go("messages")} aria-label="Inbox"
           style={{ position: "relative", display: "flex", alignItems: "center", gap: 5, padding: "7px 12px", borderRadius: 8, border: "none", background: page === "messages" ? "rgba(255,255,255,0.12)" : "transparent", color: page === "messages" ? "var(--accent)" : "rgba(255,255,255,0.7)", cursor: "pointer" }}>
@@ -3653,6 +3666,7 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
           <div style={{ padding: "16px", maxWidth: 600, margin: "0 auto" }}>
             <div style={card}>
               {[
+                { label: "Help Centre",            action: () => setPage("help"),         icon: "📚" },
                 { label: "How it works",          action: () => setPage("how-it-works"), icon: "📖" },
                 { label: "Trust & Safety",         action: () => setPage("safety"),       icon: "🛡️" },
                 { label: "Contact support",        action: () => { window.location.href = "mailto:lenderbuild.support@gmail.com"; }, icon: "✉️" },
@@ -4220,7 +4234,7 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
                       <Avatar initials={nameInitials(otherName)} color={pickColor(otherName || "")} size={32} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1E3A5F" }}>{otherName}</div>
-                        <div style={{ fontSize: 11, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{convo.last_message || "Start a conversation"}</div>
+                        <div style={{ fontSize: 11, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{convo.last_message ? convo.last_message : "Start a conversation"}</div>
                       </div>
                     </div>
                   );
@@ -4402,7 +4416,7 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
                       <Avatar initials={nameInitials(otherName)} color={pickColor(otherName || "")} size={32} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1E3A5F" }}>{otherName}</div>
-                        <div style={{ fontSize: 11, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{convo.last_message || "Start a conversation"}</div>
+                        <div style={{ fontSize: 11, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{convo.last_message ? convo.last_message : "Start a conversation"}</div>
                       </div>
                     </div>
                   );
@@ -8653,7 +8667,7 @@ function MessagesPage({ user, initialConversationId, setPage, onViewProfile, onV
   const [msgMenuId,       setMsgMenuId]       = useState(null);
   const [schedulePickerOpen, setSchedulePickerOpen] = useState(false);
   const [scheduledAt,     setScheduledAt]     = useState("");
-  const [filterWarning,   setFilterWarning]   = useState("");
+  const [dismissedNotices, setDismissedNotices] = useState(() => { try { return JSON.parse(localStorage.getItem("lb_pm_dismissed_notices") || "[]"); } catch { return []; } });
   const messagesEndRef = useRef(null);
   const inputRef       = useRef(null);
   const [width, setWidth] = useState(window.innerWidth);
@@ -8768,18 +8782,7 @@ function MessagesPage({ user, initialConversationId, setPage, onViewProfile, onV
     const raw = newMessage.trim();
     if (!raw || !selectedConvo || sending) return;
 
-    // Content filter (Feature 6)
-    const { sanitized, blocked } = filterPrivateMessage(raw);
-    if (blocked) {
-      setFilterWarning("Your message contained contact details and they have been removed. Exchange contact info only after completing a deal on the platform.");
-      setTimeout(() => setFilterWarning(""), 6000);
-      if (!sanitized.replace(_PM_REPLACE, "").trim()) {
-        setNewMessage("");
-        return;
-      }
-    }
-
-    const content = sanitized;
+    const content = raw;
     setSending(true);
     setNewMessage("");
     setSchedulePickerOpen(false);
@@ -8837,11 +8840,10 @@ function MessagesPage({ user, initialConversationId, setPage, onViewProfile, onV
   async function handleEditSave(msgId) {
     const newContent = editContent.trim();
     if (!newContent) return;
-    const { sanitized } = filterPrivateMessage(newContent);
     await supabase.from("messages")
-      .update({ content: sanitized, edited_at: new Date().toISOString() })
+      .update({ content: newContent, edited_at: new Date().toISOString() })
       .eq("id", msgId).eq("sender_id", myId);
-    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: sanitized, edited_at: new Date().toISOString() } : m));
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: newContent, edited_at: new Date().toISOString() } : m));
     setEditingId(null);
     setEditContent("");
   }
@@ -8902,13 +8904,6 @@ function MessagesPage({ user, initialConversationId, setPage, onViewProfile, onV
       minHeight: isMobile && selectedConvo ? undefined : "calc(100vh - 56px)",
       boxSizing: "border-box", overflow: isMobile && selectedConvo ? "hidden" : undefined,
     }}>
-
-      {/* Filter warning toast */}
-      {filterWarning && (
-        <div style={{ position: "fixed", top: 70, left: "50%", transform: "translateX(-50%)", zIndex: 9000, background: "#FEF3C7", border: "0.5px solid #FCD34D", borderRadius: 10, padding: "10px 18px", fontSize: 13, color: "#92400E", maxWidth: "min(420px, 92vw)", boxShadow: "0 4px 16px rgba(0,0,0,0.12)", textAlign: "center" }}>
-          ⚠ {filterWarning}
-        </div>
-      )}
 
       {/* Clear conversation confirmation modal */}
       {clearModal && createPortal(
@@ -9044,6 +9039,14 @@ function MessagesPage({ user, initialConversationId, setPage, onViewProfile, onV
 
                 {/* Messages list */}
                 <div style={{ flex: 1, overflowY: "auto", padding: "1rem", display: "flex", flexDirection: "column", gap: 8 }}>
+                  {selectedConvo && !dismissedNotices.includes(selectedConvo.id) && (
+                    <div style={{ background: "#EFF6FF", border: "0.5px solid #BFDBFE", borderRadius: 10, padding: "10px 14px", fontSize: 13, color: "#1E40AF", lineHeight: 1.55, display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 4 }}>
+                      <span style={{ flexShrink: 0 }}>🔒</span>
+                      <span style={{ flex: 1 }}>You are now connected. You can share contact details privately but we recommend keeping deal agreements and payments on the platform for your protection.</span>
+                      <button onClick={() => { const next = [...dismissedNotices, selectedConvo.id]; localStorage.setItem("lb_pm_dismissed_notices", JSON.stringify(next)); setDismissedNotices(next); }}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "#93C5FD", fontSize: 16, lineHeight: 1, padding: 0, flexShrink: 0 }}>✕</button>
+                    </div>
+                  )}
                   {messages.length === 0 ? (
                     <div style={{ textAlign: "center", color: "#bbb", fontSize: 13, marginTop: "2rem" }}>No messages yet — say hello!</div>
                   ) : (
@@ -9187,21 +9190,6 @@ function sanitizeChatMessage(text) {
   s = s.replace(_LINK_RE,    m => { if (_ALLOWED_.test(m)) return m; blocked = true; return "[link removed - connect through the platform]"; });
   s = s.replace(_PHONE_RE,   () => { blocked = true; return "[link removed - connect through the platform]"; });
   s = s.replace(_OFFSITE_RE, () => { blocked = true; return "[link removed - connect through the platform]"; });
-  return { sanitized: s.trim(), blocked };
-}
-
-// ── Private-message content filter (Feature 6) ────────────────────────────
-const _PM_PHONE_RE = /(?:\+44[\s\-.]?|0044[\s\-.]?|07\d{2,3}[\s\-.]?|0800[\s\-.]?|0808[\s\-.]?|01\d{3}[\s\-.]?|02\d{3}[\s\-.]?|03\d{3}[\s\-.]?)\d{3}[\s\-.]?\d{3,4}/g;
-const _PM_EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
-const _PM_URL_RE   = /(?:https?:\/\/|www\.)[\w\-./?=#&%+:@!~]+|(?:[\w-]+\.)+(?:com|co\.uk|org(?:\.uk)?|net|io|app|ai|tech|uk)(?:[/?#\s][^\s]*)?/gi;
-const _PM_ALLOWED  = /lenderbuild\.co\.uk/i;
-const _PM_REPLACE  = "[Contact details removed - connect through the platform]";
-
-function filterPrivateMessage(text) {
-  let s = text; let blocked = false;
-  s = s.replace(_PM_PHONE_RE, () => { blocked = true; return _PM_REPLACE; });
-  s = s.replace(_PM_EMAIL_RE, () => { blocked = true; return _PM_REPLACE; });
-  s = s.replace(_PM_URL_RE,   m  => { if (_PM_ALLOWED.test(m)) return m; blocked = true; return _PM_REPLACE; });
   return { sanitized: s.trim(), blocked };
 }
 
@@ -9530,7 +9518,94 @@ function PostsSection({ user, setPage, onMessage }) {
   );
 }
 
+// ─── FULL-SCREEN COMMUNITY SUB-PAGE WRAPPER ──────────────────────────────────
+function FullScreenCommunityPage({ title, onBack, children }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 1000, display: "flex", flexDirection: "column", overflowY: "hidden" }}>
+      <div style={{ background: "#1E3A5F", height: 56, display: "flex", alignItems: "center", padding: "0 16px", flexShrink: 0, position: "relative" }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", padding: "8px 4px", display: "flex", alignItems: "center", gap: 6, fontSize: 14, zIndex: 1 }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <span style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", fontSize: 17, fontWeight: 700, color: "#fff", whiteSpace: "nowrap" }}>{title}</span>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function CommunityPostsPage({ user, setPage, onMessage }) {
+  return (
+    <FullScreenCommunityPage title="Posts" onBack={() => setPage("posts")}>
+      <div style={{ padding: "1rem 1.25rem" }}>
+        <PostsSection user={user} setPage={setPage} onMessage={onMessage} />
+      </div>
+    </FullScreenCommunityPage>
+  );
+}
+
+function CommunityGroupsPage({ user, setPage }) {
+  return (
+    <FullScreenCommunityPage title="Groups" onBack={() => setPage("posts")}>
+      <div style={{ padding: "1rem 1.25rem" }}>
+        <GroupsTab user={user} setPage={setPage} fullScreen />
+      </div>
+    </FullScreenCommunityPage>
+  );
+}
+
+function CommunityChatPage({ user, setPage }) {
+  return (
+    <FullScreenCommunityPage title="Chat" onBack={() => setPage("posts")}>
+      <CommunityChatSection user={user} setPage={setPage} />
+    </FullScreenCommunityPage>
+  );
+}
+
 function CommunityPage({ user, setPage, onMessage }) {
+  const [showWarn, setShowWarn] = useState(!localStorage.getItem(COMMUNITY_WARN_KEY));
+
+  function handleWarnClose() {
+    localStorage.setItem(COMMUNITY_WARN_KEY, "1");
+    setShowWarn(false);
+  }
+
+  return (
+    <>
+      {showWarn && <ScamWarningModal onClose={handleWarnClose} />}
+      <div style={{ maxWidth: 820, margin: "0 auto", padding: "1.5rem 1.25rem" }}>
+        <div style={{ marginBottom: "1.5rem" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>LenderBuild</div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>Community Hub</h1>
+          <p style={{ fontSize: 13, color: "#64748B", margin: 0 }}>Posts, groups and live chat for builders and lenders</p>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {[
+            { page: "community-posts", emoji: "📝", title: "Posts", desc: "Read and share posts with the community" },
+            { page: "community-groups", emoji: "👥", title: "Groups", desc: "Join local area groups and connect with others" },
+            { page: "community-chat", emoji: "💬", title: "Chat", desc: "Live chat with builders and lenders" },
+          ].map(item => (
+            <button key={item.page} onClick={() => setPage(item.page)}
+              style={{ display: "flex", alignItems: "center", gap: 16, background: "#fff", border: "0.5px solid #e5e7eb", borderRadius: 14, padding: "18px 20px", cursor: "pointer", textAlign: "left", boxShadow: "0 2px 8px rgba(0,0,0,0.05)", transition: "box-shadow 0.15s" }}
+              onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.1)"}
+              onMouseLeave={e => e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.05)"}>
+              <div style={{ width: 50, height: 50, borderRadius: 14, background: "#EBF2FF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 }}>{item.emoji}</div>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#1E3A5F", marginBottom: 3 }}>{item.title}</div>
+                <div style={{ fontSize: 13, color: "#64748B" }}>{item.desc}</div>
+              </div>
+              <svg style={{ marginLeft: "auto", flexShrink: 0 }} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── COMMUNITY CHAT SECTION (extracted from old CommunityPage) ────────────────
+function CommunityChatSection({ user, setPage }) {
   const [channel,   setChannel]   = useState("general");
   const [messages,  setMessages]  = useState([]);
   const [loading,   setLoading]   = useState(true);
@@ -9538,10 +9613,8 @@ function CommunityPage({ user, setPage, onMessage }) {
   const [sending,   setSending]   = useState(false);
   const [cooldown,  setCooldown]  = useState(0);
   const [coolMsg,   setCoolMsg]   = useState("");
-  const [banned,    setBanned]    = useState(null); // null | { ban_type, banned_until, reason }
-  const [communityTab, setCommunityTab] = useState("posts");
-  const [showWarn,  setShowWarn]  = useState(!localStorage.getItem(COMMUNITY_WARN_KEY));
-  const [reported,  setReported]  = useState({}); // { messageId: true }
+  const [banned,    setBanned]    = useState(null);
+  const [reported,  setReported]  = useState({});
   const [dismissSafety, setDismissSafety] = useState(() => { try { return !!localStorage.getItem("lb_dismiss_community_safety"); } catch { return false; } });
   const messagesEndRef  = useRef(null);
   const chatScrollRef   = useRef(null);
@@ -9683,139 +9756,98 @@ function CommunityPage({ user, setPage, onMessage }) {
     });
   }
 
-  function handleWarnClose() {
-    localStorage.setItem(COMMUNITY_WARN_KEY, "1");
-    setShowWarn(false);
-  }
-
   const channelMeta  = COMMUNITY_CHANNELS.find(c => c.id === channel);
   const channelLabel = channel === "general" ? "#general" : channel === "funding" ? "#looking-for-funding" : "#available-to-lend";
   const canSend      = !banned && cooldown === 0 && !!user;
 
   return (
-    <>
-      {showWarn && <ScamWarningModal onClose={handleWarnClose} />}
-
-      <div style={{ maxWidth: 820, margin: "0 auto", padding: "1.5rem 1.25rem", minHeight: "calc(100vh - 120px)", display: "flex", flexDirection: "column" }}>
-        <div style={{ marginBottom: "1rem" }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>LenderBuild</div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>Community Hub</h1>
-          <p style={{ fontSize: 13, color: "#64748B", margin: 0 }}>Posts, groups and live chat for builders and lenders</p>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+      {/* Safety banner */}
+      {!dismissSafety && (
+        <div style={{ background: "#EBF5FF", border: "0.5px solid #BFDBFE", borderRadius: 10, padding: "10px 14px", margin: "12px 16px 0", display: "flex", gap: 10, alignItems: "flex-start", position: "relative" }}>
+          <button onClick={() => { setDismissSafety(true); try { localStorage.setItem("lb_dismiss_community_safety", "1"); } catch {} }} aria-label="Dismiss" style={{ position: "absolute", top: 6, right: 6, width: 20, height: 20, borderRadius: "50%", background: "#E5E7EB", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#374151", lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
+          <span style={{ fontSize: 16, flexShrink: 0 }}>🛡️</span>
+          <p style={{ margin: 0, fontSize: 13, color: "#1E3A5F", lineHeight: 1.55, paddingRight: 20 }}>
+            <strong>For your protection:</strong> never share personal financial details in public chat. Always verify identities before connecting.
+          </p>
         </div>
+      )}
 
-        {/* Section tabs: Posts | Groups | Chat */}
-        <div style={{ display: "flex", gap: 0, marginBottom: "1.5rem", borderBottom: "2px solid #e8e8e8" }}>
-          {[
-            { id: "posts",  label: "📝 Posts" },
-            { id: "groups", label: "👥 Groups" },
-            { id: "chat",   label: "💬 Chat" },
-          ].map(tab => (
-            <button key={tab.id} onClick={() => setCommunityTab(tab.id)}
-              style={{ padding: "10px 20px", border: "none", borderBottom: communityTab === tab.id ? "2.5px solid #3B82F6" : "2.5px solid transparent", marginBottom: "-2px", background: "none", fontSize: 14, fontWeight: communityTab === tab.id ? 700 : 400, color: communityTab === tab.id ? "#2E5FA3" : "#64748B", cursor: "pointer", transition: "all 0.15s" }}>
-              {tab.label}
-            </button>
-          ))}
+      {/* Ban notice */}
+      {banned && (
+        <div style={{ background: "#FEE2E2", border: "0.5px solid #FCA5A5", borderRadius: 10, padding: "12px 16px", margin: "12px 16px 0" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#991B1B" }}>Community chat access suspended</div>
+          <div style={{ fontSize: 13, color: "#991B1B", marginTop: 4 }}>
+            {banned.ban_type === "permanent"
+              ? "Your access has been permanently suspended."
+              : `Your access is suspended until ${new Date(banned.banned_until).toLocaleString("en-GB")}.`}
+            {banned.reason && ` Reason: ${banned.reason}`}
+          </div>
         </div>
+      )}
 
-        {communityTab === "posts" && (
-          <PostsSection user={user} setPage={setPage} onMessage={onMessage} />
-        )}
-
-        {communityTab === "chat" && (
-          <>
-            {/* Safety banner */}
-            {!dismissSafety && (
-            <div style={{ background: "#EBF5FF", border: "0.5px solid #BFDBFE", borderRadius: 10, padding: "10px 14px", marginBottom: "1rem", display: "flex", gap: 10, alignItems: "flex-start", position: "relative" }}>
-              <button onClick={() => { setDismissSafety(true); try { localStorage.setItem("lb_dismiss_community_safety", "1"); } catch {}; }} aria-label="Dismiss" style={{ position: "absolute", top: 6, right: 6, width: 20, height: 20, borderRadius: "50%", background: "#E5E7EB", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#374151", lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
-              <span style={{ fontSize: 16, flexShrink: 0 }}>🛡️</span>
-              <p style={{ margin: 0, fontSize: 13, color: "#1E3A5F", lineHeight: 1.55, paddingRight: 20 }}>
-                <strong>For your protection:</strong> never share personal financial details in public chat. Always verify identities before connecting. Report suspicious behaviour using the flag button.
-              </p>
-            </div>
-            )}
-
-            {/* Ban notice */}
-            {banned && (
-              <div style={{ background: "#FEE2E2", border: "0.5px solid #FCA5A5", borderRadius: 10, padding: "12px 16px", marginBottom: "1rem" }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: "#991B1B" }}>Community chat access suspended</div>
-                <div style={{ fontSize: 13, color: "#991B1B", marginTop: 4 }}>
-                  {banned.ban_type === "permanent"
-                    ? "Your access has been permanently suspended."
-                    : `Your access is suspended until ${new Date(banned.banned_until).toLocaleString("en-GB")}.`}
-                  {banned.reason && ` Reason: ${banned.reason}`}
-                </div>
-              </div>
-            )}
-
-            {/* Channel tabs */}
-            <div style={{ display: "flex", gap: 8, marginBottom: "1rem", flexWrap: "wrap" }}>
-              {COMMUNITY_CHANNELS.map(ch => (
-                <button key={ch.id} onClick={() => setChannel(ch.id)} title={ch.desc}
-                  style={{ padding: "6px 14px", borderRadius: 20, border: `0.5px solid ${channel === ch.id ? "#3B82F6" : "#e0e0e0"}`, fontSize: 13, fontWeight: 500, cursor: "pointer", background: channel === ch.id ? "#EBF2FF" : "#fff", color: channel === ch.id ? "#2E5FA3" : "#555", transition: "all 0.15s" }}>
-                  {ch.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Chat container */}
-            <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, display: "flex", flexDirection: "column", flex: 1, minHeight: 400, maxHeight: "60vh" }}>
-              <div style={{ padding: "9px 1rem", borderBottom: "0.5px solid #f0f0f0", flexShrink: 0 }}>
-                <span style={{ fontSize: 12, color: "#64748B" }}>{channelMeta?.desc} · Last 50 messages</span>
-              </div>
-
-              <div ref={chatScrollRef} style={{ flex: 1, overflowY: "auto", padding: "1rem" }}>
-                {loading ? (
-                  <div style={{ textAlign: "center", color: "#aaa", padding: "2rem", fontSize: 14 }}>Loading…</div>
-                ) : messages.length === 0 ? (
-                  <div style={{ textAlign: "center", padding: "3rem" }}>
-                    <div style={{ fontSize: 32, marginBottom: 8 }}>💬</div>
-                    <div style={{ fontSize: 14, color: "#64748B" }}>No messages yet — start the conversation!</div>
-                  </div>
-                ) : (
-                  messages.map(msg => (
-                    <MessageBubble key={msg.id} msg={msg} myId={myId}
-                      onReport={handleReport} reported={!!reported[msg.id]} />
-                  ))
-                )}
-                <div ref={messagesEndRef} />
-              </div>
-
-              {coolMsg && (
-                <div style={{ padding: "7px 1rem", background: "#FFFBEB", borderTop: "0.5px solid #FDE68A", fontSize: 13, color: "#92400E", flexShrink: 0 }}>
-                  ⏳ {coolMsg}{cooldown > 0 ? ` (${cooldown}s)` : ""}
-                </div>
-              )}
-
-              {user && !banned ? (
-                <form onSubmit={handleSend} style={{ borderTop: "0.5px solid #f0f0f0", padding: "0.75rem 1rem", display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-                  <input value={text} onChange={e => setText(e.target.value)}
-                    placeholder={cooldown > 0 ? `Wait ${cooldown}s…` : `Message ${channelLabel}…`}
-                    maxLength={1000} disabled={cooldown > 0}
-                    style={{ flex: 1, height: 40, border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "0 12px", fontSize: 14, background: cooldown > 0 ? "#f5f5f5" : "#f9f9f9", outline: "none" }}
-                  />
-                  <button type="submit" disabled={!text.trim() || sending || cooldown > 0}
-                    style={{ width: 40, height: 40, borderRadius: 8, border: "none", flexShrink: 0, background: canSend && text.trim() && !sending ? "#3B82F6" : "#e0e0e0", cursor: canSend && text.trim() && !sending ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}>
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                      <path d="M14 8H2M14 8L9 3M14 8L9 13" stroke={canSend && text.trim() && !sending ? "#fff" : "#bbb"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  </button>
-                </form>
-              ) : !user ? (
-                <div style={{ padding: "1rem", borderTop: "0.5px solid #f0f0f0", textAlign: "center", flexShrink: 0 }}>
-                  <button onClick={() => setPage("auth")} style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "9px 24px", minHeight: 44, borderRadius: 8, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>
-                    Log in to chat
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          </>
-        )}
-
-        {communityTab === "groups" && (
-          <GroupsTab user={user} setPage={setPage} />
-        )}
+      {/* Channel tabs */}
+      <div style={{ display: "flex", gap: 8, padding: "12px 16px", flexWrap: "wrap" }}>
+        {COMMUNITY_CHANNELS.map(ch => (
+          <button key={ch.id} onClick={() => setChannel(ch.id)} title={ch.desc}
+            style={{ padding: "6px 14px", borderRadius: 20, border: `0.5px solid ${channel === ch.id ? "#3B82F6" : "#e0e0e0"}`, fontSize: 13, fontWeight: 500, cursor: "pointer", background: channel === ch.id ? "#EBF2FF" : "#fff", color: channel === ch.id ? "#2E5FA3" : "#555", transition: "all 0.15s" }}>
+            {ch.label}
+          </button>
+        ))}
       </div>
-    </>
+
+      {/* Chat container */}
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, margin: "0 16px 16px", display: "flex", flexDirection: "column", flex: 1, minHeight: 300 }}>
+        <div style={{ padding: "9px 1rem", borderBottom: "0.5px solid #f0f0f0", flexShrink: 0 }}>
+          <span style={{ fontSize: 12, color: "#64748B" }}>{channelMeta?.desc} · Last 50 messages</span>
+        </div>
+
+        <div ref={chatScrollRef} style={{ flex: 1, overflowY: "auto", padding: "1rem", minHeight: 200 }}>
+          {loading ? (
+            <div style={{ textAlign: "center", color: "#aaa", padding: "2rem", fontSize: 14 }}>Loading…</div>
+          ) : messages.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "3rem" }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>💬</div>
+              <div style={{ fontSize: 14, color: "#64748B" }}>No messages yet — start the conversation!</div>
+            </div>
+          ) : (
+            messages.map(msg => (
+              <MessageBubble key={msg.id} msg={msg} myId={myId}
+                onReport={handleReport} reported={!!reported[msg.id]} />
+            ))
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {coolMsg && (
+          <div style={{ padding: "7px 1rem", background: "#FFFBEB", borderTop: "0.5px solid #FDE68A", fontSize: 13, color: "#92400E", flexShrink: 0 }}>
+            ⏳ {coolMsg}{cooldown > 0 ? ` (${cooldown}s)` : ""}
+          </div>
+        )}
+
+        {user && !banned ? (
+          <form onSubmit={handleSend} style={{ borderTop: "0.5px solid #f0f0f0", padding: "0.75rem 1rem", display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+            <input value={text} onChange={e => setText(e.target.value)}
+              placeholder={cooldown > 0 ? `Wait ${cooldown}s…` : `Message ${channelLabel}…`}
+              maxLength={1000} disabled={cooldown > 0}
+              style={{ flex: 1, height: 40, border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "0 12px", fontSize: 14, background: cooldown > 0 ? "#f5f5f5" : "#f9f9f9", outline: "none" }}
+            />
+            <button type="submit" disabled={!text.trim() || sending || cooldown > 0}
+              style={{ width: 40, height: 40, borderRadius: 8, border: "none", flexShrink: 0, background: canSend && text.trim() && !sending ? "#3B82F6" : "#e0e0e0", cursor: canSend && text.trim() && !sending ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M14 8H2M14 8L9 3M14 8L9 13" stroke={canSend && text.trim() && !sending ? "#fff" : "#bbb"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </form>
+        ) : !user ? (
+          <div style={{ padding: "1rem", borderTop: "0.5px solid #f0f0f0", textAlign: "center", flexShrink: 0 }}>
+            <button onClick={() => setPage("auth")} style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "9px 24px", minHeight: 44, borderRadius: 8, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>
+              Log in to chat
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -9946,13 +9978,23 @@ function GroupsTab({ user, setPage }) {
 
   if (selectedGroup) {
     return (
-      <GroupChatRoom
-        group={selectedGroup} user={user} setPage={setPage}
-        myMemberships={myMemberships}
-        onBack={() => { setSelectedGroup(null); loadGroups(); }}
-        onJoin={() => handleJoin(selectedGroup.id)}
-        onLeave={() => handleLeave(selectedGroup.id)}
-      />
+      <div style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 1100, display: "flex", flexDirection: "column" }}>
+        <div style={{ background: "#1E3A5F", height: 56, display: "flex", alignItems: "center", padding: "0 16px", flexShrink: 0, position: "relative" }}>
+          <button onClick={() => { setSelectedGroup(null); loadGroups(); }} style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", padding: "8px 4px", display: "flex", alignItems: "center", zIndex: 1 }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <span style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", fontSize: 16, fontWeight: 700, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "60%" }}>{selectedGroup.name}</span>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          <GroupChatRoom
+            group={selectedGroup} user={user} setPage={setPage}
+            myMemberships={myMemberships}
+            onBack={() => { setSelectedGroup(null); loadGroups(); }}
+            onJoin={() => handleJoin(selectedGroup.id)}
+            onLeave={() => handleLeave(selectedGroup.id)}
+          />
+        </div>
+      </div>
     );
   }
 
@@ -10022,9 +10064,10 @@ function GroupsTab({ user, setPage }) {
     "Scotland": ["Scotland"],
     "Wales":    ["Wales", "Northern Ireland"],
   };
-  const visibleGroups = regionFilter === "All UK"
+  const visibleGroups = (regionFilter === "All UK"
     ? groups
-    : groups.filter(g => (REGION_MATCH[regionFilter] || []).includes(g.region));
+    : groups.filter(g => (REGION_MATCH[regionFilter] || []).includes(g.region))
+  ).filter(g => !g.is_private);
 
   // "You might like" suggestions
   const userRegion = ukRegion(myLocation);
@@ -10354,12 +10397,7 @@ function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, on
   const canSend = !banned && cooldown === 0 && !!user && isMember;
 
   return (
-    <div>
-      <button onClick={onBack}
-        style={{ background: "none", border: "none", cursor: "pointer", color: "#3B82F6", fontSize: 14, padding: "0 0 1rem", display: "flex", alignItems: "center", gap: 6 }}>
-        ← Back to groups
-      </button>
-
+    <div style={{ padding: "1rem 1.25rem" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "0.75rem", gap: 12 }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 2 }}>
@@ -10399,7 +10437,7 @@ function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, on
       )}
 
       {isCreator && group.is_private && group.invite_code && (
-        <InviteCodePanel inviteCode={group.invite_code} />
+        <InviteCodePanel inviteCode={group.invite_code} groupName={group.name} />
       )}
 
       {!isMember && user && !banned && (
@@ -10475,7 +10513,7 @@ function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, on
   );
 }
 
-function InviteCodePanel({ inviteCode }) {
+function InviteCodePanel({ inviteCode, groupName }) {
   const [copied, setCopied] = useState(false);
 
   function handleCopy() {
@@ -10485,19 +10523,35 @@ function InviteCodePanel({ inviteCode }) {
     });
   }
 
+  function handleShare() {
+    const text = `Join my group "${groupName}" on LenderBuild using invite code: ${inviteCode} at lenderbuild.co.uk`;
+    if (navigator.share) {
+      navigator.share({ title: `Join ${groupName} on LenderBuild`, text }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+      });
+    }
+  }
+
   return (
     <div style={{ background: "#EFF6FF", border: "0.5px solid #BFDBFE", borderRadius: 10, padding: "12px 16px", marginBottom: "0.75rem" }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: "#1D4ED8", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>🔒 Private group — invite code</div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ fontFamily: "monospace", fontSize: 20, fontWeight: 700, letterSpacing: "0.15em", color: "#1E3A5F", background: "#fff", border: "0.5px solid #BFDBFE", borderRadius: 8, padding: "6px 14px", flex: 1, textAlign: "center" }}>
-          {inviteCode}
-        </span>
+      <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, letterSpacing: "0.15em", color: "#1E3A5F", background: "#fff", border: "0.5px solid #BFDBFE", borderRadius: 8, padding: "8px 14px", textAlign: "center", marginBottom: 10 }}>
+        {inviteCode}
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
         <button onClick={handleCopy}
-          style={{ padding: "7px 14px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 600, background: copied ? "#16A34A" : "#3B82F6", color: "#fff", cursor: "pointer", flexShrink: 0, transition: "background 0.2s" }}>
-          {copied ? "Copied!" : "Copy"}
+          style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 600, background: copied ? "#16A34A" : "#3B82F6", color: "#fff", cursor: "pointer", transition: "background 0.2s" }}>
+          {copied ? "✓ Copied!" : "Copy code"}
+        </button>
+        <button onClick={handleShare}
+          style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "0.5px solid #BFDBFE", fontSize: 13, fontWeight: 600, background: "#fff", color: "#1D4ED8", cursor: "pointer" }}>
+          Share invite
         </button>
       </div>
-      <p style={{ fontSize: 11, color: "#64748B", margin: "8px 0 0" }}>Share this code with people you want to invite. They enter it in the Groups tab to join.</p>
+      <p style={{ fontSize: 11, color: "#64748B", margin: "8px 0 0" }}>Share this code with people you want to invite. They enter it in the Groups section to join.</p>
     </div>
   );
 }
@@ -12760,6 +12814,7 @@ function Footer({ setPage }) {
             <div>
               <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "#3B82F6", marginBottom: 14 }}>Help</div>
               {[
+                ["help",         "Help Centre"],
                 ["how-it-works", "How it works"],
                 ["safety",       "Trust & Safety"],
                 ["about",        "About us"],
@@ -17316,6 +17371,290 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
   );
 }
 
+// ─── HELP CENTRE PAGE ────────────────────────────────────────────────────────
+
+function HelpCentrePage({ setPage }) {
+  const [activeCategory, setActiveCategory] = useState(null);
+  const [openQuestion, setOpenQuestion]     = useState(null);
+  const [search, setSearch]                 = useState("");
+  const [helpful, setHelpful]               = useState({});
+
+  const categories = [
+    {
+      id: "getting-started",
+      title: "Getting started",
+      color: "#2E5FA3",
+      bg: "#EBF2FF",
+      icon: (
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 2C8.5 5.5 7 9 7 13l5 5c4 0 7.5-1.5 11-5C20 7 17 2 12 2z"/>
+          <circle cx="12" cy="12" r="2"/>
+          <path d="M7 13c-2 1-3 3-3 4s2 1 3 0l2-2"/>
+        </svg>
+      ),
+      questions: [
+        { q: "How do I sign up?", a: "Tap Sign up on the homepage and enter your full name, email address and a strong password. Choose your role — Builder or Lender — then check your inbox and click the verification link we send you. Once verified you'll land straight in your dashboard." },
+        { q: "How do I set up my profile?", a: "Go to Settings > Account and tap Edit Profile. Add your bio, location and a profile photo. Builders can also add their specialisation and project history. A complete profile boosts your match score and increases your visibility to other members." },
+        { q: "How do I verify my identity?", a: "In Settings > Account, scroll down to the Identity Verification section. Follow the on-screen steps to confirm your personal details. Verified members receive a badge on their profile which increases trust with other members." },
+        { q: "What is my member number?", a: "Your member number (e.g. LB-001234) is unique to your account. You'll find it on your profile page and in Settings > Account below your name. You can share it with other members so they can find you directly." },
+        { q: "How do I switch between accounts?", a: "Tap your profile picture in the top right corner and look under Switch Account. Tap any saved account to switch instantly. If you don't see an account listed, tap Add Account to sign in with another email address — you can save up to three accounts." },
+      ],
+    },
+    {
+      id: "for-builders",
+      title: "For builders",
+      color: "#92400E",
+      bg: "#FEF3C7",
+      icon: (
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2 20h20"/>
+          <path d="M4 20V10l8-6 8 6v10"/>
+          <path d="M9 20v-5h6v5"/>
+        </svg>
+      ),
+      questions: [
+        { q: "How do I make a post?", a: "Tap Posts in the bottom navigation, then tap the + New Post button. Write your post, add a category such as Advice or Project Update, then tap Publish. Your post appears in the community feed and notifies your followers." },
+        { q: "How do I find a lender?", a: "Tap Find a Lender in the navigation. Use the filters to narrow by loan type, maximum funding amount, region and preferred project types. Tap any lender card to view their full profile, then tap Express Interest to send a connection request." },
+        { q: "How do I create a project?", a: "Go to Browse Projects and tap Create Project Listing. Fill in the project title, location, total development value, funding required and a description of the scheme. Upload supporting documents and tap Publish. Lenders can then discover and express interest in your project." },
+        { q: "What documents do I need to upload?", a: "For a complete project listing we recommend uploading: planning permission documents, a site plan or layout drawing, proof of GDV valuation, and your building specification. Strong documentation significantly increases lender confidence and your match score." },
+        { q: "How do I verify my company?", a: "Go to Settings > Companies House and enter your company registration number. We check it against Companies House automatically. If your company is active we'll show you the list of directors to confirm your identity, then add a CH Verified badge to your profile." },
+      ],
+    },
+    {
+      id: "for-lenders",
+      title: "For lenders",
+      color: "#166534",
+      bg: "#DCFCE7",
+      icon: (
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="2" y="6" width="20" height="14" rx="2"/>
+          <path d="M2 10h20"/>
+          <circle cx="12" cy="15" r="2"/>
+        </svg>
+      ),
+      questions: [
+        { q: "How do I find builders to fund?", a: "Tap Find a Builder in the navigation. Filter by location, project type, loan size required and verification status. Tap a builder card to view their Builder Passport — a detailed profile showing their track record, documents and current projects." },
+        { q: "How do I express interest in a project?", a: "Open any builder profile or project listing and tap the Express Interest button. The builder receives your connection request with your profile details attached. Once they accept, you'll both be able to message each other directly." },
+        { q: "How do I track my investments?", a: "Go to Deals in the navigation to see all your active and completed deals. Each deal shows the current milestone status, upcoming repayments and the full deal timeline. Tap any deal to open the full Deal Room." },
+        { q: "What returns can I expect?", a: "Returns depend on the deal structure agreed with the builder. Development finance typically offers between 8–15% per annum, but this varies by project risk, location and loan term. Always conduct your own due diligence and take independent financial advice before committing funds." },
+        { q: "How do I calculate my returns?", a: "Open the Build Calculator from the More menu in the navigation. Enter the loan amount, interest rate, loan term and arrangement fee to see a full projected return breakdown. You can compare multiple scenarios side by side." },
+      ],
+    },
+    {
+      id: "payments-and-deals",
+      title: "Payments and deals",
+      color: "#534AB7",
+      bg: "#EEEDFE",
+      icon: (
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="2" y="5" width="20" height="14" rx="2"/>
+          <path d="M2 10h20"/>
+          <path d="M6 15h2M10 15h4"/>
+        </svg>
+      ),
+      questions: [
+        { q: "How do milestone payments work?", a: "When a deal is created, both parties agree a set of milestones — for example, Foundations, Frame, Weathertight. Each milestone has a value attached. The builder requests release when that stage is complete, and the lender approves before funds are transferred." },
+        { q: "How do I release a payment?", a: "Go to Deals and open the relevant deal. Find the milestone marked as Requested and tap the Release Payment button. You'll be shown the amount and asked to confirm. Once confirmed, the payment is processed and the milestone is marked as Complete." },
+        { q: "What is the finder's fee?", a: "The finder's fee is a small platform fee charged on deals successfully matched through LenderBuild. The exact amount and who pays it is shown clearly in the deal summary before either party confirms. It covers platform costs and ongoing deal support." },
+        { q: "How do repayments work?", a: "Repayments are structured within the Deal Room according to the agreed terms — monthly, quarterly or rolled up to the end of the term. You'll receive a notification when a repayment is due or has been processed." },
+        { q: "What happens if a payment is missed?", a: "Both parties are notified immediately if a payment is not received on time. You can open the deal and tap Raise a Query to start a conversation with the other party, or escalate to the Disputes section if the issue cannot be resolved directly." },
+      ],
+    },
+    {
+      id: "account-and-settings",
+      title: "Account and settings",
+      color: "#475569",
+      bg: "#F1F5F9",
+      icon: (
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </svg>
+      ),
+      questions: [
+        { q: "How do I change my profile photo?", a: "Go to Settings > Account and tap Edit Profile. Tap your current photo or the avatar placeholder at the top of the form. Your device's image picker opens — select a photo, crop if needed, and tap Save. Your new photo appears across the platform instantly." },
+        { q: "How do I enable dark mode?", a: "Go to Settings > Appearance and tap the Theme toggle at the top of the page. The app switches instantly between Light and Dark mode. Your preference is saved to your account so it follows you across all devices you log into." },
+        { q: "How do I change my colour scheme?", a: "Go to Settings > Appearance and scroll to the Colour Scheme section. Tap any of the colour circles to change the accent colour — available in Blue, Teal, Purple, Amber, Coral and Grey. The change applies instantly across the whole app." },
+        { q: "How do I manage notifications?", a: "Go to Settings > Notifications to see all notification types. Toggle each one individually — including New messages, Match alerts, Deal updates, Milestone reminders and Platform announcements. Changes are saved automatically." },
+        { q: "How do I delete my account?", a: "To permanently delete your account, email us at lenderbuild.support@gmail.com from your registered address with the subject 'Account deletion request'. We'll process your request within 30 days in line with our Privacy Policy. Note that active deals must be completed before deletion can proceed." },
+      ],
+    },
+    {
+      id: "safety-and-trust",
+      title: "Safety and trust",
+      color: "#991B1B",
+      bg: "#FEE2E2",
+      icon: (
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5z"/>
+        </svg>
+      ),
+      questions: [
+        { q: "How are users verified?", a: "All users are verified by email on sign-up. Builders can additionally verify their company through Companies House — once confirmed they receive a CH Verified badge on their profile. Identity verification is also available in Settings > Account for an extra layer of trust. We also manually review accounts flagged by other members." },
+        { q: "What is a legal charge?", a: "A legal charge is a formal security interest registered against a property. It gives the lender a legal claim over the asset if the borrower defaults on the loan. First charge lending takes priority over all other claims. Always take independent legal advice before agreeing to any charge arrangement." },
+        { q: "What happens if there is a dispute?", a: "Go to Disputes in the navigation (found in your profile menu). Tap New Dispute, select the relevant deal and describe the issue clearly. Our Trust & Safety team reviews all disputes within 48 hours and may request evidence from both parties before working towards a resolution." },
+        { q: "How do I report someone?", a: "On any profile page or post, tap the three-dot menu (⋯) and select Report. Choose the reason — such as Fraudulent activity, Misleading information or Abusive behaviour — add any supporting details and submit. Our team reviews all reports within 48 hours." },
+        { q: "Is my data safe?", a: "Yes. We use Supabase for secure cloud storage with row-level security policies that ensure users can only access their own data. All connections use TLS encryption in transit. We never sell or share your personal data with third parties. See our Privacy Policy for full details." },
+      ],
+    },
+  ];
+
+  const searchResults = search.trim()
+    ? categories.flatMap(cat =>
+        cat.questions
+          .map((item, idx) => ({ ...item, cat, idx }))
+          .filter(item =>
+            item.q.toLowerCase().includes(search.toLowerCase()) ||
+            item.a.toLowerCase().includes(search.toLowerCase())
+          )
+      )
+    : [];
+
+  if (activeCategory) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#f5f5f5" }}>
+        <div style={{ background: "#1E3A5F", position: "sticky", top: 60, zIndex: 99, height: 52, display: "flex", alignItems: "center" }}>
+          <button onClick={() => { setActiveCategory(null); setOpenQuestion(null); }}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "#fff", display: "flex", alignItems: "center", padding: "8px 14px", lineHeight: 0 }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+          </button>
+          <div style={{ flex: 1, textAlign: "center", color: "#fff", fontWeight: 600, fontSize: 16, marginRight: 44 }}>{activeCategory.title}</div>
+        </div>
+        <div style={{ maxWidth: 640, margin: "0 auto", padding: "16px 16px calc(80px + env(safe-area-inset-bottom,0px))" }}>
+          {activeCategory.questions.map((item, idx) => {
+            const isOpen = openQuestion === idx;
+            const helpKey = `${activeCategory.id}-${idx}`;
+            return (
+              <div key={idx} style={{ background: "#fff", borderRadius: 12, marginBottom: 8, overflow: "hidden", border: "0.5px solid #e8e8e8", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+                <button onClick={() => setOpenQuestion(isOpen ? null : idx)}
+                  style={{ width: "100%", padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", cursor: "pointer", textAlign: "left", gap: 12 }}>
+                  <span style={{ fontSize: 15, fontWeight: 500, color: "#1E3A5F", lineHeight: 1.4 }}>{item.q}</span>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.2s", transform: isOpen ? "rotate(180deg)" : "none" }}><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+                {isOpen && (
+                  <div>
+                    <div style={{ padding: "0 18px 16px", fontSize: 14, color: "#374151", lineHeight: 1.75, borderTop: "0.5px solid #f5f5f5", paddingTop: 14 }}>{item.a}</div>
+                    <div style={{ borderTop: "0.5px solid #f0f0f0", padding: "12px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 12, color: "#94A3B8" }}>Was this helpful?</span>
+                        {helpful[helpKey] === "yes" ? (
+                          <span style={{ fontSize: 12, color: "#16A34A", fontWeight: 500 }}>👍 Thanks for the feedback!</span>
+                        ) : helpful[helpKey] === "no" ? (
+                          <span style={{ fontSize: 12, color: "#64748B", fontWeight: 500 }}>We'll work on improving this.</span>
+                        ) : (
+                          <>
+                            <button onClick={() => setHelpful(h => ({ ...h, [helpKey]: "yes" }))} style={{ padding: "4px 14px", borderRadius: 20, border: "0.5px solid #A7F3D0", background: "#F0FDF4", color: "#16A34A", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>Yes</button>
+                            <button onClick={() => setHelpful(h => ({ ...h, [helpKey]: "no" }))} style={{ padding: "4px 14px", borderRadius: 20, border: "0.5px solid #FECACA", background: "#FFF5F5", color: "#DC2626", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>No</button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <div style={{ background: "#fff", borderRadius: 12, padding: "22px 20px", border: "0.5px solid #e8e8e8", marginTop: 8, textAlign: "center" }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F", marginBottom: 6 }}>Still need help?</div>
+            <div style={{ fontSize: 13, color: "#64748B", marginBottom: 14, lineHeight: 1.55 }}>Our support team is here for anything not covered above.</div>
+            <button onClick={() => { window.location.href = "mailto:lenderbuild.support@gmail.com"; }}
+              style={{ padding: "10px 26px", borderRadius: 8, fontSize: 13, fontWeight: 600, border: "none", background: "#1E3A5F", color: "#fff", cursor: "pointer" }}>
+              Contact support
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#f5f5f5" }}>
+      <div style={{ background: "#1E3A5F", padding: "2.5rem 1.25rem 2.25rem" }}>
+        <div style={{ maxWidth: 680, margin: "0 auto" }}>
+          <h1 style={{ fontSize: 28, fontWeight: 700, color: "#fff", margin: "0 0 6px", fontFamily: "'Playfair Display', Georgia, serif" }}>How can we help you?</h1>
+          <p style={{ fontSize: 14, color: "rgba(255,255,255,0.55)", margin: "0 0 1.25rem" }}>Search our help articles or browse by category below</p>
+          <div style={{ position: "relative" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2" strokeLinecap="round" style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search for help…"
+              style={{ width: "100%", height: 48, borderRadius: 10, border: "none", paddingLeft: 42, paddingRight: 40, fontSize: 15, background: "rgba(255,255,255,0.12)", color: "#fff", outline: "none", boxSizing: "border-box" }} />
+            {search && (
+              <button onClick={() => setSearch("")} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.5)", lineHeight: 0, padding: 4 }}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 680, margin: "0 auto", padding: "20px 16px calc(80px + env(safe-area-inset-bottom,0px))" }}>
+        {search.trim() ? (
+          searchResults.length > 0 ? (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "#64748B", marginBottom: 12 }}>{searchResults.length} result{searchResults.length !== 1 ? "s" : ""} for &ldquo;{search}&rdquo;</div>
+              {searchResults.map((item, i) => {
+                const isOpen = openQuestion === `s${i}`;
+                const helpKey = `search-${item.cat.id}-${item.idx}`;
+                return (
+                  <div key={i} style={{ background: "#fff", borderRadius: 12, marginBottom: 8, overflow: "hidden", border: "0.5px solid #e8e8e8" }}>
+                    <div style={{ padding: "10px 18px 0" }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: item.cat.color, background: item.cat.bg, padding: "2px 8px", borderRadius: 20 }}>{item.cat.title}</span>
+                    </div>
+                    <button onClick={() => setOpenQuestion(isOpen ? null : `s${i}`)}
+                      style={{ width: "100%", padding: "10px 18px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", cursor: "pointer", textAlign: "left", gap: 12 }}>
+                      <span style={{ fontSize: 15, fontWeight: 500, color: "#1E3A5F", lineHeight: 1.4 }}>{item.q}</span>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.2s", transform: isOpen ? "rotate(180deg)" : "none" }}><path d="M6 9l6 6 6-6"/></svg>
+                    </button>
+                    {isOpen && (
+                      <div>
+                        <div style={{ padding: "0 18px 16px", fontSize: 14, color: "#374151", lineHeight: 1.75, borderTop: "0.5px solid #f5f5f5", paddingTop: 14 }}>{item.a}</div>
+                        <div style={{ borderTop: "0.5px solid #f0f0f0", padding: "12px 18px", display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 12, color: "#94A3B8" }}>Was this helpful?</span>
+                          {helpful[helpKey] === "yes" ? (
+                            <span style={{ fontSize: 12, color: "#16A34A", fontWeight: 500 }}>👍 Thanks!</span>
+                          ) : helpful[helpKey] === "no" ? (
+                            <span style={{ fontSize: 12, color: "#64748B", fontWeight: 500 }}>We'll improve this.</span>
+                          ) : (
+                            <>
+                              <button onClick={() => setHelpful(h => ({ ...h, [helpKey]: "yes" }))} style={{ padding: "4px 14px", borderRadius: 20, border: "0.5px solid #A7F3D0", background: "#F0FDF4", color: "#16A34A", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>Yes</button>
+                              <button onClick={() => setHelpful(h => ({ ...h, [helpKey]: "no" }))} style={{ padding: "4px 14px", borderRadius: 20, border: "0.5px solid #FECACA", background: "#FFF5F5", color: "#DC2626", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>No</button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ textAlign: "center", padding: "3rem 0", color: "#94A3B8" }}>
+              <div style={{ fontSize: 36, marginBottom: 10 }}>🔍</div>
+              <div style={{ fontSize: 15, fontWeight: 500, color: "#374151", marginBottom: 4 }}>No results found</div>
+              <div style={{ fontSize: 13 }}>Try different keywords or browse the categories below</div>
+              <button onClick={() => setSearch("")} style={{ marginTop: 16, padding: "8px 20px", borderRadius: 8, border: "0.5px solid #d0d0d0", background: "#fff", color: "#1E3A5F", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>Clear search</button>
+            </div>
+          )
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {categories.map(cat => (
+              <button key={cat.id} onClick={() => { setActiveCategory(cat); setOpenQuestion(null); }}
+                style={{ background: "#fff", borderRadius: 14, padding: "20px 16px", border: "0.5px solid #e8e8e8", cursor: "pointer", textAlign: "left", display: "flex", flexDirection: "column", gap: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.04)", transition: "box-shadow 0.15s, transform 0.15s" }}
+                onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.10)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.04)"; e.currentTarget.style.transform = "none"; }}>
+                <div style={{ width: 50, height: 50, borderRadius: 12, background: cat.bg, color: cat.color, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {cat.icon}
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F", lineHeight: 1.3 }}>{cat.title}</div>
+                <div style={{ fontSize: 12, color: "#94A3B8" }}>{cat.questions.length} articles</div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -17326,7 +17665,18 @@ export default function App() {
   const [paletteOpen, setPaletteOpen]           = useState(false);
   const [devPanelOpen, setDevPanelOpen]         = useState(false);
   const [devRoleOverride, setDevRoleOverride]   = useState(null);
-  const [page, setPage]                         = useState("home");
+  const [page, setPage]                         = useState(() => {
+    if (typeof window === "undefined") return "home";
+    const path = window.location.pathname.replace(/^\/+/, "");
+    if (!path) return "home";
+    const DEEP_LINK = new Set([
+      "help", "how-it-works", "safety", "about", "privacy", "terms",
+      "risk-warning", "legal-resources", "status", "search", "find-builder",
+      "browse-projects", "leaderboard", "market", "build-calculator",
+      "posts", "auth", "forgot-password",
+    ]);
+    return DEEP_LINK.has(path) ? path : "home";
+  });
   const [authInitialTab, setAuthInitialTab]     = useState("login");
   const [user, setUser]                         = useState(null);
   const [selectedLender, setSelectedLender]     = useState(null);
@@ -17680,11 +18030,12 @@ export default function App() {
     }
     // Clear the pre-selected conversation when navigating to messages normally
     if (p === "messages") setOpenConversationId(null);
-    if (p !== "lender-profile") {
-      setSelectedLender(null);
-      window.history.pushState(null, "", "/");
-    }
+    if (p !== "lender-profile") setSelectedLender(null);
     if (p !== "builder-profile") setSelectedBuilder(null);
+    // Pages that rely on separately-held state and can't be deep-linked
+    const DATA_PAGES = new Set(["lender-profile", "builder-profile", "deal-detail", "deal-room", "post-detail", "edit-post", "builder-passport"]);
+    const urlPath = (p === "home" || p === "home-dashboard" || DATA_PAGES.has(p)) ? "/" : `/${p}`;
+    window.history.pushState(null, "", urlPath);
     setPage(p);
     window.scrollTo({ top: 0, behavior: "instant" });
   }
@@ -17711,6 +18062,9 @@ export default function App() {
           {page === "search"           && <SearchPage         setPage={navigateTo} user={user} onViewProfile={handleViewProfile} viewerRoleProfile={viewerRoleProfile} />}
           {page === "find-builder"     && <FindBuilderPage    setPage={navigateTo} user={user} onMessage={handleOpenConversation} onViewProfile={handleViewBuilderProfile} viewerRoleProfile={viewerRoleProfile} />}
           {page === "posts"            && <CommunityPage user={user} setPage={navigateTo} onMessage={handleOpenConversation} />}
+          {page === "community-posts"  && <CommunityPostsPage user={user} setPage={navigateTo} onMessage={handleOpenConversation} />}
+          {page === "community-groups" && <CommunityGroupsPage user={user} setPage={navigateTo} />}
+          {page === "community-chat"   && <CommunityChatPage user={user} setPage={navigateTo} />}
           {page === "post-detail"      && (selectedPost ? <PostDetailPage post={selectedPost} user={user} setPage={navigateTo} onMessage={handleOpenConversation} /> : <CommunityPage user={user} setPage={navigateTo} onMessage={handleOpenConversation} />)}
           {page === "my-posts"         && user && <MyPostsPage        user={user} setPage={navigateTo} />}
           {page === "create-post"      && user && <CreateEditPostPage user={user} setPage={navigateTo} />}
@@ -17771,6 +18125,7 @@ export default function App() {
           {page === "legal-resources"  && <LegalResourcesPage setPage={navigateTo} user={user} />}
           {page === "builder-passport" && <BuilderPassportPage sequential_id={selectedBuilderPassportId} user={user} setPage={navigateTo} />}
           {page === "status"           && <StatusPage />}
+          {page === "help"             && <HelpCentrePage setPage={navigateTo} />}
           </div>
           <Footer setPage={navigateTo} />
         </div>
