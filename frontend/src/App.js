@@ -9889,6 +9889,9 @@ function GroupsTab({ user, setPage }) {
   const [inviteSuccess, setInviteSuccess] = useState("");
   const [regionFilter,  setRegionFilter]  = useState("All UK");
   const [myLocation,    setMyLocation]    = useState("");
+  // Rules modal
+  const [rulesModalGroup, setRulesModalGroup] = useState(null);
+  const [rulesAccepted,   setRulesAccepted]   = useState(false);
   const myId   = user?.id;
   const myRole = user?.user_metadata?.role || "";
 
@@ -9912,10 +9915,21 @@ function GroupsTab({ user, setPage }) {
     setLoading(false);
   }
 
-  async function handleJoin(groupId) {
-    if (!user) { setPage("auth"); return; }
+  async function doJoin(groupId) {
     await supabase.from("community_group_members").insert({ group_id: groupId, user_id: myId });
     loadGroups();
+  }
+
+  async function handleJoin(groupId) {
+    if (!user) { setPage("auth"); return; }
+    const g = groups.find(x => x.id === groupId);
+    const rules = Array.isArray(g?.rules) ? g.rules : [];
+    if (rules.length > 0) {
+      setRulesAccepted(false);
+      setRulesModalGroup(g);
+      return;
+    }
+    await doJoin(groupId);
   }
 
   async function handleLeave(groupId) {
@@ -9978,6 +9992,42 @@ function GroupsTab({ user, setPage }) {
     setInviteLoading(false);
     await loadGroups();
     setTimeout(() => setInviteSuccess(""), 4000);
+  }
+
+  // Rules modal
+  if (rulesModalGroup) {
+    const rules = Array.isArray(rulesModalGroup.rules) ? rulesModalGroup.rules : [];
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
+        <div style={{ background: "#fff", borderRadius: 16, maxWidth: 480, width: "100%", padding: "1.75rem", maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
+          <h3 style={{ fontSize: 18, fontWeight: 700, color: "#1E3A5F", margin: "0 0 4px" }}>Group rules</h3>
+          <p style={{ fontSize: 13, color: "#64748B", margin: "0 0 1rem" }}>Please read and accept the rules for <strong>{rulesModalGroup.name}</strong> before joining.</p>
+          <div style={{ flex: 1, overflowY: "auto", marginBottom: "1rem" }}>
+            {rules.map((r, i) => (
+              <div key={i} style={{ display: "flex", gap: 10, padding: "10px 0", borderBottom: "0.5px solid #f0f0f0" }}>
+                <span style={{ fontWeight: 700, color: "#1E3A5F", minWidth: 22, flexShrink: 0 }}>{i + 1}.</span>
+                <span style={{ fontSize: 14, color: "#333", lineHeight: 1.5 }}>{r}</span>
+              </div>
+            ))}
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "1.25rem", cursor: "pointer" }}>
+            <input type="checkbox" checked={rulesAccepted} onChange={e => setRulesAccepted(e.target.checked)}
+              style={{ width: 18, height: 18, cursor: "pointer", accentColor: "#16A34A" }} />
+            <span style={{ fontSize: 14, color: "#333" }}>I have read and agree to follow these rules</span>
+          </label>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => setRulesModalGroup(null)}
+              style={{ flex: 1, padding: "11px", borderRadius: 10, border: "0.5px solid #e0e0e0", background: "#fff", color: "#64748B", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>
+              Cancel
+            </button>
+            <button disabled={!rulesAccepted} onClick={async () => { setRulesModalGroup(null); await doJoin(rulesModalGroup.id); }}
+              style={{ flex: 1, padding: "11px", borderRadius: 10, border: "none", background: rulesAccepted ? "#16A34A" : "#e0e0e0", color: rulesAccepted ? "#fff" : "#aaa", fontSize: 14, fontWeight: 700, cursor: rulesAccepted ? "pointer" : "default" }}>
+              Join group
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (selectedGroup) {
@@ -10257,16 +10307,34 @@ function GroupCard({ group, isMember, isOwner, onOpen, onJoin, onLeave }) {
   );
 }
 
-function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, onLeave }) {
-  const [messages,     setMessages]     = useState([]);
-  const [loading,      setLoading]      = useState(true);
-  const [text,         setText]         = useState("");
-  const [sending,      setSending]      = useState(false);
-  const [cooldown,     setCooldown]     = useState(0);
-  const [coolMsg,      setCoolMsg]      = useState("");
-  const [banned,       setBanned]       = useState(null);
-  const [reported,     setReported]     = useState({});
-  const [onlineCount,  setOnlineCount]  = useState(1);
+function GroupChatRoom({ group: initialGroup, user, setPage, myMemberships, onBack, onJoin, onLeave }) {
+  const [group,          setGroup]          = useState(initialGroup);
+  const [messages,       setMessages]       = useState([]);
+  const [loading,        setLoading]        = useState(true);
+  const [text,           setText]           = useState("");
+  const [sending,        setSending]        = useState(false);
+  const [cooldown,       setCooldown]       = useState(0);
+  const [coolMsg,        setCoolMsg]        = useState("");
+  const [banned,         setBanned]         = useState(null);
+  const [reported,       setReported]       = useState({});
+  const [onlineCount,    setOnlineCount]    = useState(1);
+  // Channels
+  const [channels,       setChannels]       = useState([]);
+  const [activeChannel,  setActiveChannel]  = useState(null); // null = no channels yet
+  const [addingChannel,  setAddingChannel]  = useState(false);
+  const [newChanName,    setNewChanName]    = useState("");
+  // Settings panel
+  const [showSettings,   setShowSettings]   = useState(false);
+  const [settingsTab,    setSettingsTab]    = useState("members"); // "members" | "rules"
+  const [members,        setMembers]        = useState([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [rules,          setRules]          = useState([]);
+  const [newRule,        setNewRule]        = useState("");
+  const [editRuleIdx,    setEditRuleIdx]    = useState(null);
+  const [editRuleText,   setEditRuleText]   = useState("");
+  const [isModerator,    setIsModerator]    = useState(false);
+  // Mute state
+  const [muted,          setMuted]          = useState(false);
   const chatScrollRef   = useRef(null);
   const realtimeChanRef = useRef(null);
   const presenceChanRef = useRef(null);
@@ -10284,7 +10352,28 @@ function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, on
         if (data.banned_until && new Date(data.banned_until) > new Date()) { setBanned(data); return; }
         setBanned(null);
       });
-  }, [myId]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Check moderator/muted status
+    supabase.from("community_group_members")
+      .select("is_moderator, muted, muted_until")
+      .eq("group_id", group.id).eq("user_id", myId).maybeSingle()
+      .then(({ data }) => {
+        if (!data) return;
+        setIsModerator(!!data.is_moderator);
+        const mutedNow = data.muted && (!data.muted_until || new Date(data.muted_until) > new Date());
+        setMuted(mutedNow);
+      });
+  }, [myId, group.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load channels
+  useEffect(() => {
+    supabase.from("group_channels").select("*").eq("group_id", group.id).order("position", { ascending: true })
+      .then(({ data }) => {
+        const chs = data || [];
+        setChannels(chs);
+        if (chs.length > 0) setActiveChannel(chs.find(c => c.is_default) || chs[0]);
+        setRules(Array.isArray(group.rules) ? group.rules : []);
+      });
+  }, [group.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Presence channel for online count
   useEffect(() => {
@@ -10332,16 +10421,92 @@ function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, on
 
   async function loadMessages() {
     setLoading(true);
-    const { data } = await supabase.from("group_messages").select("*")
-      .eq("group_id", group.id).order("created_at", { ascending: true }).limit(50);
+    let q = supabase.from("group_messages").select("*").eq("group_id", group.id).order("created_at", { ascending: true }).limit(100);
+    if (activeChannel) q = q.eq("channel_id", activeChannel.id);
+    else q = q.is("channel_id", null);
+    const { data } = await q;
     setMessages(data || []);
     setLoading(false);
     setTimeout(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }, 80);
   }
 
+  // Reload messages when channel changes
+  useEffect(() => { if (!loading || activeChannel !== null) loadMessages(); }, [activeChannel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleDeleteMessage(msgId) {
+    await supabase.from("group_messages").update({
+      deleted: true, deleted_by: myId, deleted_at: new Date().toISOString(),
+    }).eq("id", msgId);
+  }
+
+  async function handlePinMessage(msg) {
+    const { data: updated } = await supabase.from("community_groups").update({
+      pinned_message_id:      msg.id,
+      pinned_message_content: msg.content,
+      pinned_message_author:  msg.user_name,
+    }).eq("id", group.id).select().single();
+    if (updated) setGroup(updated);
+  }
+
+  async function handleUnpinMessage() {
+    const { data: updated } = await supabase.from("community_groups").update({
+      pinned_message_id: null, pinned_message_content: null, pinned_message_author: null,
+    }).eq("id", group.id).select().single();
+    if (updated) setGroup(updated);
+  }
+
+  async function handleAddChannel(e) {
+    e.preventDefault();
+    if (!newChanName.trim()) return;
+    const pos = channels.length;
+    const { data: ch } = await supabase.from("group_channels").insert({
+      group_id: group.id, name: newChanName.trim().slice(0, 40), description: "", position: pos, is_default: pos === 0,
+    }).select().single();
+    if (ch) {
+      const updated = [...channels, ch];
+      setChannels(updated);
+      if (pos === 0) setActiveChannel(ch);
+    }
+    setNewChanName("");
+    setAddingChannel(false);
+  }
+
+  async function loadMembers() {
+    setMembersLoading(true);
+    const { data: mems } = await supabase.from("community_group_members")
+      .select("user_id, is_moderator, muted, muted_until, removed").eq("group_id", group.id);
+    if (!mems || mems.length === 0) { setMembers([]); setMembersLoading(false); return; }
+    const ids = mems.map(m => m.user_id);
+    const { data: profiles } = await supabase.from("profiles").select("id, name, role").in("id", ids);
+    const profileMap = {};
+    for (const p of profiles || []) profileMap[p.id] = p;
+    setMembers(mems.map(m => ({ ...m, name: profileMap[m.user_id]?.name || "Member", role: profileMap[m.user_id]?.role || "" })));
+    setMembersLoading(false);
+  }
+
+  async function handleMemberAction(memberId, action) {
+    if (action === "mute") {
+      await supabase.from("community_group_members").update({ muted: true, muted_until: null }).eq("group_id", group.id).eq("user_id", memberId);
+    } else if (action === "unmute") {
+      await supabase.from("community_group_members").update({ muted: false, muted_until: null }).eq("group_id", group.id).eq("user_id", memberId);
+    } else if (action === "remove") {
+      await supabase.from("community_group_members").update({ removed: true }).eq("group_id", group.id).eq("user_id", memberId);
+    } else if (action === "make_mod") {
+      await supabase.from("community_group_members").update({ is_moderator: true }).eq("group_id", group.id).eq("user_id", memberId);
+    } else if (action === "remove_mod") {
+      await supabase.from("community_group_members").update({ is_moderator: false }).eq("group_id", group.id).eq("user_id", memberId);
+    }
+    loadMembers();
+  }
+
+  async function handleSaveRules() {
+    const { data: updated } = await supabase.from("community_groups").update({ rules }).eq("id", group.id).select().single();
+    if (updated) setGroup(updated);
+  }
+
   async function handleSend(e) {
     e.preventDefault();
-    if (!text.trim() || sending || !user || banned || !isMember) return;
+    if (!text.trim() || sending || !user || banned || muted || !isMember) return;
 
     if (!chatRateLimitAllowed(myId)) {
       const secs = chatCooldownSecs(myId);
@@ -10364,6 +10529,7 @@ function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, on
     const { data: profile } = await supabase.from("profiles").select("sequential_id").eq("id", myId).maybeSingle();
     const payload = {
       group_id:        group.id,
+      channel_id:      activeChannel ? activeChannel.id : null,
       user_id:         myId,
       content:         sanitized.slice(0, 1000),
       user_name:       name,
@@ -10398,8 +10564,133 @@ function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, on
     });
   }
 
-  const canSend = !banned && cooldown === 0 && !!user && isMember;
+  const canSend = !banned && !muted && cooldown === 0 && !!user && isMember;
 
+  // ── Settings panel ───────────────────────────────────────────────────────
+  if (showSettings) {
+    return (
+      <div style={{ padding: "1rem 1.25rem" }}>
+        <button onClick={() => setShowSettings(false)}
+          style={{ background: "none", border: "none", color: "#3B82F6", fontSize: 14, cursor: "pointer", padding: "0 0 1rem", display: "flex", alignItems: "center", gap: 6 }}>
+          ← Back to chat
+        </button>
+        <h3 style={{ fontSize: 17, fontWeight: 700, color: "#1E3A5F", margin: "0 0 1rem" }}>Group settings</h3>
+
+        {/* Tab switcher */}
+        <div style={{ display: "flex", gap: 8, marginBottom: "1.25rem" }}>
+          {["members", "rules"].map(t => (
+            <button key={t} onClick={() => { setSettingsTab(t); if (t === "members") loadMembers(); }}
+              style={{ padding: "8px 18px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer", background: settingsTab === t ? "#1E3A5F" : "#F1F5F9", color: settingsTab === t ? "#fff" : "#475569" }}>
+              {t === "members" ? "Members" : "Rules"}
+            </button>
+          ))}
+        </div>
+
+        {/* Members tab */}
+        {settingsTab === "members" && (
+          <div>
+            {membersLoading ? (
+              <div style={{ textAlign: "center", color: "#aaa", padding: "2rem" }}>Loading…</div>
+            ) : members.length === 0 ? (
+              <div style={{ textAlign: "center", color: "#aaa", padding: "2rem" }}>No members found</div>
+            ) : members.map(m => {
+              const isOwn = m.user_id === myId;
+              const isOwnerMember = m.user_id === group.created_by;
+              return (
+                <div key={m.user_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "0.5px solid #f0f0f0" }}>
+                  <Avatar initials={nameInitials(m.name)} color={pickColor(m.user_id)} size={36} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F" }}>{m.name} {isOwnerMember ? "👑" : ""} {m.is_moderator ? <span style={{ fontSize: 11, background: "#DBEAFE", color: "#1D4ED8", padding: "1px 6px", borderRadius: 20 }}>Mod</span> : ""}</div>
+                    <div style={{ fontSize: 12, color: "#64748B" }}>{m.role || "member"}{m.muted ? " · Muted" : ""}{m.removed ? " · Removed" : ""}</div>
+                  </div>
+                  {isCreator && !isOwn && !isOwnerMember && (
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <button onClick={() => handleMemberAction(m.user_id, m.muted ? "unmute" : "mute")}
+                        style={{ padding: "5px 10px", fontSize: 12, borderRadius: 6, border: "0.5px solid #e0e0e0", background: "#fff", color: "#475569", cursor: "pointer" }}>
+                        {m.muted ? "Unmute" : "Mute"}
+                      </button>
+                      {!m.is_moderator ? (
+                        <button onClick={() => handleMemberAction(m.user_id, "make_mod")}
+                          style={{ padding: "5px 10px", fontSize: 12, borderRadius: 6, border: "0.5px solid #BFDBFE", background: "#EFF6FF", color: "#1D4ED8", cursor: "pointer" }}>
+                          Make mod
+                        </button>
+                      ) : (
+                        <button onClick={() => handleMemberAction(m.user_id, "remove_mod")}
+                          style={{ padding: "5px 10px", fontSize: 12, borderRadius: 6, border: "0.5px solid #e0e0e0", background: "#fff", color: "#64748B", cursor: "pointer" }}>
+                          Remove mod
+                        </button>
+                      )}
+                      {!m.removed && (
+                        <button onClick={() => { if (window.confirm(`Remove ${m.name} from this group?`)) handleMemberAction(m.user_id, "remove"); }}
+                          style={{ padding: "5px 10px", fontSize: 12, borderRadius: 6, border: "0.5px solid #FCA5A5", background: "#FEF2F2", color: "#DC2626", cursor: "pointer" }}>
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Rules tab */}
+        {settingsTab === "rules" && (
+          <div>
+            <p style={{ fontSize: 13, color: "#64748B", margin: "0 0 1rem" }}>
+              Group rules are shown to new members when they join.
+            </p>
+            {rules.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: "1rem" }}>
+                {rules.map((rule, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "#F8FAFC", border: "0.5px solid #e5e7eb", borderRadius: 8, padding: "10px 12px" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#1E3A5F", flexShrink: 0, minWidth: 20 }}>{i + 1}.</span>
+                    {editRuleIdx === i ? (
+                      <div style={{ flex: 1, display: "flex", gap: 6 }}>
+                        <input value={editRuleText} onChange={e => setEditRuleText(e.target.value)} autoFocus
+                          style={{ flex: 1, height: 36, border: "0.5px solid #BFDBFE", borderRadius: 6, padding: "0 10px", fontSize: 13 }} />
+                        <button onClick={() => { const r = [...rules]; r[i] = editRuleText; setRules(r); setEditRuleIdx(null); handleSaveRules(); }}
+                          style={{ padding: "0 12px", height: 36, background: "#16A34A", color: "#fff", border: "none", borderRadius: 6, fontSize: 13, cursor: "pointer" }}>Save</button>
+                        <button onClick={() => setEditRuleIdx(null)}
+                          style={{ padding: "0 10px", height: 36, background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 6, fontSize: 13, cursor: "pointer" }}>✕</button>
+                      </div>
+                    ) : (
+                      <>
+                        <span style={{ flex: 1, fontSize: 13, color: "#333", lineHeight: 1.5 }}>{rule}</span>
+                        {isCreator && (
+                          <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                            <button onClick={() => { setEditRuleIdx(i); setEditRuleText(rule); }}
+                              style={{ padding: "3px 8px", fontSize: 12, borderRadius: 5, border: "0.5px solid #e0e0e0", background: "#fff", color: "#475569", cursor: "pointer" }}>Edit</button>
+                            <button onClick={() => { const r = rules.filter((_, j) => j !== i); setRules(r); setTimeout(handleSaveRules, 0); }}
+                              style={{ padding: "3px 8px", fontSize: 12, borderRadius: 5, border: "0.5px solid #FCA5A5", background: "#FEF2F2", color: "#DC2626", cursor: "pointer" }}>✕</button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: "1rem" }}>No rules set yet.</div>
+            )}
+            {isCreator && (
+              <form onSubmit={e => { e.preventDefault(); if (newRule.trim()) { const r = [...rules, newRule.trim()]; setRules(r); setNewRule(""); supabase.from("community_groups").update({ rules: r }).eq("id", group.id).then(() => {}); } }}
+                style={{ display: "flex", gap: 8 }}>
+                <input value={newRule} onChange={e => setNewRule(e.target.value)} placeholder="Add a new rule…"
+                  style={{ flex: 1, height: 40, border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "0 12px", fontSize: 14, outline: "none" }} />
+                <button type="submit" disabled={!newRule.trim()}
+                  style={{ padding: "0 16px", height: 40, borderRadius: 8, border: "none", fontSize: 13, fontWeight: 600, background: newRule.trim() ? "#16A34A" : "#e0e0e0", color: newRule.trim() ? "#fff" : "#aaa", cursor: newRule.trim() ? "pointer" : "default" }}>
+                  Add rule
+                </button>
+              </form>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Main chat view ───────────────────────────────────────────────────────
   return (
     <div style={{ padding: "1rem 1.25rem" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "0.75rem", gap: 12 }}>
@@ -10419,24 +10710,37 @@ function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, on
             </span>
           </div>
         </div>
-        {user && !isCreator && (
-          isMember ? (
-            <button onClick={onLeave}
-              style={{ padding: "7px 14px", borderRadius: 8, border: "0.5px solid #e0e0e0", fontSize: 13, fontWeight: 500, background: "#fff", color: "#64748B", cursor: "pointer", flexShrink: 0 }}>
-              Leave
+        <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
+          {(isCreator || isModerator) && isMember && (
+            <button onClick={() => { setShowSettings(true); setSettingsTab("members"); loadMembers(); }}
+              style={{ padding: "7px 12px", borderRadius: 8, border: "0.5px solid #e0e0e0", fontSize: 13, fontWeight: 500, background: "#fff", color: "#64748B", cursor: "pointer" }}>
+              ⚙️ Settings
             </button>
-          ) : (
-            <button onClick={onJoin}
-              style={{ padding: "7px 14px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 500, background: "#3B82F6", color: "#fff", cursor: "pointer", flexShrink: 0 }}>
-              Join group
-            </button>
-          )
-        )}
+          )}
+          {user && !isCreator && (
+            isMember ? (
+              <button onClick={onLeave}
+                style={{ padding: "7px 14px", borderRadius: 8, border: "0.5px solid #e0e0e0", fontSize: 13, fontWeight: 500, background: "#fff", color: "#64748B", cursor: "pointer" }}>
+                Leave
+              </button>
+            ) : (
+              <button onClick={onJoin}
+                style={{ padding: "7px 14px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 500, background: "#3B82F6", color: "#fff", cursor: "pointer" }}>
+                Join group
+              </button>
+            )
+          )}
+        </div>
       </div>
 
       {banned && (
         <div style={{ background: "#FEE2E2", border: "0.5px solid #FCA5A5", borderRadius: 10, padding: "12px 16px", marginBottom: "0.75rem" }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: "#991B1B" }}>Community chat access suspended</div>
+        </div>
+      )}
+      {muted && (
+        <div style={{ background: "#FFFBEB", border: "0.5px solid #FDE68A", borderRadius: 10, padding: "12px 16px", marginBottom: "0.75rem" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#92400E" }}>You are muted in this group</div>
         </div>
       )}
 
@@ -10466,9 +10770,70 @@ function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, on
         </div>
       )}
 
+      {/* Pinned message banner */}
+      {group.pinned_message_content && (
+        <div style={{ background: "#EFF6FF", border: "0.5px solid #BFDBFE", borderRadius: 10, padding: "10px 14px", marginBottom: "0.75rem", display: "flex", alignItems: "flex-start", gap: 8 }}>
+          <span style={{ fontSize: 14, flexShrink: 0 }}>📌</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, color: "#64748B", marginBottom: 2 }}>Pinned by {group.pinned_message_author || "moderator"}</div>
+            <div style={{ fontSize: 13, color: "#1E3A5F", lineHeight: 1.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{group.pinned_message_content}</div>
+          </div>
+          {(isCreator || isModerator) && (
+            <button onClick={handleUnpinMessage}
+              style={{ background: "none", border: "none", color: "#94A3B8", fontSize: 16, cursor: "pointer", flexShrink: 0, padding: "0 2px" }}>✕</button>
+          )}
+        </div>
+      )}
+
+      {/* Channel switcher */}
+      {channels.length > 0 && (
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap" }}>
+          {channels.map(ch => (
+            <button key={ch.id} onClick={() => setActiveChannel(ch)}
+              style={{ padding: "5px 14px", borderRadius: 20, border: "none", fontSize: 13, fontWeight: activeChannel?.id === ch.id ? 700 : 400, background: activeChannel?.id === ch.id ? "#1E3A5F" : "#F1F5F9", color: activeChannel?.id === ch.id ? "#fff" : "#475569", cursor: "pointer", transition: "background 0.15s" }}>
+              # {ch.name}
+            </button>
+          ))}
+          {isCreator && (
+            addingChannel ? (
+              <form onSubmit={handleAddChannel} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input value={newChanName} onChange={e => setNewChanName(e.target.value)} autoFocus placeholder="Channel name"
+                  style={{ height: 32, border: "0.5px solid #BFDBFE", borderRadius: 20, padding: "0 12px", fontSize: 13, outline: "none" }} />
+                <button type="submit" style={{ height: 32, padding: "0 12px", borderRadius: 20, border: "none", background: "#3B82F6", color: "#fff", fontSize: 13, cursor: "pointer" }}>Add</button>
+                <button type="button" onClick={() => setAddingChannel(false)} style={{ height: 32, padding: "0 10px", borderRadius: 20, border: "0.5px solid #e0e0e0", background: "#fff", color: "#555", fontSize: 13, cursor: "pointer" }}>✕</button>
+              </form>
+            ) : (
+              <button onClick={() => setAddingChannel(true)}
+                style={{ width: 28, height: 28, borderRadius: "50%", border: "0.5px dashed #94A3B8", background: "transparent", color: "#94A3B8", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
+                +
+              </button>
+            )
+          )}
+        </div>
+      )}
+      {channels.length === 0 && isCreator && (
+        <div style={{ marginBottom: "0.75rem" }}>
+          {addingChannel ? (
+            <form onSubmit={handleAddChannel} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input value={newChanName} onChange={e => setNewChanName(e.target.value)} autoFocus placeholder="First channel name (e.g. General)"
+                style={{ flex: 1, height: 36, border: "0.5px solid #BFDBFE", borderRadius: 8, padding: "0 12px", fontSize: 13, outline: "none" }} />
+              <button type="submit" style={{ height: 36, padding: "0 14px", border: "none", borderRadius: 8, background: "#3B82F6", color: "#fff", fontSize: 13, cursor: "pointer" }}>Create</button>
+              <button type="button" onClick={() => setAddingChannel(false)} style={{ height: 36, padding: "0 10px", border: "0.5px solid #e0e0e0", borderRadius: 8, background: "#fff", color: "#555", fontSize: 13, cursor: "pointer" }}>✕</button>
+            </form>
+          ) : (
+            <button onClick={() => setAddingChannel(true)}
+              style={{ fontSize: 13, color: "#3B82F6", background: "none", border: "0.5px dashed #BFDBFE", borderRadius: 8, padding: "6px 14px", cursor: "pointer" }}>
+              + Add channels
+            </button>
+          )}
+        </div>
+      )}
+
       <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, display: "flex", flexDirection: "column", minHeight: 400, maxHeight: "60vh" }}>
         <div style={{ padding: "9px 1rem", borderBottom: "0.5px solid #f0f0f0", flexShrink: 0 }}>
-          <span style={{ fontSize: 12, color: "#64748B" }}>Group chat · Last 50 messages</span>
+          <span style={{ fontSize: 12, color: "#64748B" }}>
+            {activeChannel ? `# ${activeChannel.name}` : "Group chat"} · Last 100 messages
+          </span>
         </div>
 
         <div ref={chatScrollRef} style={{ flex: 1, overflowY: "auto", padding: "1rem" }}>
@@ -10482,7 +10847,9 @@ function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, on
           ) : (
             messages.map(msg => (
               <GroupMessageBubble key={msg.id} msg={msg} myId={myId} groupCreatorId={group.created_by}
-                onReport={handleReport} reported={!!reported[msg.id]} />
+                isOwnerOrMod={isCreator || isModerator}
+                onReport={handleReport} reported={!!reported[msg.id]}
+                onDelete={handleDeleteMessage} onPin={handlePinMessage} />
             ))
           )}
         </div>
@@ -10493,10 +10860,10 @@ function GroupChatRoom({ group, user, setPage, myMemberships, onBack, onJoin, on
           </div>
         )}
 
-        {user && !banned && isMember ? (
+        {user && !banned && !muted && isMember ? (
           <form onSubmit={handleSend} style={{ borderTop: "0.5px solid #f0f0f0", padding: "0.75rem 1rem", display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
             <input value={text} onChange={e => setText(e.target.value)}
-              placeholder={cooldown > 0 ? `Wait ${cooldown}s…` : `Message ${group.name}…`}
+              placeholder={cooldown > 0 ? `Wait ${cooldown}s…` : activeChannel ? `Message #${activeChannel.name}…` : `Message ${group.name}…`}
               maxLength={1000} disabled={cooldown > 0}
               style={{ flex: 1, height: 40, border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "0 12px", fontSize: 14, background: cooldown > 0 ? "#f5f5f5" : "#f9f9f9", outline: "none" }}
             />
@@ -10560,13 +10927,14 @@ function InviteCodePanel({ inviteCode, groupName }) {
   );
 }
 
-function GroupMessageBubble({ msg, myId, groupCreatorId, onReport, reported }) {
-  const isOwn     = msg.user_id === myId;
-  const isCreator = msg.user_id === groupCreatorId;
-  const [menuOpen,    setMenuOpen]    = useState(false);
-  const [subOpen,     setSubOpen]     = useState(false);
-  const [reportSent,  setReportSent]  = useState(reported || false);
+function GroupMessageBubble({ msg, myId, groupCreatorId, onReport, reported, isOwnerOrMod, onDelete, onPin }) {
+  const isOwn        = msg.user_id === myId;
+  const isMsgCreator = msg.user_id === groupCreatorId;
+  const [menuOpen,   setMenuOpen]   = useState(false);
+  const [subOpen,    setSubOpen]    = useState(false);
+  const [reportSent, setReportSent] = useState(reported || false);
   const menuRef = useRef(null);
+  const longPressRef = useRef(null);
 
   useEffect(() => {
     function outside(e) {
@@ -10575,6 +10943,22 @@ function GroupMessageBubble({ msg, myId, groupCreatorId, onReport, reported }) {
     document.addEventListener("mousedown", outside);
     return () => document.removeEventListener("mousedown", outside);
   }, []);
+
+  function startLongPress() {
+    longPressRef.current = setTimeout(() => { setMenuOpen(true); setSubOpen(false); }, 600);
+  }
+  function cancelLongPress() { clearTimeout(longPressRef.current); }
+
+  if (msg.deleted) {
+    return (
+      <div style={{ display: "flex", gap: 10, marginBottom: "0.875rem", alignItems: "center" }}>
+        <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#f0f0f0", flexShrink: 0 }} />
+        <span style={{ fontSize: 13, color: "#bbb", fontStyle: "italic", background: "#fafafa", padding: "5px 12px", borderRadius: 8, border: "0.5px solid #ececec" }}>
+          [message deleted]
+        </span>
+      </div>
+    );
+  }
 
   if (msg.hidden) {
     return (
@@ -10587,28 +10971,50 @@ function GroupMessageBubble({ msg, myId, groupCreatorId, onReport, reported }) {
     );
   }
 
+  const showDots = !isOwn || isOwnerOrMod;
+
   return (
-    <div style={{ display: "flex", gap: 10, marginBottom: "0.875rem", alignItems: "flex-start" }}>
+    <div
+      style={{ display: "flex", gap: 10, marginBottom: "0.875rem", alignItems: "flex-start" }}
+      onTouchStart={startLongPress} onTouchEnd={cancelLongPress} onTouchMove={cancelLongPress}
+    >
       <Avatar initials={nameInitials(msg.user_name || "?")} color={pickColor(msg.user_id || "")} size={34} url={msg.user_avatar_url || null} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 3 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: isOwn ? "#2E5FA3" : "#1E3A5F" }}>{msg.user_name || "User"}</span>
-          {isCreator && <span title="Group creator" style={{ fontSize: 12 }}>👑</span>}
+          {isMsgCreator && <span title="Group creator" style={{ fontSize: 12 }}>👑</span>}
           <RoleBadge authRole={msg.user_role} />
           {msg.sequential_id && <span style={{ fontSize: 11, color: "#94A3B8", fontFamily: "monospace" }}>{fmtId(msg.sequential_id)}</span>}
+          {msg.pinned && <span style={{ fontSize: 11, color: "#1D4ED8", background: "#DBEAFE", padding: "1px 6px", borderRadius: 10 }}>📌 pinned</span>}
           <span style={{ fontSize: 11, color: "#aaa", marginLeft: "auto", flexShrink: 0 }}>{fmtTimeAgo(msg.created_at)}</span>
-          {!isOwn && (
+          {showDots && (
             <div ref={menuRef} style={{ position: "relative", flexShrink: 0 }}>
               <button onClick={() => { setMenuOpen(o => !o); setSubOpen(false); }}
                 style={{ background: "none", border: "none", cursor: "pointer", padding: "1px 5px", color: "#bbb", borderRadius: 4, fontSize: 17, lineHeight: 1 }}>
                 ···
               </button>
               {menuOpen && (
-                <div style={{ position: "absolute", right: 0, top: "calc(100% + 2px)", background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.10)", zIndex: 200, minWidth: 180, overflow: "hidden" }}>
+                <div style={{ position: "absolute", right: 0, top: "calc(100% + 2px)", background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.10)", zIndex: 200, minWidth: 190, overflow: "hidden" }}>
                   {!subOpen ? (
-                    <button onClick={() => setSubOpen(true)} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", fontSize: 13, color: "#D85A30", background: "none", border: "none", cursor: "pointer" }}>
-                      🚩 Report message
-                    </button>
+                    <>
+                      {isOwnerOrMod && (
+                        <>
+                          <button onClick={() => { setMenuOpen(false); onDelete && onDelete(msg.id); }}
+                            style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", fontSize: 13, color: "#DC2626", background: "none", border: "none", cursor: "pointer", borderBottom: "0.5px solid #f0f0f0" }}>
+                            🗑 Delete message
+                          </button>
+                          <button onClick={() => { setMenuOpen(false); onPin && onPin(msg); }}
+                            style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", fontSize: 13, color: "#1D4ED8", background: "none", border: "none", cursor: "pointer", borderBottom: "0.5px solid #f0f0f0" }}>
+                            📌 Pin message
+                          </button>
+                        </>
+                      )}
+                      {!isOwn && (
+                        <button onClick={() => setSubOpen(true)} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", fontSize: 13, color: "#D85A30", background: "none", border: "none", cursor: "pointer" }}>
+                          🚩 Report message
+                        </button>
+                      )}
+                    </>
                   ) : (
                     <>
                       <div style={{ padding: "7px 14px 5px", fontSize: 11, fontWeight: 600, color: "#777", borderBottom: "0.5px solid #f0f0f0" }}>Select reason:</div>
@@ -11057,16 +11463,39 @@ function ProjectListingCard({ listing, user, isOwn, interestStatus, onExpressInt
                 </span>
               )}
             </div>
+            {/* Return terms */}
+            {(() => {
+              const rt = listing.syndicate_return_type;
+              if (!rt) return null;
+              let termLine = null;
+              if (rt === "fixed_interest" && listing.syndicate_interest_rate) {
+                termLine = `${listing.syndicate_interest_rate}% p.a. fixed interest${listing.syndicate_loan_term_months ? ` · ${listing.syndicate_loan_term_months}mo term` : ""}`;
+              } else if (rt === "rental_split" && listing.syndicate_rental_share_pct) {
+                termLine = `${listing.syndicate_rental_share_pct}% rental split${listing.syndicate_monthly_rental ? ` · est. ${fmt(listing.syndicate_monthly_rental)}/mo` : ""}`;
+              } else if (rt === "equity_stake" && listing.syndicate_equity_pct) {
+                termLine = `${listing.syndicate_equity_pct}% equity stake`;
+              }
+              if (!termLine) return null;
+              return (
+                <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 11, background: "#DBEAFE", color: "#1D4ED8", padding: "2px 8px", borderRadius: 20, fontWeight: 600 }}>
+                    {rt === "fixed_interest" ? "Fixed interest" : rt === "rental_split" ? "Rental split" : "Equity stake"}
+                  </span>
+                  <span style={{ fontSize: 11, color: "#64748B" }}>{termLine}</span>
+                </div>
+              );
+            })()}
+            {listing.syndicate_max_lenders && (
+              <div style={{ marginTop: 4, fontSize: 11, color: "#64748B" }}>
+                Max {listing.syndicate_max_lenders} lender{listing.syndicate_max_lenders !== 1 ? "s" : ""}
+                {syndicateCount > 0 ? ` · ${syndicateCount} committed` : ""}
+              </div>
+            )}
             {myCommitmentAmount > 0 && (
               <div style={{ marginTop: 8, paddingTop: 8, borderTop: "0.5px solid #BFDBFE" }}>
                 <div style={{ fontSize: 12, color: "#1D4ED8", fontWeight: 600 }}>
                   Your commitment: {fmt(myCommitmentAmount)} · {mySharePct}% share
                 </div>
-                {listing.expected_return && (
-                  <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>
-                    Projected return on your {fmt(myCommitmentAmount)}: {listing.expected_return}
-                  </div>
-                )}
               </div>
             )}
           </div>
@@ -11247,12 +11676,19 @@ function CreateProjectListingPage({ user, setPage }) {
   const [description,    setDescription]    = useState("");
   const [photos,         setPhotos]         = useState([]);
   const [groupFunding,   setGroupFunding]   = useState(false);
-  const [syndicateOpen,  setSyndicateOpen]  = useState(false);
-  const [minCommitment,  setMinCommitment]  = useState("");
-  const [uploading,      setUploading]      = useState(false);
-  const [saving,         setSaving]         = useState(false);
-  const [error,          setError]          = useState("");
-  const [aiPreview,      setAiPreview]      = useState(null);
+  const [syndicateOpen,       setSyndicateOpen]       = useState(false);
+  const [minCommitment,       setMinCommitment]       = useState("");
+  const [maxLenders,          setMaxLenders]          = useState("");
+  const [synReturnType,       setSynReturnType]       = useState("fixed_interest");
+  const [synInterestRate,     setSynInterestRate]     = useState("");
+  const [synLoanTermMonths,   setSynLoanTermMonths]   = useState("");
+  const [synRentalSharePct,   setSynRentalSharePct]   = useState("");
+  const [synMonthlyRental,    setSynMonthlyRental]    = useState("");
+  const [synEquityPct,        setSynEquityPct]        = useState("");
+  const [uploading,           setUploading]           = useState(false);
+  const [saving,              setSaving]              = useState(false);
+  const [error,               setError]               = useState("");
+  const [aiPreview,           setAiPreview]           = useState(null);
 
   async function handlePhotoUpload(e) {
     const files = Array.from(e.target.files || []);
@@ -11294,9 +11730,16 @@ function CreateProjectListingPage({ user, setPage }) {
         timeline:        timeline.trim(),
         description:     description.trim(),
         photos,
-        group_funding:   groupFunding,
-        syndicate_open:  syndicateOpen,
-        min_commitment:  syndicateOpen && minCommitment ? Number(minCommitment) : null,
+        group_funding:                groupFunding,
+        syndicate_open:               syndicateOpen,
+        min_commitment:               syndicateOpen && minCommitment ? Number(minCommitment) : null,
+        syndicate_max_lenders:        syndicateOpen && maxLenders ? Number(maxLenders) : null,
+        syndicate_return_type:        syndicateOpen ? synReturnType : null,
+        syndicate_interest_rate:      syndicateOpen && synReturnType === "fixed_interest" && synInterestRate ? Number(synInterestRate) : null,
+        syndicate_loan_term_months:   syndicateOpen && synReturnType === "fixed_interest" && synLoanTermMonths ? Number(synLoanTermMonths) : null,
+        syndicate_rental_share_pct:   syndicateOpen && synReturnType === "rental_split" && synRentalSharePct ? Number(synRentalSharePct) : null,
+        syndicate_monthly_rental:     syndicateOpen && synReturnType === "rental_split" && synMonthlyRental ? Number(synMonthlyRental) : null,
+        syndicate_equity_pct:         syndicateOpen && synReturnType === "equity_stake" && synEquityPct ? Number(synEquityPct) : null,
       }),
     });
     setSaving(false);
@@ -11417,7 +11860,7 @@ function CreateProjectListingPage({ user, setPage }) {
                 <input
                   type="checkbox"
                   checked={syndicateOpen}
-                  onChange={e => { setSyndicateOpen(e.target.checked); if (!e.target.checked) setMinCommitment(""); }}
+                  onChange={e => { setSyndicateOpen(e.target.checked); if (!e.target.checked) { setMinCommitment(""); setMaxLenders(""); } }}
                   style={{ marginTop: 2, width: 16, height: 16, cursor: "pointer", flexShrink: 0 }}
                 />
                 <div>
@@ -11426,17 +11869,55 @@ function CreateProjectListingPage({ user, setPage }) {
                 </div>
               </label>
               {syndicateOpen && (
-                <div style={{ marginTop: 12, paddingLeft: 26 }}>
-                  <label style={lbl}>Minimum contribution per lender (£) <span style={{ color: "#aaa", fontWeight: 400 }}>optional</span></label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1000"
-                    value={minCommitment}
-                    onChange={e => setMinCommitment(e.target.value)}
-                    placeholder="e.g. 10000"
-                    style={{ ...inp, maxWidth: 220 }}
-                  />
+                <div style={{ marginTop: 14, paddingLeft: 26, display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div>
+                    <label style={lbl}>Return type for lenders</label>
+                    <select value={synReturnType} onChange={e => setSynReturnType(e.target.value)} style={inp}>
+                      <option value="fixed_interest">Fixed interest (monthly repayments)</option>
+                      <option value="rental_split">Rental split</option>
+                      <option value="equity_stake">Equity stake</option>
+                    </select>
+                  </div>
+                  {synReturnType === "fixed_interest" && (
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={lbl}>Interest rate (% p.a.)</label>
+                        <input type="number" min="0" max="100" step="0.1" value={synInterestRate} onChange={e => setSynInterestRate(e.target.value)} placeholder="e.g. 8" style={inp} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={lbl}>Loan term (months)</label>
+                        <input type="number" min="1" max="360" step="1" value={synLoanTermMonths} onChange={e => setSynLoanTermMonths(e.target.value)} placeholder="e.g. 18" style={inp} />
+                      </div>
+                    </div>
+                  )}
+                  {synReturnType === "rental_split" && (
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={lbl}>Lender's share (%)</label>
+                        <input type="number" min="0" max="100" step="1" value={synRentalSharePct} onChange={e => setSynRentalSharePct(e.target.value)} placeholder="e.g. 40" style={inp} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={lbl}>Est. monthly rental (£)</label>
+                        <input type="number" min="0" step="100" value={synMonthlyRental} onChange={e => setSynMonthlyRental(e.target.value)} placeholder="e.g. 2500" style={inp} />
+                      </div>
+                    </div>
+                  )}
+                  {synReturnType === "equity_stake" && (
+                    <div>
+                      <label style={lbl}>Equity percentage offered (%)</label>
+                      <input type="number" min="0" max="100" step="0.5" value={synEquityPct} onChange={e => setSynEquityPct(e.target.value)} placeholder="e.g. 25" style={{ ...inp, maxWidth: 220 }} />
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={lbl}>Min. contribution per lender (£) <span style={{ color: "#aaa", fontWeight: 400 }}>optional</span></label>
+                      <input type="number" min="0" step="1000" value={minCommitment} onChange={e => setMinCommitment(e.target.value)} placeholder="e.g. 10000" style={inp} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={lbl}>Max. lenders <span style={{ color: "#aaa", fontWeight: 400 }}>optional</span></label>
+                      <input type="number" min="1" step="1" value={maxLenders} onChange={e => setMaxLenders(e.target.value)} placeholder="e.g. 5" style={inp} />
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
