@@ -7491,26 +7491,68 @@ const CATEGORY_META = {
   "general":             { label: "General",              bg: "#F1EFE8", text: "#5F5E5A" },
 };
 
-function PostCard({ post, isOwn, onView, onEdit, onDelete }) {
+function PostCard({ post, isOwn, onView, onEdit, onDelete, user, onConnect, onMessage }) {
   const cat = CATEGORY_META[post.category] || CATEGORY_META.general;
-  const [deleting,        setDeleting]        = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [removing,         setRemoving]         = useState(false);
+  const [connectStatus,    setConnectStatus]     = useState("idle"); // idle|loading|done|error
   const preview = post.body.length > 180 ? post.body.slice(0, 180).trimEnd() + "…" : post.body;
+
+  // Connection state from user metadata
+  const viewerRole = user?.user_metadata?.role;
+  const showConnect = user && !isOwn && viewerRole && post.author_role && viewerRole !== post.author_role;
+  const alreadySent = showConnect && (
+    viewerRole === "lender" && post.author_role === "builder"
+      ? (user.user_metadata?.builder_connections || []).some(c => c.builder_name === post.author_name)
+      : viewerRole === "builder" && post.author_role === "lender"
+      ? (user.user_metadata?.connections || []).some(c => c.lender_name === post.author_name && (c.status === "pending" || c.status === "accepted"))
+      : false
+  );
+  const alreadyAccepted = showConnect && viewerRole === "builder" && post.author_role === "lender" &&
+    (user.user_metadata?.connections || []).some(c => c.lender_name === post.author_name && c.status === "accepted");
 
   async function handleDelete(e) {
     e.stopPropagation();
     if (!confirmingDelete) { setConfirmingDelete(true); return; }
-    setDeleting(true);
-    await onDelete(post.id);
-    setDeleting(false);
-    setConfirmingDelete(false);
+    setRemoving(true);
+    setTimeout(() => onDelete(post.id), 300);
   }
+
+  async function handleConnect(e) {
+    e.stopPropagation();
+    if (!onConnect) return;
+    setConnectStatus("loading");
+    const ok = await onConnect(post);
+    setConnectStatus(ok ? "done" : "error");
+    if (!ok) setTimeout(() => setConnectStatus("idle"), 3000);
+  }
+
+  async function handleMessage(e) {
+    e.stopPropagation();
+    onMessage && onMessage(post);
+  }
+
+  const connectLabel = alreadySent || connectStatus === "done"
+    ? "Request sent"
+    : alreadyAccepted
+    ? null // show Message instead
+    : connectStatus === "loading" ? "Sending…"
+    : connectStatus === "error"   ? "Try again"
+    : post.author_role === "builder" ? "Connect with this builder"
+    : "Connect with this lender";
 
   return (
     <div
-      onClick={onView}
-      style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: 12, cursor: "pointer" }}
-      onMouseEnter={e => e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.06)"}
+      onClick={removing ? undefined : onView}
+      style={{
+        background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem",
+        marginBottom: removing ? 0 : 12, cursor: removing ? "default" : "pointer",
+        opacity: removing ? 0 : 1,
+        maxHeight: removing ? 0 : 1000,
+        overflow: "hidden",
+        transition: "opacity 0.3s ease, max-height 0.3s ease, margin-bottom 0.3s ease",
+      }}
+      onMouseEnter={e => { if (!removing) e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.06)"; }}
       onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
     >
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
@@ -7537,8 +7579,9 @@ function PostCard({ post, isOwn, onView, onEdit, onDelete }) {
       </div>
       <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>{post.title}</div>
       <p style={{ fontSize: 13, color: "#555", lineHeight: 1.65, margin: 0 }}>{preview}</p>
+
       {isOwn ? (
-        <div style={{ marginTop: 12, paddingTop: 10, borderTop: "0.5px solid #f0f0f0", display: "flex", gap: 8 }}>
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: "0.5px solid #f0f0f0", display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button
             onClick={e => { e.stopPropagation(); onEdit(post); }}
             style={{ background: "transparent", color: "#333", border: "0.5px solid #ccc", padding: "5px 12px", minHeight: 44, borderRadius: 8, fontSize: 12, cursor: "pointer" }}
@@ -7547,13 +7590,12 @@ function PostCard({ post, isOwn, onView, onEdit, onDelete }) {
           </button>
           {confirmingDelete ? (
             <>
-              <span style={{ fontSize: 12, color: "#64748B", alignSelf: "center" }}>Delete?</span>
+              <span style={{ fontSize: 12, color: "#64748B", alignSelf: "center" }}>Are you sure you want to delete this post?</span>
               <button
                 onClick={handleDelete}
-                disabled={deleting}
-                style={{ background: "#DC2626", color: "#fff", border: "none", padding: "5px 12px", minHeight: 44, borderRadius: 8, fontSize: 12, cursor: deleting ? "default" : "pointer" }}
+                style={{ background: "#DC2626", color: "#fff", border: "none", padding: "5px 12px", minHeight: 44, borderRadius: 8, fontSize: 12, cursor: "pointer" }}
               >
-                {deleting ? "Deleting…" : "Yes, delete"}
+                Yes, delete
               </button>
               <button
                 onClick={e => { e.stopPropagation(); setConfirmingDelete(false); }}
@@ -7572,7 +7614,40 @@ function PostCard({ post, isOwn, onView, onEdit, onDelete }) {
           )}
         </div>
       ) : (
-        <div style={{ marginTop: 10, fontSize: 12, color: "#3B82F6", fontWeight: 500 }}>Read more →</div>
+        <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: "#3B82F6", fontWeight: 500 }}>Read more →</span>
+          {showConnect && (
+            alreadyAccepted || connectStatus === "done" && !alreadySent ? (
+              <button
+                onClick={handleMessage}
+                style={{ marginLeft: "auto", padding: "6px 14px", minHeight: 36, borderRadius: 8, border: "none", background: "#1E3A5F", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+              >
+                Message
+              </button>
+            ) : (
+              <button
+                onClick={handleConnect}
+                disabled={alreadySent || connectStatus === "loading" || connectStatus === "done"}
+                style={{
+                  marginLeft: "auto", padding: "6px 14px", minHeight: 36, borderRadius: 8, border: "none", fontSize: 12, fontWeight: 600, cursor: alreadySent || connectStatus !== "idle" ? "default" : "pointer",
+                  background: alreadySent || connectStatus === "done" ? "#F1F5F9" : connectStatus === "error" ? "#DC2626" : "#3B82F6",
+                  color:      alreadySent || connectStatus === "done" ? "#64748B" : "#fff",
+                  transition: "background 0.2s",
+                }}
+              >
+                {connectLabel}
+              </button>
+            )
+          )}
+          {!user && post.author_role && (
+            <button
+              onClick={e => { e.stopPropagation(); /* caller handles auth */ onConnect && onConnect(post); }}
+              style={{ marginLeft: "auto", padding: "6px 14px", minHeight: 36, borderRadius: 8, border: "none", background: "#3B82F6", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+            >
+              {post.author_role === "builder" ? "Connect with this builder" : "Connect with this lender"}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -7687,6 +7762,7 @@ function PostsFeedPage({ user, setPage }) {
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState("");
   const [myLocation,   setMyLocation]   = useState("");
+  const [toast,        setToast]        = useState("");
 
   // Filters
   const [catFilter,    setCatFilter]    = useState("all");
@@ -7829,6 +7905,25 @@ function PostsFeedPage({ user, setPage }) {
               )}
             </button>
           ))}
+          {user && (
+            <button
+              onClick={() => setShowMine(v => !v)}
+              style={{
+                padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 600,
+                cursor: "pointer", minHeight: 36,
+                background: showMine ? "#3B82F6" : "#F1F5F9",
+                color:      showMine ? "#fff"    : "#475569",
+                border:     showMine ? "none" : "none",
+                transition: "background 0.15s",
+              }}>
+              My posts
+              {showMine && posts.filter(p => p.author_id === user.id).length > 0 && (
+                <span style={{ marginLeft: 5, fontSize: 11, opacity: 0.8 }}>
+                  ({posts.filter(p => p.author_id === user.id).length})
+                </span>
+              )}
+            </button>
+          )}
         </div>
 
         {/* Qualifier toggles + sort */}
@@ -7901,9 +7996,41 @@ function PostsFeedPage({ user, setPage }) {
         <PostCard
           key={p.id}
           post={p}
-          isOwn={user && p.author_id === user.id}
+          isOwn={!!(user && p.author_id === user.id)}
           onView={() => handleView(p)}
           onEdit={post => setPage("edit-post", post)}
+          user={user}
+          onConnect={async (post) => {
+            if (!user) { setPage("auth"); return false; }
+            const { data: { session } } = await supabase.auth.getSession();
+            const viewerRole = user.user_metadata?.role;
+            const body = viewerRole === "lender" && post.author_role === "builder"
+              ? { builder_name: post.author_name }
+              : { lender_name: post.author_name };
+            const res = await fetch("/api/connect-request", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+              body: JSON.stringify(body),
+            });
+            if (res.ok) {
+              await supabase.auth.refreshSession();
+              return true;
+            }
+            return false;
+          }}
+          onMessage={async (post) => {
+            if (!user) { setPage("auth"); return; }
+            const { data: { session } } = await supabase.auth.getSession();
+            const res = await fetch("/api/notify-message", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+              body: JSON.stringify({ other_name: post.author_name, other_role: post.author_role }),
+            });
+            if (res.ok) {
+              const { conversation } = await res.json();
+              setPage("messages", conversation?.id);
+            }
+          }}
           onDelete={async (id) => {
             const { data: { session } } = await supabase.auth.getSession();
             await fetch("/api/posts", {
@@ -7911,11 +8038,25 @@ function PostsFeedPage({ user, setPage }) {
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
               body: JSON.stringify({ action: "delete", post_id: id }),
             });
-            await supabase.auth.refreshSession();
-            await loadPosts();
+            setPosts(prev => prev.filter(p => p.id !== id));
+            setToast("Post deleted");
+            setTimeout(() => setToast(""), 3000);
           }}
         />
       ))}
+
+      {/* Toast notification */}
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 80, left: "50%", transform: "translateX(-50%)",
+          background: "#16A34A", color: "#fff", padding: "11px 22px", borderRadius: 10,
+          fontSize: 14, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.18)",
+          zIndex: 9999, pointerEvents: "none",
+          animation: "fadeInUp 0.2s ease",
+        }}>
+          ✓ {toast}
+        </div>
+      )}
     </div>
   );
 }
@@ -8045,6 +8186,7 @@ function MyPostsPage({ user, setPage }) {
   const [posts,   setPosts]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState("");
+  const [toast,   setToast]   = useState("");
 
   useEffect(() => {
     loadPosts();
@@ -8074,8 +8216,9 @@ function MyPostsPage({ user, setPage }) {
       body: JSON.stringify({ action: "delete", post_id: postId }),
     });
     if (res.ok) {
-      await supabase.auth.refreshSession();
-      await loadPosts();
+      setPosts(prev => prev.filter(p => p.id !== postId));
+      setToast("Post deleted");
+      setTimeout(() => setToast(""), 3000);
     }
   }
 
@@ -8128,8 +8271,21 @@ function MyPostsPage({ user, setPage }) {
           onView={() => setPage("post-detail", p)}
           onEdit={post => setPage("edit-post", post)}
           onDelete={handleDelete}
+          user={user}
         />
       ))}
+
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 80, left: "50%", transform: "translateX(-50%)",
+          background: "#16A34A", color: "#fff", padding: "11px 22px", borderRadius: 10,
+          fontSize: 14, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.18)",
+          zIndex: 9999, pointerEvents: "none",
+          animation: "fadeInUp 0.2s ease",
+        }}>
+          ✓ {toast}
+        </div>
+      )}
     </div>
   );
 }
@@ -18141,6 +18297,14 @@ function HelpCentrePage({ setPage }) {
 }
 
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
+
+// Inject global keyframes once
+if (typeof document !== "undefined" && !document.getElementById("lb-keyframes")) {
+  const s = document.createElement("style");
+  s.id = "lb-keyframes";
+  s.textContent = `@keyframes fadeInUp{from{opacity:0;transform:translateX(-50%) translateY(12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}`;
+  document.head.appendChild(s);
+}
 
 export default function App() {
   const [darkMode, setDarkMode]                 = useDarkMode();
