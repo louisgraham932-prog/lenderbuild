@@ -7617,7 +7617,7 @@ function PostCard({ post, isOwn, onView, onEdit, onDelete, user, onConnect, onMe
         <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, color: "#3B82F6", fontWeight: 500 }}>Read more →</span>
           {showConnect && (
-            alreadyAccepted || connectStatus === "done" && !alreadySent ? (
+            (alreadyAccepted || (connectStatus === "done" && !alreadySent)) ? (
               <button
                 onClick={handleMessage}
                 style={{ marginLeft: "auto", padding: "6px 14px", minHeight: 36, borderRadius: 8, border: "none", background: "#1E3A5F", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
