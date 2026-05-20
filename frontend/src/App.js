@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "./supabaseClient";
+import emailjs from "@emailjs/browser";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell,
@@ -693,47 +694,118 @@ function RoleBadge({ userRole, authRole }) {
 }
 
 function MatchBadge({ score, breakdown }) {
-  const [show, setShow] = useState(false);
+  const [show, setShow]     = useState(false);
+  const [tipPos, setTipPos] = useState({ bottom: 0, left: 0, arrowLeft: 120 });
+  const containerRef        = useRef(null);
+
   let label, bg, color;
   if (score >= 80)      { label = "Great match";    bg = "#E1F5EE"; color = "#0F6E56"; }
   else if (score >= 60) { label = "Good match";     bg = "#EBF2FF"; color = "#1E3A5F"; }
   else                  { label = "Possible match"; bg = "#FEF2F2"; color = "#DC2626"; }
 
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 600;
+
+  // Close when clicking outside
+  useEffect(() => {
+    if (!show) return;
+    const handle = e => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) setShow(false);
+    };
+    document.addEventListener("mousedown", handle);
+    document.addEventListener("touchstart", handle);
+    return () => { document.removeEventListener("mousedown", handle); document.removeEventListener("touchstart", handle); };
+  }, [show]);
+
+  function handleToggle(e) {
+    e.stopPropagation();
+    if (!show && containerRef.current && !isMobile) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const TIP_W = 260;
+      // Centre above the badge, then clamp to viewport edges
+      let left = rect.left + rect.width / 2 - TIP_W / 2;
+      left = Math.max(8, Math.min(left, window.innerWidth - TIP_W - 8));
+      // Arrow points at badge centre
+      const arrowLeft = Math.max(10, Math.min((rect.left + rect.width / 2) - left - 5, TIP_W - 20));
+      // 8px gap between badge top and tooltip bottom
+      const bottom = window.innerHeight - rect.top + 8;
+      setTipPos({ bottom, left, arrowLeft });
+    }
+    setShow(s => !s);
+  }
+
+  const tooltipBreakdown = (
+    <>
+      <div style={{ fontWeight: 700, marginBottom: 9, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(255,255,255,0.7)" }}>Why this match?</div>
+      {breakdown.map(({ label: lbl, earned, max, detail }) => {
+        const ratio = earned / max;
+        const barColor = ratio >= 0.7 ? "#6EE7B7" : ratio >= 0.4 ? "#FCD34D" : "#FCA5A5";
+        return (
+          <div key={lbl} style={{ marginBottom: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+              <span style={{ color: "rgba(255,255,255,0.85)", fontSize: 11 }}>{lbl}</span>
+              <span style={{ fontWeight: 700, fontSize: 11, color: barColor }}>{earned}/{max}</span>
+            </div>
+            <div style={{ height: 3, background: "rgba(255,255,255,0.15)", borderRadius: 2 }}>
+              <div style={{ height: 3, borderRadius: 2, background: barColor, width: `${ratio * 100}%`, transition: "width 0.3s" }} />
+            </div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.55)", marginTop: 3 }}>{detail}</div>
+          </div>
+        );
+      })}
+    </>
+  );
+
   return (
-    <div style={{ position: "relative", display: "inline-block" }}
-      onMouseEnter={() => setShow(true)}
-      onMouseLeave={() => setShow(false)}
-      onClick={e => { e.stopPropagation(); setShow(s => !s); }}
+    <div ref={containerRef} style={{ position: "relative", display: "inline-block" }}
+      onMouseEnter={() => { if (!isMobile && !show) handleToggle({ stopPropagation: () => {} }); }}
+      onMouseLeave={() => { if (!isMobile) setShow(false); }}
+      onClick={handleToggle}
     >
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: bg, color, cursor: "default", userSelect: "none", whiteSpace: "nowrap" }}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: bg, color, cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>
         {score}% · {label}
         <HelpTooltip text="This score shows how well matched you are based on budget alignment, project type, location and activity level" />
       </span>
-      {show && (
+
+      {/* Mobile: bottom sheet */}
+      {show && isMobile && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 99999, display: "flex", alignItems: "flex-end" }}
+          onClick={e => { e.stopPropagation(); setShow(false); }}>
+          <div style={{ background: "#1E3A5F", color: "#fff", borderRadius: "20px 20px 0 0", padding: "8px 18px 36px", width: "100%", boxShadow: "0 -8px 32px rgba(0,0,0,0.3)" }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ width: 36, height: 4, background: "rgba(255,255,255,0.3)", borderRadius: 2, margin: "10px auto 16px" }} />
+            {tooltipBreakdown}
+            <button onClick={() => setShow(false)}
+              style={{ marginTop: 14, width: "100%", padding: "12px", background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 10, color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Desktop: fixed tooltip, always above the badge */}
+      {show && !isMobile && (
         <div style={{
-          position: "absolute", bottom: "calc(100% + 7px)", left: "50%", transform: "translateX(-50%)",
-          background: "#1E3A5F", color: "#fff", borderRadius: 10, padding: "11px 13px",
-          fontSize: 12, zIndex: 9999, minWidth: 210, boxShadow: "0 8px 28px rgba(0,0,0,0.22)",
+          position: "fixed",
+          bottom: tipPos.bottom,
+          left: tipPos.left,
+          width: 260,
+          maxWidth: 260,
+          background: "#1E3A5F",
+          color: "#fff",
+          borderRadius: 10,
+          padding: "11px 13px",
+          fontSize: 12,
+          zIndex: 99999,
+          boxShadow: "0 8px 28px rgba(0,0,0,0.28)",
           pointerEvents: "none",
         }}>
-          <div style={{ fontWeight: 700, marginBottom: 9, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em", opacity: 0.75 }}>Why this match?</div>
-          {breakdown.map(({ label: lbl, earned, max, detail }) => {
-            const ratio = earned / max;
-            const barColor = ratio >= 0.7 ? "#6EE7B7" : ratio >= 0.4 ? "#FCD34D" : "#FCA5A5";
-            return (
-              <div key={lbl} style={{ marginBottom: 8 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                  <span style={{ opacity: 0.85, fontSize: 11 }}>{lbl}</span>
-                  <span style={{ fontWeight: 700, fontSize: 11, color: barColor }}>{earned}/{max}</span>
-                </div>
-                <div style={{ height: 3, background: "rgba(255,255,255,0.15)", borderRadius: 2 }}>
-                  <div style={{ height: 3, borderRadius: 2, background: barColor, width: `${ratio * 100}%`, transition: "width 0.3s" }} />
-                </div>
-                <div style={{ fontSize: 10, opacity: 0.6, marginTop: 3 }}>{detail}</div>
-              </div>
-            );
-          })}
-          <div style={{ position: "absolute", bottom: -4, left: "50%", transform: "translateX(-50%) rotate(45deg)", width: 8, height: 8, background: "#1E3A5F" }} />
+          {tooltipBreakdown}
+          {/* Arrow pointing down toward the badge */}
+          <div style={{
+            position: "absolute", bottom: -5, left: tipPos.arrowLeft,
+            width: 10, height: 10, background: "#1E3A5F", transform: "rotate(45deg)",
+            boxShadow: "2px 2px 4px rgba(0,0,0,0.1)",
+          }} />
         </div>
       )}
     </div>
@@ -1333,10 +1405,18 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
   // ── LOGGED OUT ──────────────────────────────────────────────────────────────
   if (!user) {
     function scrollToSection(id) {
-      const el = document.getElementById(id);
-      if (!el) return;
-      const top = el.getBoundingClientRect().top + window.scrollY - 70;
-      window.scrollTo({ top, behavior: "smooth" });
+      const doScroll = () => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const top = el.getBoundingClientRect().top + window.scrollY - 70;
+        window.scrollTo({ top, behavior: "smooth" });
+      };
+      if (page !== "home") {
+        go("home");
+        setTimeout(doScroll, 350);
+        return;
+      }
+      doScroll();
     }
 
     if (isMobile) {
@@ -3527,7 +3607,7 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
                 <span>📄</span><span style={{ flex: 1 }}>Privacy Policy</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
               </button>
               <div style={{ height: 1, background: "#f5f5f5", margin: "12px 0" }} />
-              <button onClick={() => { if (window.confirm("Are you sure? This cannot be undone.")) { window.location.href = "mailto:lenderbuild.support@gmail.com?subject=Account deletion request"; } }}
+              <button onClick={() => { if (window.confirm("Are you sure you want to request account deletion? This cannot be undone.")) { setPage("help"); } }}
                 style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "4px 0", background: "transparent", border: "none", cursor: "pointer", fontSize: 15, color: "#DC2626", fontWeight: 500 }}>
                 <span>🗑️</span>Request account deletion
               </button>
@@ -3631,10 +3711,13 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
                       <div style={{ marginBottom: 20 }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: "#166534", marginBottom: 10 }}>Connected ({accepted.length})</div>
                         {accepted.map((c, i) => (
-                          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "0.5px solid #f8f8f8" }}>
-                            <Avatar initials={nameInitials(c.lender_name)} color={pickColor(c.lender_name || "")} size={32} />
-                            <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 500 }}>{c.lender_name}</div><div style={{ fontSize: 11, color: "#64748B" }}>{c.lender_type || "Lender"}</div></div>
-                            <span style={{ fontSize: 11, background: "#DCFCE7", color: "#166534", padding: "2px 8px", borderRadius: 20, fontWeight: 500 }}>Connected</span>
+                          <div key={i} style={{ borderBottom: "0.5px solid #f8f8f8" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
+                              <Avatar initials={nameInitials(c.lender_name)} color={pickColor(c.lender_name || "")} size={32} />
+                              <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 500 }}>{c.lender_name}</div><div style={{ fontSize: 11, color: "#64748B" }}>{c.lender_type || "Lender"}</div></div>
+                              <span style={{ fontSize: 11, background: "#DCFCE7", color: "#166534", padding: "2px 8px", borderRadius: 20, fontWeight: 500 }}>Connected</span>
+                            </div>
+                            <DealConfirmWidget user={user} otherName={c.lender_name} otherRole="lender" />
                           </div>
                         ))}
                       </div>
@@ -3644,10 +3727,13 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
                       <div style={{ marginBottom: 16 }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: "#2E5FA3", marginBottom: 10 }}>Builder connections ({sentToBuilders.length})</div>
                         {sentToBuilders.map((c, i) => (
-                          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "0.5px solid #f8f8f8" }}>
-                            <Avatar initials={nameInitials(c.builder_name)} color={pickColor(c.builder_name || "")} size={32} />
-                            <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 500 }}>{c.builder_name}</div><div style={{ fontSize: 11, color: "#64748B" }}>{c.builder_type || "Builder"}</div></div>
-                            <span style={{ fontSize: 11, background: c.status === "accepted" ? "#DCFCE7" : "#EBF2FF", color: c.status === "accepted" ? "#166534" : "#1E3A5F", padding: "2px 8px", borderRadius: 20, fontWeight: 500, textTransform: "capitalize" }}>{c.status}</span>
+                          <div key={i} style={{ borderBottom: "0.5px solid #f8f8f8" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
+                              <Avatar initials={nameInitials(c.builder_name)} color={pickColor(c.builder_name || "")} size={32} />
+                              <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 500 }}>{c.builder_name}</div><div style={{ fontSize: 11, color: "#64748B" }}>{c.builder_type || "Builder"}</div></div>
+                              <span style={{ fontSize: 11, background: c.status === "accepted" ? "#DCFCE7" : "#EBF2FF", color: c.status === "accepted" ? "#166534" : "#1E3A5F", padding: "2px 8px", borderRadius: 20, fontWeight: 500, textTransform: "capitalize" }}>{c.status}</span>
+                            </div>
+                            {c.status === "accepted" && <DealConfirmWidget user={user} otherName={c.builder_name} otherRole="builder" />}
                           </div>
                         ))}
                       </div>
@@ -3673,7 +3759,7 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
                 { label: "Help Centre",            action: () => setPage("help"),         icon: "📚" },
                 { label: "How it works",          action: () => setPage("how-it-works"), icon: "📖" },
                 { label: "Trust & Safety",         action: () => setPage("safety"),       icon: "🛡️" },
-                { label: "Contact support",        action: () => { window.location.href = "mailto:lenderbuild.support@gmail.com"; }, icon: "✉️" },
+                { label: "Contact support",        action: () => setPage("help"),                                                   icon: "✉️" },
                 { label: "Replay onboarding tour", action: onReplayTour,                  icon: "🎬" },
                 { label: "System status",          action: () => setPage("status"),       icon: "🟢" },
               ].map(({ label, action, icon }, i, arr) => (
@@ -4021,7 +4107,8 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
   const recoForBuilder = recoLenderCards;
   const recoForLender  = recoBuilderCards;
 
-  const isNewUser = !loading && myConnections.length === 0 && conversations.length === 0 && page !== "home-dashboard";
+  // Show getting-started immediately when metadata shows no connections, without waiting for API loading
+  const isNewUser = myConnections.length === 0 && (loading || conversations.length === 0) && page !== "home-dashboard";
 
   if (isNewUser) {
     return (
@@ -4722,57 +4809,61 @@ function HomePage({ setPage, user, onViewProfile }) {
       )}
 
       {/* Builder / Lender split value prop */}
-      <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
+      <div style={{ width: "100%", display: "flex", justifyContent: "center", padding: "2rem 1.25rem" }}>
+        <div style={{
+          width: "100%", maxWidth: 900, margin: "0 auto",
+          display: "grid", gridTemplateColumns: "1fr 1fr",
+          gap: "1.5rem", alignItems: "start",
+        }}>
 
-        {/* Builder side */}
-        <div id="builders" style={{ background: "#1E3A5F", padding: "3rem 1.5rem" }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>For builders</div>
-          <h2 style={{ fontSize: 28, fontWeight: 700, color: "#fff", fontFamily: "'Playfair Display', Georgia, serif", margin: "0 0 1rem", lineHeight: 1.25 }}>
-            Get your project funded in days
-          </h2>
-          <p style={{ fontSize: 15, color: "rgba(255,255,255,0.72)", lineHeight: 1.7, marginBottom: "1.75rem" }}>
-            Connect directly with vetted UK lenders who are ready to back residential, commercial, and renovation projects. No brokers, no delays.
-          </p>
-          <ul style={{ listStyle: "none", margin: "0 0 2rem", padding: 0, display: "flex", flexDirection: "column", gap: 12 }}>
-            {["Post your project in minutes", "Get matched with the right lender", "Agree on terms and start building"].map(item => (
-              <li key={item} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "rgba(255,255,255,0.85)" }}>
-                <span style={{ width: 20, height: 20, borderRadius: "50%", background: "#3B82F6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </span>
-                {item}
-              </li>
-            ))}
-          </ul>
-          <button onClick={() => setPage("auth")} style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "13px 28px", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
-            Sign up as a builder
-          </button>
-        </div>
+          {/* Builder side */}
+          <div id="builders" style={{ background: "#1E3A5F", padding: "3rem 1.5rem", borderRadius: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>For builders</div>
+            <h2 style={{ fontSize: 28, fontWeight: 700, color: "#fff", fontFamily: "'Playfair Display', Georgia, serif", margin: "0 0 1rem", lineHeight: 1.25 }}>
+              Get your project funded in days
+            </h2>
+            <p style={{ fontSize: 15, color: "rgba(255,255,255,0.72)", lineHeight: 1.7, marginBottom: "1.75rem" }}>
+              Connect directly with vetted UK lenders who are ready to back residential, commercial, and renovation projects. No brokers, no delays.
+            </p>
+            <ul style={{ listStyle: "none", margin: "0 0 2rem", padding: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+              {["Post your project in minutes", "Get matched with the right lender", "Agree on terms and start building"].map(item => (
+                <li key={item} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "rgba(255,255,255,0.85)" }}>
+                  <span style={{ width: 20, height: 20, borderRadius: "50%", background: "#3B82F6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </span>
+                  {item}
+                </li>
+              ))}
+            </ul>
+            <button onClick={() => setPage("auth")} style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "13px 28px", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+              Sign up as a builder
+            </button>
+          </div>
 
-        {/* Lender side */}
-        <div id="lenders" style={{ background: "#EBF2FF", padding: "3rem 1.5rem" }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>For lenders</div>
-          <h2 style={{ fontSize: 28, fontWeight: 700, color: "#1E3A5F", fontFamily: "'Playfair Display', Georgia, serif", margin: "0 0 1rem", lineHeight: 1.25 }}>
-            Earn returns on property investment
-          </h2>
-          <p style={{ fontSize: 15, color: "#64748B", lineHeight: 1.7, marginBottom: "1.75rem" }}>
-            Browse pre-vetted builder profiles, review project details, and fund deals that match your risk appetite. Simple, transparent, and UK-focused.
-          </p>
-          <ul style={{ listStyle: "none", margin: "0 0 2rem", padding: 0, display: "flex", flexDirection: "column", gap: 12 }}>
-            {["Browse verified builders and projects", "Choose your return type — fixed or equity", "Release funds in milestones, stay in control"].map(item => (
-              <li key={item} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "#2C3E50" }}>
-                <span style={{ width: 20, height: 20, borderRadius: "50%", background: "#1E3A5F", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </span>
-                {item}
-              </li>
-            ))}
-          </ul>
-          <button onClick={() => setPage("auth")} style={{ background: "#1E3A5F", color: "#fff", border: "none", padding: "13px 28px", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
-            Sign up as a lender
-          </button>
+          {/* Lender side */}
+          <div id="lenders" style={{ background: "#EBF2FF", padding: "3rem 1.5rem", borderRadius: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>For lenders</div>
+            <h2 style={{ fontSize: 28, fontWeight: 700, color: "#1E3A5F", fontFamily: "'Playfair Display', Georgia, serif", margin: "0 0 1rem", lineHeight: 1.25 }}>
+              Earn returns on property investment
+            </h2>
+            <p style={{ fontSize: 15, color: "#64748B", lineHeight: 1.7, marginBottom: "1.75rem" }}>
+              Browse pre-vetted builder profiles, review project details, and fund deals that match your risk appetite. Simple, transparent, and UK-focused.
+            </p>
+            <ul style={{ listStyle: "none", margin: "0 0 2rem", padding: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+              {["Browse verified builders and projects", "Choose your return type — fixed or equity", "Release funds in milestones, stay in control"].map(item => (
+                <li key={item} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "#2C3E50" }}>
+                  <span style={{ width: 20, height: 20, borderRadius: "50%", background: "#1E3A5F", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </span>
+                  {item}
+                </li>
+              ))}
+            </ul>
+            <button onClick={() => setPage("auth")} style={{ background: "#1E3A5F", color: "#fff", border: "none", padding: "13px 28px", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+              Sign up as a lender
+            </button>
+          </div>
         </div>
-      </div>
       </div>
 
       {/* How it works — 3 steps */}
@@ -6653,12 +6744,13 @@ function AdminPage({ user }) {
   const [commMsg,        setCommMsg]        = useState("");
   const [banForm,        setBanForm]        = useState({}); // { [userId]: { open, reason, type } }
   const [kycChecks,      setKycChecks]      = useState([]);
+  const [dealsRevenue,   setDealsRevenue]   = useState(null);
 
   useEffect(() => {
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-      const [reportsRes, usersRes, docsRes, disputesRes, dealDocsRes, defaultsRes, commModRes] = await Promise.all([
+      const [reportsRes, usersRes, docsRes, disputesRes, dealDocsRes, defaultsRes, commModRes, dealsRes] = await Promise.all([
         fetch("/api/admin-reports",                       { headers: { Authorization: `Bearer ${session.access_token}` } }),
         fetch("/api/admin-reports?type=users",            { headers: { Authorization: `Bearer ${session.access_token}` } }),
         fetch("/api/admin-reports?type=documents",        { headers: { Authorization: `Bearer ${session.access_token}` } }),
@@ -6666,6 +6758,7 @@ function AdminPage({ user }) {
         fetch("/api/admin-reports?type=deal-docs",        { headers: { Authorization: `Bearer ${session.access_token}` } }),
         fetch("/api/admin-reports?type=defaults",         { headers: { Authorization: `Bearer ${session.access_token}` } }),
         fetch("/api/admin-reports?type=community-mod",    { headers: { Authorization: `Bearer ${session.access_token}` } }),
+        fetch("/api/admin-reports?type=deals",            { headers: { Authorization: `Bearer ${session.access_token}` } }),
       ]);
       const reportsJson = await reportsRes.json();
       if (!reportsRes.ok) { setError(reportsJson.error || "Failed to load reports"); }
@@ -6690,6 +6783,9 @@ function AdminPage({ user }) {
 
       const commModJson = await commModRes.json();
       setCommMod(commModJson.reports ? commModJson : null);
+
+      const dealsJson = await dealsRes.json();
+      if (!dealsRes.ok) {} else setDealsRevenue(dealsJson);
 
       // KYC checks — direct Supabase query (admin only)
       const { data: kyc } = await supabase.from("kyc_checks").select("*").order("checked_at", { ascending: false }).limit(100);
@@ -7158,6 +7254,59 @@ function AdminPage({ user }) {
         ))}
       </div>
 
+      {/* ── Deals & Revenue ─────────────────────────────────────────────────── */}
+      <div style={{ marginTop: "2.5rem" }}>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          Deals & Revenue
+          {dealsRevenue && dealsRevenue.unpaid_count > 0 && (
+            <span style={{ background: "#FEF3C7", color: "#B45309", fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 500 }}>
+              {dealsRevenue.unpaid_count} fee{dealsRevenue.unpaid_count !== 1 ? "s" : ""} unpaid
+            </span>
+          )}
+        </div>
+        {dealsRevenue && (
+          <div style={{ display: "flex", gap: 12, marginBottom: "1.25rem", flexWrap: "wrap" }}>
+            {[
+              { label: "Total revenue (all time)", value: `£${Number(dealsRevenue.total_revenue || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, bg: "#E1F5EE", color: "#0F6E56" },
+              { label: "Revenue this month", value: `£${Number(dealsRevenue.month_revenue || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, bg: "#EBF2FF", color: "#1E3A5F" },
+              { label: "Confirmed deals", value: (dealsRevenue.deals || []).filter(d => d.deal_confirmed_at).length, bg: "#F5F3FF", color: "#6D28D9" },
+              { label: "Fees unpaid", value: dealsRevenue.unpaid_count || 0, bg: "#FEF3C7", color: "#B45309" },
+            ].map(s => (
+              <div key={s.label} style={{ flex: "1 1 140px", background: s.bg, borderRadius: 12, padding: "14px 18px", minWidth: 0 }}>
+                <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>
+                <div style={{ fontSize: 11, color: s.color, opacity: 0.75, marginTop: 3 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {!dealsRevenue ? (
+          <div style={{ fontSize: 13, color: "#64748B", background: "#f9f9f7", borderRadius: 8, padding: "1rem" }}>Loading deals…</div>
+        ) : (dealsRevenue.deals || []).filter(d => d.deal_confirmed_at).length === 0 ? (
+          <div style={{ fontSize: 13, color: "#64748B", background: "#f9f9f7", borderRadius: 8, padding: "1rem" }}>No confirmed deals yet.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {(dealsRevenue.deals || []).filter(d => d.deal_confirmed_at).map(deal => {
+              const fee = (Number(deal.agreed_amount) * 0.01).toFixed(2);
+              const paid = deal.finder_fee_status === "paid";
+              return (
+                <div key={deal.id} style={{ background: "#fff", border: `0.5px solid ${paid ? "#A8DFC9" : "#FCD34D"}`, borderRadius: 10, padding: "0.9rem 1.25rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 2 }}>{deal.builder_name} ↔ {deal.lender_name}</div>
+                    <div style={{ fontSize: 12, color: "#64748B" }}>
+                      £{Number(deal.agreed_amount || 0).toLocaleString()} deal · finder's fee: £{Number(fee).toLocaleString()}
+                      {deal.deal_confirmed_at && ` · ${new Date(deal.deal_confirmed_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20, background: paid ? "#E1F5EE" : "#FEF3C7", color: paid ? "#0F6E56" : "#B45309", flexShrink: 0 }}>
+                    {paid ? "Fee paid" : "Fee unpaid"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* ── Community Moderation ─────────────────────────────────────────────── */}
       <div style={{ marginTop: "2.5rem" }}>
         <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -7481,6 +7630,180 @@ function AdminPage({ user }) {
   );
 }
 
+// ─── DEAL CONFIRM WIDGET ─────────────────────────────────────────────────────
+// Shown on accepted connections so both parties can confirm the agreed deal amount.
+function DealConfirmWidget({ user, otherName, otherRole }) {
+  const [status,      setStatus]      = useState(null); // null=loading | "none"|"waiting"|"mismatch"|"confirmed"|"paid"
+  const [myAmount,    setMyAmount]    = useState(null);
+  const [theirAmount, setTheirAmount] = useState(null);
+  const [dealId,      setDealId]      = useState(null);
+  const [feeAmount,   setFeeAmount]   = useState(null);
+  const [checkoutUrl, setCheckoutUrl] = useState(null);
+  const [feePaid,     setFeePaid]     = useState(false);
+  const [inputAmt,    setInputAmt]    = useState("");
+  const [submitting,  setSubmitting]  = useState(false);
+  const [error,       setError]       = useState("");
+
+  useEffect(() => {
+    loadStatus();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadStatus() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const res = await fetch("/api/deals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "get-deal-confirmation", other_name: otherName }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || d.status === "no_connection") { setStatus("none"); return; }
+    setStatus(d.status || "none");
+    setMyAmount(d.my_amount);
+    setTheirAmount(d.their_amount);
+    setDealId(d.deal_id);
+    setFeePaid(d.finder_fee_paid || false);
+    setFeeAmount(d.my_amount ? Math.round(Number(d.my_amount) * 0.01 * 100) / 100 : null);
+    setCheckoutUrl(d.checkout_url || null);
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const amt = parseFloat(inputAmt.replace(/,/g, ""));
+    if (!amt || amt < 100) { setError("Please enter a valid amount (minimum £100)"); return; }
+    setSubmitting(true);
+    setError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/deals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "confirm-deal-amount", other_name: otherName, amount: amt }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setSubmitting(false);
+    if (!res.ok) { setError(d.error || "Failed to submit. Please try again."); return; }
+    setStatus(d.status);
+    setMyAmount(d.my_amount || amt);
+    setTheirAmount(d.their_amount || null);
+    setDealId(d.deal_id || null);
+    setFeePaid(d.finder_fee_paid || false);
+    if (d.agreed_amount) setFeeAmount(Math.round(Number(d.agreed_amount) * 0.01 * 100) / 100);
+    if (d.checkout_url) setCheckoutUrl(d.checkout_url);
+  }
+
+  if (status === null) return null;
+
+  const role = user?.user_metadata?.role;
+
+  // Already paid — project tracker unlocked
+  if (feePaid || status === "paid") {
+    return (
+      <div style={{ marginTop: 10, padding: "10px 14px", background: "#E1F5EE", borderRadius: 10, fontSize: 12, color: "#0F6E56", fontWeight: 500 }}>
+        ✓ Finder's fee paid — Project Tracker & Deal Room unlocked
+      </div>
+    );
+  }
+
+  // Confirmed + builder can pay
+  if (status === "confirmed" && role === "builder" && (checkoutUrl || feeAmount)) {
+    return (
+      <div style={{ marginTop: 10, padding: "12px 14px", background: "#FFF7ED", border: "0.5px solid #FCD34D", borderRadius: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#92400E", marginBottom: 6 }}>
+          Deal confirmed — finder's fee due
+        </div>
+        <div style={{ fontSize: 12, color: "#78350F", marginBottom: 10 }}>
+          LenderBuild finder's fee: 1% of £{Number(myAmount || 0).toLocaleString()} = <strong>£{Number(feeAmount || 0).toLocaleString()}</strong>
+        </div>
+        {checkoutUrl ? (
+          <button
+            onClick={() => { window.location.href = checkoutUrl; }}
+            style={{ padding: "8px 18px", background: "#F59E0B", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", minHeight: 36 }}
+          >
+            Pay finder's fee →
+          </button>
+        ) : (
+          <button
+            onClick={loadStatus}
+            style={{ padding: "8px 18px", background: "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", minHeight: 36 }}
+          >
+            Get payment link
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // Confirmed — lender view (waiting for builder to pay)
+  if (status === "confirmed" && role === "lender") {
+    return (
+      <div style={{ marginTop: 10, padding: "10px 14px", background: "#EBF2FF", borderRadius: 10, fontSize: 12, color: "#1E3A5F" }}>
+        ✓ Deal confirmed for £{Number(myAmount || 0).toLocaleString()} — waiting for builder to pay the finder's fee
+      </div>
+    );
+  }
+
+  // Mismatch
+  if (status === "mismatch") {
+    return (
+      <div style={{ marginTop: 10, padding: "12px 14px", background: "#FEF2F2", border: "0.5px solid #FCA5A5", borderRadius: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#991B1B", marginBottom: 4 }}>Amounts don't match</div>
+        <div style={{ fontSize: 12, color: "#7F1D1D", marginBottom: 10 }}>
+          Your amount: £{Number(myAmount || 0).toLocaleString()} · Their amount: £{Number(theirAmount || 0).toLocaleString()}
+          <br/>Please discuss with {otherName} and re-submit.
+        </div>
+        <form onSubmit={handleSubmit} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <input
+            type="number" min="100" step="any" value={inputAmt} onChange={e => setInputAmt(e.target.value)}
+            placeholder="New amount (£)" required
+            style={{ height: 36, border: "0.5px solid #FCA5A5", borderRadius: 8, padding: "0 10px", fontSize: 13, width: 160 }}
+          />
+          <button type="submit" disabled={submitting}
+            style={{ padding: "0 16px", height: 36, background: "#DC2626", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: submitting ? "default" : "pointer" }}>
+            {submitting ? "Saving…" : "Re-submit"}
+          </button>
+        </form>
+        {error && <div style={{ fontSize: 12, color: "#991B1B", marginTop: 6 }}>{error}</div>}
+      </div>
+    );
+  }
+
+  // Waiting for other party
+  if (status === "waiting") {
+    return (
+      <div style={{ marginTop: 10, padding: "10px 14px", background: "#F5F3FF", border: "0.5px solid #C4B5FD", borderRadius: 10, fontSize: 12, color: "#4C1D95" }}>
+        ✓ Your amount (£{Number(myAmount || 0).toLocaleString()}) submitted — waiting for {otherName} to confirm theirs
+      </div>
+    );
+  }
+
+  // None — show the confirmation form
+  return (
+    <div style={{ marginTop: 10, padding: "12px 14px", background: "#F8FAFC", border: "0.5px solid #e0e0e0", borderRadius: 10 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", marginBottom: 4 }}>
+        Confirm your deal with {otherName}
+      </div>
+      <div style={{ fontSize: 12, color: "#64748B", marginBottom: 10 }}>
+        Have you agreed to work together? Enter the total deal amount you've agreed to — both parties must confirm the same amount independently before your Project Tracker unlocks.
+      </div>
+      <form onSubmit={handleSubmit} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ position: "relative" }}>
+          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#64748B" }}>£</span>
+          <input
+            type="number" min="100" step="any" value={inputAmt} onChange={e => setInputAmt(e.target.value)}
+            placeholder="Agreed amount" required
+            style={{ height: 36, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px 0 22px", fontSize: 13, width: 160 }}
+          />
+        </div>
+        <button type="submit" disabled={submitting}
+          style={{ padding: "0 16px", height: 36, background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: submitting ? "default" : "pointer" }}>
+          {submitting ? "Confirming…" : "Confirm deal"}
+        </button>
+      </form>
+      {error && <div style={{ fontSize: 12, color: "#DC2626", marginTop: 6 }}>{error}</div>}
+    </div>
+  );
+}
+
 // ─── POSTS FEED PAGE ─────────────────────────────────────────────────────────
 
 const CATEGORY_META = {
@@ -7653,10 +7976,12 @@ function PostCard({ post, isOwn, onView, onEdit, onDelete, user, onConnect, onMe
   );
 }
 
-function PostDetailPage({ post, user, setPage, onMessage, onBack }) {
+function PostDetailPage({ post, user, setPage, onMessage, onBack, onEdit, onDelete }) {
   const cat = CATEGORY_META[post.category] || CATEGORY_META.general;
   const isOwn = user && post.author_id === user.id;
-  const [msgStatus, setMsgStatus] = useState("idle");
+  const [msgStatus,   setMsgStatus]   = useState("idle");
+  const [confirmDel,  setConfirmDel]  = useState(false);
+  const [deleting,    setDeleting]    = useState(false);
 
   async function handleMessage() {
     if (!user) { setPage("auth"); return; }
@@ -7696,10 +8021,42 @@ function PostDetailPage({ post, user, setPage, onMessage, onBack }) {
         </span>
       </div>
 
-      {/* Title */}
-      <h1 style={{ fontSize: 24, fontWeight: 500, margin: "0 0 1.25rem", fontFamily: "'Georgia', serif", lineHeight: 1.3 }}>
-        {post.title}
-      </h1>
+      {/* Title + own-post actions */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: "1.25rem" }}>
+        <h1 style={{ fontSize: 24, fontWeight: 500, margin: 0, fontFamily: "'Georgia', serif", lineHeight: 1.3, flex: 1 }}>
+          {post.title}
+        </h1>
+        {isOwn && (
+          <div style={{ display: "flex", gap: 8, flexShrink: 0, paddingTop: 4 }}>
+            <button
+              onClick={() => onEdit && onEdit(post)}
+              style={{ padding: "7px 14px", minHeight: 36, borderRadius: 8, border: "0.5px solid #ccc", background: "#fff", color: "#333", fontSize: 13, fontWeight: 500, cursor: "pointer" }}
+            >Edit</button>
+            {confirmDel ? (
+              <>
+                <button
+                  onClick={async () => {
+                    setDeleting(true);
+                    if (onDelete) await onDelete(post.id);
+                    setDeleting(false);
+                  }}
+                  disabled={deleting}
+                  style={{ padding: "7px 14px", minHeight: 36, borderRadius: 8, border: "none", background: "#DC2626", color: "#fff", fontSize: 13, fontWeight: 600, cursor: deleting ? "default" : "pointer" }}
+                >{deleting ? "Deleting…" : "Confirm delete"}</button>
+                <button
+                  onClick={() => setConfirmDel(false)}
+                  style={{ padding: "7px 12px", minHeight: 36, borderRadius: 8, border: "0.5px solid #ccc", background: "#fff", color: "#555", fontSize: 13, cursor: "pointer" }}
+                >Cancel</button>
+              </>
+            ) : (
+              <button
+                onClick={() => setConfirmDel(true)}
+                style={{ padding: "7px 14px", minHeight: 36, borderRadius: 8, border: "0.5px solid #F5C9BB", background: "#fff", color: "#993C1D", fontSize: 13, fontWeight: 500, cursor: "pointer" }}
+              >Delete</button>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Author */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "1.5rem", paddingBottom: "1.5rem", borderBottom: "0.5px solid #f0f0f0" }}>
@@ -8063,18 +8420,25 @@ function PostsFeedPage({ user, setPage }) {
 
 // ─── CREATE / EDIT POST PAGE ──────────────────────────────────────────────────
 
-function CreateEditPostPage({ user, setPage, editPost = null }) {
+function CreateEditPostPage({ user, setPage, editPost = null, onSaved, onCancelBack }) {
   const isEdit = !!editPost;
   const [title,    setTitle]    = useState(editPost?.title    || "");
   const [body,     setBody]     = useState(editPost?.body     || "");
   const [category, setCategory] = useState(editPost?.category || "general");
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState("");
+  const [toast,    setToast]    = useState(null); // { type: "success"|"error", msg }
+  const [visible,  setVisible]  = useState(false);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   function handleBack() {
     const hasContent = title.trim() || (body.trim() && body !== (editPost?.body || ""));
     if (hasContent && !window.confirm("Discard changes?")) return;
-    setPage("community");
+    onCancelBack ? onCancelBack() : setPage("community");
   }
 
   async function handleSubmit(e) {
@@ -8094,9 +8458,21 @@ function CreateEditPostPage({ user, setPage, editPost = null }) {
     });
     const json = await res.json();
     setLoading(false);
-    if (!res.ok) { setError(json.error || "Failed to save post."); return; }
-    await supabase.auth.refreshSession();
-    setPage("my-posts");
+    if (!res.ok) {
+      if (onSaved) {
+        setToast({ type: "error", msg: json.error || "Failed to save. Please try again." });
+        setTimeout(() => setToast(null), 4000);
+      } else {
+        setError(json.error || "Failed to save post.");
+      }
+      return;
+    }
+    if (onSaved) {
+      onSaved({ ...editPost, title, body, category, updated_at: new Date().toISOString() });
+    } else {
+      await supabase.auth.refreshSession();
+      setPage("community-posts");
+    }
   }
 
   const inputStyle = {
@@ -8105,7 +8481,7 @@ function CreateEditPostPage({ user, setPage, editPost = null }) {
   };
 
   return (
-    <div style={{ padding: "1.5rem 1.25rem", maxWidth: 640, margin: "0 auto" }}>
+    <div style={{ padding: "1.5rem 1.25rem", maxWidth: 640, margin: "0 auto", opacity: visible ? 1 : 0, transition: "opacity 0.25s ease" }}>
       <button
         onClick={handleBack}
         style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: "#555", fontSize: 14, cursor: "pointer", padding: 0, marginBottom: "1.5rem" }}
@@ -8162,20 +8538,37 @@ function CreateEditPostPage({ user, setPage, editPost = null }) {
           <button
             type="submit" disabled={loading}
             style={{
-              flex: 1, height: 44, background: loading ? "#aaa" : "#3B82F6", color: "#fff",
+              flex: 1, height: 44, background: loading ? "#5B9BF8" : "#3B82F6", color: "#fff",
               border: "none", borderRadius: 8, fontSize: 15, fontWeight: 500, cursor: loading ? "default" : "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              transition: "background 0.2s",
             }}
           >
+            {loading && (
+              <span style={{ width: 14, height: 14, border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", animation: "lbSpin 0.7s linear infinite", flexShrink: 0 }} />
+            )}
             {loading ? "Saving…" : isEdit ? "Save changes" : "Publish post"}
           </button>
           <button
-            type="button" onClick={handleBack}
-            style={{ padding: "0 20px", height: 44, background: "transparent", color: "#555", border: "0.5px solid #ccc", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
+            type="button" onClick={handleBack} disabled={loading}
+            style={{ padding: "0 20px", height: 44, background: "transparent", color: "#555", border: "0.5px solid #ccc", borderRadius: 8, fontSize: 14, cursor: loading ? "default" : "pointer", opacity: loading ? 0.5 : 1 }}
           >
             Cancel
           </button>
         </div>
       </form>
+
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 80, left: "50%", transform: "translateX(-50%)",
+          background: toast.type === "error" ? "#DC2626" : "#16A34A",
+          color: "#fff", padding: "11px 22px", borderRadius: 10,
+          fontSize: 14, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.18)",
+          zIndex: 9999, pointerEvents: "none", animation: "fadeInUp 0.2s ease",
+        }}>
+          {toast.type === "error" ? "✕" : "✓"} {toast.msg}
+        </div>
+      )}
     </div>
   );
 }
@@ -9494,11 +9887,21 @@ function ScamWarningModal({ onClose }) {
 
 // ─── COMMUNITY POST CARD (social-style) ──────────────────────────────────────
 
-function CommunityPostCard({ post, user, onView, onLike }) {
+function CommunityPostCard({ post, user, onView, onLike, isOwn, onEdit, onDelete }) {
   const cat = CATEGORY_META[post.category] || CATEGORY_META.general;
   const [liked,      setLiked]      = useState(post.user_has_interest || false);
   const [likeCount,  setLikeCount]  = useState(post.interest_count || 0);
   const [animating,  setAnimating]  = useState(false);
+  const [menuOpen,   setMenuOpen]   = useState(false);
+  const [removing,   setRemoving]   = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handler(e) { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
 
   async function handleLike(e) {
     e.stopPropagation();
@@ -9511,15 +9914,55 @@ function CommunityPostCard({ post, user, onView, onLike }) {
     onLike(post, !wasLiked);
   }
 
+  function handleDeleteClick(e) {
+    e.stopPropagation();
+    setMenuOpen(false);
+    setRemoving(true);
+    setTimeout(() => onDelete && onDelete(post.id), 300);
+  }
+
   return (
     <div
-      onClick={onView}
-      style={{ background: "#fff", border: "0.5px solid #e5e7eb", borderRadius: 16, padding: "1.25rem", marginBottom: 12, cursor: "pointer", transition: "box-shadow 0.15s" }}
-      onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 18px rgba(0,0,0,0.08)"}
+      onClick={removing ? undefined : onView}
+      style={{
+        position: "relative",
+        background: "#fff", border: "0.5px solid #e5e7eb", borderRadius: 16, padding: "1.25rem",
+        marginBottom: removing ? 0 : 12, cursor: removing ? "default" : "pointer",
+        opacity: removing ? 0 : 1,
+        maxHeight: removing ? 0 : 2000,
+        overflow: "hidden",
+        transition: "opacity 0.3s ease, max-height 0.3s ease, margin-bottom 0.3s ease",
+      }}
+      onMouseEnter={e => { if (!removing) e.currentTarget.style.boxShadow = "0 4px 18px rgba(0,0,0,0.08)"; }}
       onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
     >
-      <div style={{ marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
         <span style={{ background: cat.bg, color: cat.text, fontSize: 12, padding: "4px 10px", borderRadius: 20, fontWeight: 600 }}>{cat.label}</span>
+        {isOwn && (
+          <div ref={menuRef} style={{ marginLeft: "auto", position: "relative" }} onClick={e => e.stopPropagation()}>
+            <button
+              onClick={e => { e.stopPropagation(); setMenuOpen(v => !v); }}
+              style={{ background: "none", border: "none", cursor: "pointer", padding: "4px 8px", borderRadius: 8, color: "#94A3B8", fontSize: 20, lineHeight: 1, display: "flex", alignItems: "center" }}
+              title="Post options"
+            >⋯</button>
+            {menuOpen && (
+              <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 100, minWidth: 130, overflow: "hidden" }}>
+                <button
+                  onClick={e => { e.stopPropagation(); setMenuOpen(false); onEdit && onEdit(post); }}
+                  style={{ display: "block", width: "100%", padding: "11px 16px", background: "none", border: "none", cursor: "pointer", textAlign: "left", fontSize: 14, color: "#1E293B" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#F8FAFC"}
+                  onMouseLeave={e => e.currentTarget.style.background = "none"}
+                >Edit</button>
+                <button
+                  onClick={handleDeleteClick}
+                  style={{ display: "block", width: "100%", padding: "11px 16px", background: "none", border: "none", cursor: "pointer", textAlign: "left", fontSize: 14, color: "#DC2626" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#FEF2F2"}
+                  onMouseLeave={e => e.currentTarget.style.background = "none"}
+                >Delete</button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <div style={{ fontSize: 17, fontWeight: 700, color: "#1E3A5F", marginBottom: 8, lineHeight: 1.3 }}>{post.title}</div>
       <p style={{ fontSize: 14, color: "#64748B", lineHeight: 1.6, margin: "0 0 14px", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{post.body}</p>
@@ -9563,7 +10006,11 @@ function PostsSection({ user, setPage, onMessage }) {
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState("");
   const [catFilter,   setCatFilter]   = useState("all");
+  const [showMine,    setShowMine]    = useState(false);
   const [viewingPost, setViewingPost] = useState(null);
+  const [editingPost, setEditingPost] = useState(null);
+  const [toast,       setToast]       = useState("");
+  const [contentKey,  setContentKey]  = useState(0); // bumped to trigger fade on update
 
   useEffect(() => { loadPosts(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -9613,19 +10060,83 @@ function PostsSection({ user, setPage, onMessage }) {
     window.scrollTo({ top: 0, behavior: "instant" });
   }
 
-  if (viewingPost) {
+  async function handleDelete(postId) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      fetch("/api/posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ action: "delete", post_id: postId }),
+      }).catch(() => {});
+    }
+    setPosts(prev => prev.filter(p => p.id !== postId));
+    setToast("Post deleted");
+    setTimeout(() => setToast(""), 3000);
+  }
+
+  function handleSaved(updatedPost) {
+    setPosts(prev => prev.map(p => p.id === updatedPost.id ? { ...p, ...updatedPost } : p));
+    if (viewingPost && viewingPost.id === updatedPost.id) {
+      setViewingPost(prev => ({ ...prev, ...updatedPost }));
+      setContentKey(k => k + 1);
+    }
+    setEditingPost(null);
+    setToast("Post updated successfully");
+    setTimeout(() => setToast(""), 3500);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }
+
+  if (editingPost) {
     return (
-      <PostDetailPage
-        post={viewingPost}
-        user={user}
-        setPage={setPage}
-        onMessage={onMessage}
-        onBack={() => { setViewingPost(null); window.scrollTo({ top: 0, behavior: "instant" }); }}
-      />
+      <>
+        <CreateEditPostPage
+          user={user}
+          setPage={setPage}
+          editPost={editingPost}
+          onSaved={handleSaved}
+          onCancelBack={() => { setEditingPost(null); window.scrollTo({ top: 0, behavior: "instant" }); }}
+        />
+        {toast && (
+          <div style={{ position: "fixed", bottom: 80, left: "50%", transform: "translateX(-50%)", background: "#DC2626", color: "#fff", padding: "11px 22px", borderRadius: 10, fontSize: 14, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.18)", zIndex: 9999, pointerEvents: "none" }}>
+            ✕ {toast}
+          </div>
+        )}
+      </>
     );
   }
 
-  const filtered = catFilter === "all" ? posts : posts.filter(p => p.category === catFilter);
+  if (viewingPost) {
+    return (
+      <>
+        <div key={contentKey} style={{ opacity: 0, animation: contentKey > 0 ? "lbFadeIn 0.3s ease forwards" : "none" }}>
+        <PostDetailPage
+          post={viewingPost}
+          user={user}
+          setPage={setPage}
+          onMessage={onMessage}
+          onEdit={post => { setEditingPost(post); window.scrollTo({ top: 0, behavior: "instant" }); }}
+          onDelete={async (postId) => {
+            await handleDelete(postId);
+            setViewingPost(null);
+            window.scrollTo({ top: 0, behavior: "instant" });
+          }}
+          onBack={() => { setViewingPost(null); window.scrollTo({ top: 0, behavior: "instant" }); }}
+        />
+        </div>
+        {toast && (
+          <div style={{ position: "fixed", bottom: 80, left: "50%", transform: "translateX(-50%)", background: "#16A34A", color: "#fff", padding: "11px 22px", borderRadius: 10, fontSize: 14, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.18)", zIndex: 9999, pointerEvents: "none" }}>
+            ✓ {toast}
+          </div>
+        )}
+      </>
+    );
+  }
+
+  const filtered = posts.filter(p => {
+    if (catFilter !== "all" && p.category !== catFilter) return false;
+    if (showMine && !(user && p.author_id === user.id)) return false;
+    return true;
+  });
   const sorted   = [...filtered].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
   return (
@@ -9640,6 +10151,12 @@ function PostsSection({ user, setPage, onMessage }) {
         </button>
       </div>
 
+      {toast && (
+        <div style={{ position: "fixed", bottom: 80, left: "50%", transform: "translateX(-50%)", background: "#16A34A", color: "#fff", padding: "11px 22px", borderRadius: 10, fontSize: 14, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.18)", zIndex: 9999, pointerEvents: "none" }}>
+          ✓ {toast}
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: "1.25rem" }}>
         {POST_CATEGORY_FILTERS.map(f => (
           <button key={f.key} onClick={() => setCatFilter(f.key)}
@@ -9650,6 +10167,16 @@ function PostsSection({ user, setPage, onMessage }) {
             )}
           </button>
         ))}
+        {user && (
+          <button
+            onClick={() => setShowMine(v => !v)}
+            style={{ padding: "7px 14px", borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: "pointer", border: "none", minHeight: 36, background: showMine ? "#3B82F6" : "#F1F5F9", color: showMine ? "#fff" : "#475569", transition: "background 0.15s" }}>
+            My posts
+            {showMine && posts.filter(p => p.author_id === user.id).length > 0 && (
+              <span style={{ marginLeft: 5, fontSize: 11, opacity: 0.8 }}>({posts.filter(p => p.author_id === user.id).length})</span>
+            )}
+          </button>
+        )}
       </div>
 
       {loading && <div style={{ textAlign: "center", padding: "3rem", color: "#64748B", fontSize: 14 }}>Loading posts…</div>}
@@ -9659,9 +10186,9 @@ function PostsSection({ user, setPage, onMessage }) {
         <div style={{ textAlign: "center", padding: "3rem 2rem", color: "#64748B" }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>📝</div>
           <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 8 }}>
-            {catFilter !== "all" ? "No posts in this category yet" : "No posts yet"}
+            {showMine ? "You haven't posted yet" : catFilter !== "all" ? "No posts in this category yet" : "No posts yet"}
           </div>
-          <span style={{ fontSize: 13 }}>Be the first to share something with the community.</span>
+          <span style={{ fontSize: 13 }}>{showMine ? "Tap + Create post to share something." : "Be the first to share something with the community."}</span>
         </div>
       )}
 
@@ -9670,8 +10197,11 @@ function PostsSection({ user, setPage, onMessage }) {
           key={p.id}
           post={p}
           user={user}
+          isOwn={!!(user && p.author_id === user.id)}
           onView={() => handleView(p)}
           onLike={(post) => handleLike(post)}
+          onEdit={post => { setEditingPost(post); window.scrollTo({ top: 0, behavior: "instant" }); }}
+          onDelete={handleDelete}
         />
       ))}
     </div>
@@ -12138,23 +12668,70 @@ function CreateProjectListingPage({ user, setPage }) {
 
 // ─── ABOUT PAGE ──────────────────────────────────────────────────────────────
 
-function AboutPage({ setPage }) {
-  const [contactForm, setContactForm] = useState({ name: "", email: "", message: "" });
-  const [sent, setSent] = useState(false);
-  const [sending, setSending] = useState(false);
+const EMAILJS_SERVICE_ID  = "service_y64xe7w";
+const EMAILJS_TEMPLATE_ID = "template_oh952z8";
+const EMAILJS_PUBLIC_KEY  = "foqJQiW92yDGHnI7i";
 
-  async function handleContact(e) {
+function ContactForm({ submitBtnColor = "#3B82F6" }) {
+  const [status, setStatus]   = useState("idle"); // idle | sending | success | error
+  const [name, setName]       = useState("");
+  const [email, setEmail]     = useState("");
+  const [subject, setSubject] = useState("General enquiry");
+  const [message, setMessage] = useState("");
+  const inputStyle = { width: "100%", height: 44, border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "0 12px", fontSize: 14, outline: "none", boxSizing: "border-box" };
+
+  async function handleSubmit(e) {
     e.preventDefault();
-    setSending(true);
-    await fetch("/api/notify-message", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "contact-form", ...contactForm }),
-    }).catch(() => {});
-    setSent(true);
-    setSending(false);
+    setStatus("sending");
+    try {
+      await emailjs.send(
+        EMAILJS_SERVICE_ID,
+        EMAILJS_TEMPLATE_ID,
+        { from_name: name, from_email: email, subject, message },
+        EMAILJS_PUBLIC_KEY
+      );
+      setStatus("success");
+      setName(""); setEmail(""); setSubject("General enquiry"); setMessage("");
+    } catch {
+      setStatus("error");
+    }
   }
 
+  return (
+    <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {status === "success" && (
+        <div style={{ background: "#DCFCE7", border: "0.5px solid #86EFAC", borderRadius: 10, padding: "14px 16px", fontSize: 14, color: "#166534", fontWeight: 500 }}>
+          Thank you! We will get back to you within 24 hours.
+        </div>
+      )}
+      {status === "error" && (
+        <div style={{ background: "#FEE2E2", border: "0.5px solid #FCA5A5", borderRadius: 10, padding: "14px 16px", fontSize: 14, color: "#991B1B", fontWeight: 500 }}>
+          Something went wrong. Please try again.
+        </div>
+      )}
+      <input type="text" required placeholder="Your name" value={name} onChange={e => setName(e.target.value)} style={inputStyle} />
+      <input type="email" required placeholder="Your email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} />
+      <select required value={subject} onChange={e => setSubject(e.target.value)}
+        style={{ ...inputStyle, background: "#fff", color: "#374151", appearance: "auto" }}>
+        {["General enquiry", "Partnership", "Technical issue", "Press", "Other"].map(s => <option key={s}>{s}</option>)}
+      </select>
+      <textarea required placeholder="Your message…" rows={4} value={message} onChange={e => setMessage(e.target.value)}
+        style={{ width: "100%", border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "10px 12px", fontSize: 14, resize: "vertical", outline: "none", lineHeight: 1.5, boxSizing: "border-box" }} />
+      <button type="submit" disabled={status === "sending"}
+        style={{ padding: "11px", background: submitBtnColor, color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: status === "sending" ? "not-allowed" : "pointer", opacity: status === "sending" ? 0.8 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+        {status === "sending" ? (
+          <>
+            <span style={{ width: 16, height: 16, border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", animation: "spin 0.7s linear infinite" }} />
+            Sending…
+          </>
+        ) : "Submit"}
+      </button>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </form>
+  );
+}
+
+function AboutPage({ setPage }) {
   return (
     <div style={{ padding: "1.5rem 1.25rem", maxWidth: 760, margin: "0 auto" }}>
       <h1 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(28px, 5vw, 42px)", fontWeight: 700, color: "#1E3A5F", margin: "0 0 0.5rem" }}>About LenderBuild</h1>
@@ -12175,10 +12752,10 @@ function AboutPage({ setPage }) {
       </div>
 
       {/* Mission */}
-      <div style={{ background: "linear-gradient(135deg, #1E3A5F 0%, #2E5FA3 100%)", borderRadius: 14, padding: "2rem", marginBottom: "1.5rem", color: "#fff" }}>
-        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.65, marginBottom: 10 }}>Our mission</div>
-        <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 24, fontWeight: 700, margin: "0 0 14px" }}>Making property investment accessible</h2>
-        <p style={{ fontSize: 14, lineHeight: 1.75, opacity: 0.85, margin: 0 }}>
+      <div style={{ background: "linear-gradient(135deg, #1E3A5F 0%, #2E5FA3 100%)", borderRadius: 14, padding: "2rem", marginBottom: "1.5rem" }}>
+        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.75)", marginBottom: 10 }}>Our mission</div>
+        <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 24, fontWeight: 700, margin: "0 0 14px", color: "#ffffff" }}>Making property investment accessible</h2>
+        <p style={{ fontSize: 14, lineHeight: 1.75, color: "#ffffff", margin: 0 }}>
           We believe every builder with a solid plan deserves access to capital, and every lender deserves a transparent, trustworthy platform to put their money to work. LenderBuild uses smart matching, verified profiles, and milestone-based payments to create fair, protected deals for both sides.
         </p>
       </div>
@@ -12201,24 +12778,8 @@ function AboutPage({ setPage }) {
       {/* Contact */}
       <div id="contact-form" style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 14, padding: "1.75rem" }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Contact us</div>
-        <p style={{ fontSize: 13, color: "#64748B", margin: "0 0 16px" }}>Have a question or want to get involved? Email us directly at <a href="mailto:lenderbuild.support@gmail.com" style={{ color: "#3B82F6", textDecoration: "none", fontWeight: 500 }}>lenderbuild.support@gmail.com</a>, or use the form below.</p>
-        {sent ? (
-          <div style={{ background: "#E1F5EE", border: "0.5px solid #A8DFC9", borderRadius: 10, padding: "14px 16px", fontSize: 14, color: "#0F6E56", fontWeight: 500 }}>Message sent — we'll be in touch soon.</div>
-        ) : (
-          <form onSubmit={handleContact} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {[["name","Your name","text"],["email","Your email","email"]].map(([field, ph, type]) => (
-              <input key={field} type={type} required value={contactForm[field]} onChange={e => setContactForm(f => ({ ...f, [field]: e.target.value }))}
-                placeholder={ph}
-                style={{ width: "100%", height: 44, border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "0 12px", fontSize: 14, outline: "none", boxSizing: "border-box" }} />
-            ))}
-            <textarea required value={contactForm.message} onChange={e => setContactForm(f => ({ ...f, message: e.target.value }))}
-              placeholder="Your message…" rows={4}
-              style={{ width: "100%", border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "10px 12px", fontSize: 14, resize: "vertical", outline: "none", lineHeight: 1.5, boxSizing: "border-box" }} />
-            <button type="submit" disabled={sending} style={{ padding: "11px", background: sending ? "#aaa" : "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: sending ? "default" : "pointer" }}>
-              {sending ? "Sending…" : "Send message"}
-            </button>
-          </form>
-        )}
+        <p style={{ fontSize: 13, color: "#64748B", margin: "0 0 16px" }}>Have a question or want to get involved? Fill in the form and we'll get back to you.</p>
+        <ContactForm submitBtnColor="#3B82F6" />
       </div>
     </div>
   );
@@ -13424,6 +13985,22 @@ function SavedSearchesPage({ user, setPage }) {
 }
 
 // ─── FOOTER ───────────────────────────────────────────────────────────────────
+
+function MinimalFooter({ setPage }) {
+  return (
+    <footer style={{ borderTop: "1px solid rgba(0,0,0,0.07)", marginTop: "auto", padding: "1.25rem 1.25rem", textAlign: "center" }}>
+      <div style={{ fontSize: 11, color: "rgba(0,0,0,0.35)", display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "0 0.5rem" }}>
+        <span>© 2025 LenderBuild Ltd</span>
+        <span>·</span>
+        <button onClick={() => setPage("privacy")} style={{ background: "none", border: "none", padding: 0, fontSize: 11, color: "rgba(0,0,0,0.35)", cursor: "pointer" }}>Privacy Policy</button>
+        <span>·</span>
+        <button onClick={() => setPage("terms")} style={{ background: "none", border: "none", padding: 0, fontSize: 11, color: "rgba(0,0,0,0.35)", cursor: "pointer" }}>Terms and Conditions</button>
+        <span>·</span>
+        <button onClick={() => setPage("risk-warning")} style={{ background: "none", border: "none", padding: 0, fontSize: 11, color: "rgba(0,0,0,0.35)", cursor: "pointer" }}>Risk Warning</button>
+      </div>
+    </footer>
+  );
+}
 
 function Footer({ setPage }) {
   return (
@@ -14664,7 +15241,7 @@ ${initialDeal.agreement_signed_builder_at ? `Signed electronically ${new Date(in
             <strong>Reason:</strong> {openDispute.reason}
           </div>
           <div style={{ fontSize: 12, color: "#991B1B", marginTop: 6 }}>
-            Our admin team has been notified and will be in touch. For urgent help, email <a href={`mailto:${ADMIN_EMAIL_CONTACT}`} style={{ color: "#991B1B" }}>{ADMIN_EMAIL_CONTACT}</a>.
+            Our admin team has been notified and will be in touch. For urgent help, use the <button onClick={() => setPage("help")} style={{ background: "none", border: "none", cursor: "pointer", color: "#991B1B", fontWeight: 600, padding: 0, fontSize: "inherit", textDecoration: "underline" }}>Help Centre</button>.
           </div>
         </div>
       )}
@@ -15167,12 +15744,12 @@ ${initialDeal.agreement_signed_builder_at ? `Signed electronically ${new Date(in
           <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", marginBottom: 2 }}>Need urgent help?</div>
           <div style={{ fontSize: 12, color: "#64748B" }}>Contact our team directly for any urgent issues with this project.</div>
         </div>
-        <a
-          href={`mailto:${ADMIN_EMAIL_CONTACT}?subject=Problem with project: ${encodeURIComponent(initialDeal.title)}&body=Deal ID: ${initialDeal.id}%0A%0ADescribe your issue:`}
-          style={{ display: "inline-block", padding: "8px 16px", minHeight: 38, background: "#1E3A5F", color: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 500, textDecoration: "none", flexShrink: 0 }}
+        <button
+          onClick={() => setPage("help")}
+          style={{ padding: "8px 16px", minHeight: 38, background: "#1E3A5F", color: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 500, border: "none", cursor: "pointer", flexShrink: 0 }}
         >
           Report a problem with this project
-        </a>
+        </button>
       </div>
 
       {error && (
@@ -16047,7 +16624,7 @@ function DisputesPage({ user, setPage }) {
       <div style={{ marginTop: "1.5rem", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 10, padding: "1rem 1.25rem" }}>
         <div style={{ fontSize: 13, fontWeight: 500, color: "#1E3A5F", marginBottom: 4 }}>Need urgent help?</div>
         <div style={{ fontSize: 12, color: "#64748B" }}>
-          For urgent issues, email us directly at <a href="mailto:lenderbuild.support@gmail.com" style={{ color: "#1E3A5F" }}>lenderbuild.support@gmail.com</a>.
+          For urgent issues, use the contact form above and we'll get back to you within 24 hours.
         </div>
       </div>
     </div>
@@ -17118,19 +17695,28 @@ function OnboardingTour({ step, userRole, onNext, onBack, onSkip, onFinish, onRe
     return () => { document.body.style.overflow = ""; };
   }, []);
 
-  // Measure the target element immediately — single rAF to wait for paint, then snap.
-  // No setTimeout delays, no lerp, no retries: the clip-path jumps instantly.
+  // Measure target element: rAF to wait for paint, then retry once if missing/hidden.
   useEffect(() => {
     if (!hasSpotlight) { setSpotRect(null); return; }
     let cancelled = false;
-    const id = requestAnimationFrame(() => {
-      if (cancelled) return;
+    let retryTimer = null;
+    const measure = () => {
       const el = document.getElementById(cfg.targetId);
-      if (!el) { setSpotRect(null); return; }
+      if (!el) return null;
       const r = el.getBoundingClientRect();
-      setSpotRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+      if (r.width === 0 || r.height === 0) return null;
+      return { top: r.top, left: r.left, width: r.width, height: r.height };
+    };
+    const rafId = requestAnimationFrame(() => {
+      if (cancelled) return;
+      const rect = measure();
+      if (rect) { setSpotRect(rect); return; }
+      retryTimer = setTimeout(() => {
+        if (cancelled) return;
+        setSpotRect(measure());
+      }, 200);
     });
-    return () => { cancelled = true; cancelAnimationFrame(id); };
+    return () => { cancelled = true; cancelAnimationFrame(rafId); if (retryTimer) clearTimeout(retryTimer); };
   }, [step]); // eslint-disable-line
 
   // Re-measure on resize
@@ -17141,7 +17727,9 @@ function OnboardingTour({ step, userRole, onNext, onBack, onSkip, onFinish, onRe
       const el = document.getElementById(cfg.targetId);
       if (el) {
         const r = el.getBoundingClientRect();
-        setSpotRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+        if (r.width > 0 && r.height > 0) {
+          setSpotRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+        }
       }
     };
     window.addEventListener("resize", onResize);
@@ -17166,12 +17754,13 @@ function OnboardingTour({ step, userRole, onNext, onBack, onSkip, onFinish, onRe
   const vw = window.innerWidth, vh = window.innerHeight;
 
   // Pre-compute spotlight bounds for both the overlay frame and the glow ring
-  const sTop    = spotRect ? spotRect.top    - PAD : 0;
-  const sLeft   = spotRect ? spotRect.left   - PAD : 0;
-  const sRight  = spotRect ? spotRect.left   + spotRect.width  + PAD : 0;
-  const sBottom = spotRect ? spotRect.top    + spotRect.height + PAD : 0;
-  const sW      = spotRect ? spotRect.width  + PAD * 2 : 0;
-  const sH      = spotRect ? spotRect.height + PAD * 2 : 0;
+  // Clamp to viewport to prevent negative heights / off-screen overlays
+  const sTop    = spotRect ? Math.max(0,  spotRect.top    - PAD) : 0;
+  const sLeft   = spotRect ? Math.max(0,  spotRect.left   - PAD) : 0;
+  const sRight  = spotRect ? Math.min(vw, spotRect.left   + spotRect.width  + PAD) : 0;
+  const sBottom = spotRect ? Math.min(vh, spotRect.top    + spotRect.height + PAD) : 0;
+  const sW      = Math.max(0, sRight - sLeft);
+  const sH      = Math.max(0, sBottom - sTop);
 
   // Tooltip placement relative to the highlighted element
   function getLayout() {
@@ -17807,9 +18396,21 @@ function SwitchAccountPage({ user, setPage }) {
     e.preventDefault();
     setLoading(true);
     setError("");
+    // Capture current session so we can restore it if the new login fails
+    const { data: { session: prevSession } } = await supabase.auth.getSession();
     const { data, error: loginErr } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
-    if (loginErr) { setError(loginErr.message); return; }
+    if (loginErr) {
+      // Restore the previous session — keeps the current user logged in
+      if (prevSession) {
+        await supabase.auth.setSession({
+          access_token: prevSession.access_token,
+          refresh_token: prevSession.refresh_token,
+        });
+      }
+      setError(loginErr.message);
+      return;
+    }
     if (data?.user && data?.session) {
       upsertSavedAccount({
         user_id: data.user.id, email: data.user.email,
@@ -18014,6 +18615,14 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
 
 // ─── HELP CENTRE PAGE ────────────────────────────────────────────────────────
 
+function HelpContactForm() {
+  return (
+    <div style={{ marginTop: 16 }}>
+      <ContactForm submitBtnColor="#1E3A5F" />
+    </div>
+  );
+}
+
 function HelpCentrePage({ setPage }) {
   const [activeCategory, setActiveCategory] = useState(null);
   const [openQuestion, setOpenQuestion]     = useState(null);
@@ -18195,13 +18804,10 @@ function HelpCentrePage({ setPage }) {
               </div>
             );
           })}
-          <div style={{ background: "#fff", borderRadius: 12, padding: "22px 20px", border: "0.5px solid #e8e8e8", marginTop: 8, textAlign: "center" }}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: "22px 20px", border: "0.5px solid #e8e8e8", marginTop: 8 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F", marginBottom: 6 }}>Still need help?</div>
-            <div style={{ fontSize: 13, color: "#64748B", marginBottom: 14, lineHeight: 1.55 }}>Our support team is here for anything not covered above.</div>
-            <button onClick={() => { window.location.href = "mailto:lenderbuild.support@gmail.com"; }}
-              style={{ padding: "10px 26px", borderRadius: 8, fontSize: 13, fontWeight: 600, border: "none", background: "#1E3A5F", color: "#fff", cursor: "pointer" }}>
-              Contact support
-            </button>
+            <div style={{ fontSize: 13, color: "#64748B", marginBottom: 4, lineHeight: 1.55 }}>Our support team is here for anything not covered above.</div>
+            <HelpContactForm />
           </div>
         </div>
       </div>
@@ -18276,20 +18882,27 @@ function HelpCentrePage({ setPage }) {
             </div>
           )
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            {categories.map(cat => (
-              <button key={cat.id} onClick={() => { setActiveCategory(cat); setOpenQuestion(null); }}
-                style={{ background: "#fff", borderRadius: 14, padding: "20px 16px", border: "0.5px solid #e8e8e8", cursor: "pointer", textAlign: "left", display: "flex", flexDirection: "column", gap: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.04)", transition: "box-shadow 0.15s, transform 0.15s" }}
-                onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.10)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
-                onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.04)"; e.currentTarget.style.transform = "none"; }}>
-                <div style={{ width: 50, height: 50, borderRadius: 12, background: cat.bg, color: cat.color, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  {cat.icon}
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F", lineHeight: 1.3 }}>{cat.title}</div>
-                <div style={{ fontSize: 12, color: "#94A3B8" }}>{cat.questions.length} articles</div>
-              </button>
-            ))}
-          </div>
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {categories.map(cat => (
+                <button key={cat.id} onClick={() => { setActiveCategory(cat); setOpenQuestion(null); }}
+                  style={{ background: "#fff", borderRadius: 14, padding: "20px 16px", border: "0.5px solid #e8e8e8", cursor: "pointer", textAlign: "left", display: "flex", flexDirection: "column", gap: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.04)", transition: "box-shadow 0.15s, transform 0.15s" }}
+                  onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.10)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.04)"; e.currentTarget.style.transform = "none"; }}>
+                  <div style={{ width: 50, height: 50, borderRadius: 12, background: cat.bg, color: cat.color, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    {cat.icon}
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F", lineHeight: 1.3 }}>{cat.title}</div>
+                  <div style={{ fontSize: 12, color: "#94A3B8" }}>{cat.questions.length} articles</div>
+                </button>
+              ))}
+            </div>
+            <div style={{ background: "#fff", borderRadius: 14, padding: "24px 20px", border: "0.5px solid #e8e8e8", marginTop: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#1E3A5F", marginBottom: 4 }}>Contact support</div>
+              <div style={{ fontSize: 13, color: "#64748B", lineHeight: 1.55 }}>Can't find the answer? Send us a message and we'll get back to you within 24 hours.</div>
+              <HelpContactForm />
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -18302,7 +18915,7 @@ function HelpCentrePage({ setPage }) {
 if (typeof document !== "undefined" && !document.getElementById("lb-keyframes")) {
   const s = document.createElement("style");
   s.id = "lb-keyframes";
-  s.textContent = `@keyframes fadeInUp{from{opacity:0;transform:translateX(-50%) translateY(12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}`;
+  s.textContent = `@keyframes fadeInUp{from{opacity:0;transform:translateX(-50%) translateY(12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}@keyframes lbSpin{to{transform:rotate(360deg)}}@keyframes lbFadeIn{from{opacity:0}to{opacity:1}}`;
   document.head.appendChild(s);
 }
 
@@ -18326,6 +18939,7 @@ export default function App() {
     ]);
     return DEEP_LINK.has(path) ? path : "home";
   });
+  const pageRef = useRef("home");
   const [authInitialTab, setAuthInitialTab]     = useState("login");
   const [user, setUser]                         = useState(null);
   const [selectedLender, setSelectedLender]     = useState(null);
@@ -18521,6 +19135,8 @@ export default function App() {
       .then(({ count }) => { setCommunityBadge((count || 0) > 0); });
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => { pageRef.current = page; }, [page]);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
@@ -18546,15 +19162,23 @@ export default function App() {
         if (meta.appearance_accent_colour)              setAccentColor(meta.appearance_accent_colour);
         if (meta.appearance_font_size)                  setFontSize(meta.appearance_font_size);
         if (meta.appearance_density)                    setDensity(meta.appearance_density);
+        // Start login loader as early as possible when signing in from auth page
+        if (pageRef.current === "auth") setLoginLoading(true);
       } else if (event === "SIGNED_OUT") {
-        setIsLoggedIn(false);
-        clearPreferenceStorage();
-        setDarkMode(false);
-        setFontSize("normal");
+        // Skip logout side-effects during an account-switch attempt — the switch
+        // handler will restore the session if the new login fails.
+        if (pageRef.current !== "switch-account") {
+          setIsLoggedIn(false);
+          clearPreferenceStorage();
+          setDarkMode(false);
+          setFontSize("normal");
+        }
       }
       setUser(session?.user ?? null);
       if (event === "PASSWORD_RECOVERY") setPage("reset-password");
-      if (event === "SIGNED_IN" && session?.user && !session.user.user_metadata?.profile_complete) {
+      // Don't auto-redirect to profile-setup during a switch-account attempt
+      if (event === "SIGNED_IN" && session?.user && !session.user.user_metadata?.profile_complete
+          && pageRef.current !== "switch-account") {
         setPage("profile-setup");
       }
     });
@@ -18632,9 +19256,11 @@ export default function App() {
   }
 
   function handleLoginSuccess(freshUser) {
+    // Set loader first so it is batched in the same render as the page change —
+    // prevents a blank flash between the auth page unmounting and the loader mounting.
+    setLoginLoading(true);
     if (freshUser) setUser(freshUser);
     setPage("home");
-    setLoginLoading(true);
   }
 
   function handleLoginDone() {
@@ -18714,7 +19340,7 @@ export default function App() {
           {page === "community-posts"  && <CommunityPostsPage user={user} setPage={navigateTo} onMessage={handleOpenConversation} />}
           {page === "community-groups" && <CommunityGroupsPage user={user} setPage={navigateTo} />}
           {page === "community-chat"   && <CommunityChatPage user={user} setPage={navigateTo} />}
-          {page === "post-detail"      && (selectedPost ? <PostDetailPage post={selectedPost} user={user} setPage={navigateTo} onMessage={handleOpenConversation} /> : <CommunityPage user={user} setPage={navigateTo} onMessage={handleOpenConversation} />)}
+          {page === "post-detail"      && (selectedPost ? <PostDetailPage post={selectedPost} user={user} setPage={navigateTo} onMessage={handleOpenConversation} onEdit={post => navigateTo("edit-post", post)} onDelete={async (postId) => { const { data: { session } } = await supabase.auth.getSession(); if (session) fetch("/api/posts", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ action: "delete", post_id: postId }) }).catch(() => {}); navigateTo("posts"); }} /> : <CommunityPage user={user} setPage={navigateTo} onMessage={handleOpenConversation} />)}
           {page === "my-posts"         && user && <MyPostsPage        user={user} setPage={navigateTo} />}
           {page === "create-post"      && user && <CreateEditPostPage user={user} setPage={navigateTo} />}
           {page === "edit-post"        && user && <CreateEditPostPage user={user} setPage={navigateTo} editPost={editingPost} />}
@@ -18723,7 +19349,7 @@ export default function App() {
           {page === "forgot-password"  && <ForgotPasswordPage setPage={navigateTo} />}
           {page === "reset-password"   && <ResetPasswordPage  setPage={navigateTo} />}
           {page === "profile-menu"     && user && <ProfileMenuPage   user={user} setPage={navigateTo} onLogout={handleLogout} />}
-          {page === "switch-account"   && user && <SwitchAccountPage user={user} setPage={navigateTo} />}
+          {page === "switch-account"   && <SwitchAccountPage user={user} setPage={navigateTo} />}
           {page === "account"          && user && <AccountPage      user={user} setPage={navigateTo} userProfile={userProfile} viewerRoleProfile={viewerRoleProfile} onReplayTour={handleReplayTour} darkMode={darkMode} setDarkMode={setDarkMode} accentColor={accentColor} setAccentColor={setAccentColor} fontSize={fontSize} setFontSize={setFontSize} density={density} setDensity={setDensity} />}
           {page === "profile-setup"   && user && <ProfileSetupPage user={user} setPage={navigateTo} setCelebration={setCelebration} />}
           {page === "messages"         && user && <MessagesPage user={user} initialConversationId={openConversationId} setPage={navigateTo} onViewProfile={handleViewProfile} onViewBuilderProfile={handleViewBuilderProfile} />}
@@ -18776,7 +19402,9 @@ export default function App() {
           {page === "status"           && <StatusPage />}
           {page === "help"             && <HelpCentrePage setPage={navigateTo} />}
           </div>
-          <Footer setPage={navigateTo} />
+          {["home","about","how-it-works","help"].includes(page)
+            ? <Footer setPage={navigateTo} />
+            : <MinimalFooter setPage={navigateTo} />}
         </div>
       </div>
       {tourStep > 0 && (
