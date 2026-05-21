@@ -18419,18 +18419,19 @@ function SwitchAccountPage({ user, setPage, onLoginSuccess }) {
       setError(loginErr.message);
       return;
     }
-    console.log("[SwitchAccount] login succeeded, navigating to dashboard", data?.user?.email);
-    if (data?.user && data?.session) {
-      upsertSavedAccount({
-        user_id: data.user.id, email: data.user.email,
-        name: data.user.user_metadata?.name || data.user.email.split("@")[0],
-        avatar_url: data.user.user_metadata?.avatar_url || null,
-        access_token: data.session.access_token, refresh_token: data.session.refresh_token,
-      });
-    }
-    // Auth listener handles navigation via onAuthStateChange SIGNED_IN,
-    // but call onLoginSuccess as a fallback in case event fired before this point.
-    if (onLoginSuccess) onLoginSuccess(data?.user ?? null);
+    // Navigate immediately — auth listener is suppressed during switch-account
+    if (onLoginSuccess) onLoginSuccess(data.user);
+    // Save account for quick switching (non-blocking)
+    try {
+      if (data?.user && data?.session) {
+        upsertSavedAccount({
+          user_id: data.user.id, email: data.user.email,
+          name: data.user.user_metadata?.name || data.user.email.split("@")[0],
+          avatar_url: data.user.user_metadata?.avatar_url || null,
+          access_token: data.session.access_token, refresh_token: data.session.refresh_token,
+        });
+      }
+    } catch (_) {}
   }
 
   return (
@@ -18951,6 +18952,7 @@ export default function App() {
   const [tourStep,          setTourStep]            = useState(0); // 0 = inactive
   const [tourForceProfileOpen, setTourForceProfileOpen] = useState(false);
   const [loginLoading,      setLoginLoading]         = useState(false);
+  const [initialising,      setInitialising]          = useState(true);
   const [showDeviceModal,   setShowDeviceModal]       = useState(false);
   const [devicePref,        setDevicePref]            = useState(() => {
     try { return localStorage.getItem("lb_device_preference") || "auto"; } catch { return "auto"; }
@@ -19135,7 +19137,6 @@ export default function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         setIsLoggedIn(true);
-        // Restore saved appearance preferences from user metadata (cross-device sync)
         const meta = session.user.user_metadata || {};
         if (meta.appearance_dark_mode !== undefined)    setDarkMode(!!meta.appearance_dark_mode);
         if (meta.appearance_accent_colour)              setAccentColor(meta.appearance_accent_colour);
@@ -19145,36 +19146,31 @@ export default function App() {
         setIsLoggedIn(false);
       }
       setUser(session?.user ?? null);
+      setInitialising(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // During an account switch handleLoginSuccess owns all state — skip listener side-effects
+      // entirely to prevent double-navigation and interference with the switch flow.
+      if (pageRef.current === "switch-account") return;
+
       if (event === "SIGNED_IN" && session?.user) {
         setIsLoggedIn(true);
-        // Restore saved appearance preferences from user metadata (cross-device sync)
         const meta = session.user.user_metadata || {};
         if (meta.appearance_dark_mode !== undefined)    setDarkMode(!!meta.appearance_dark_mode);
         if (meta.appearance_accent_colour)              setAccentColor(meta.appearance_accent_colour);
         if (meta.appearance_font_size)                  setFontSize(meta.appearance_font_size);
         if (meta.appearance_density)                    setDensity(meta.appearance_density);
-        // Start login loader when signing in from auth page or switch-account page
-        if (pageRef.current === "auth" || pageRef.current === "switch-account") setLoginLoading(true);
-        // Navigate to dashboard when completing a switch-account login
-        if (pageRef.current === "switch-account") setPage("home");
+        if (pageRef.current === "auth") setLoginLoading(true);
       } else if (event === "SIGNED_OUT") {
-        // Skip logout side-effects during an account-switch attempt — the switch
-        // handler will restore the session if the new login fails.
-        if (pageRef.current !== "switch-account") {
-          setIsLoggedIn(false);
-          clearPreferenceStorage();
-          setDarkMode(false);
-          setFontSize("normal");
-        }
+        setIsLoggedIn(false);
+        clearPreferenceStorage();
+        setDarkMode(false);
+        setFontSize("normal");
       }
       setUser(session?.user ?? null);
       if (event === "PASSWORD_RECOVERY") setPage("reset-password");
-      // Don't auto-redirect to profile-setup during a switch-account attempt
-      if (event === "SIGNED_IN" && session?.user && !session.user.user_metadata?.profile_complete
-          && pageRef.current !== "switch-account") {
+      if (event === "SIGNED_IN" && session?.user && !session.user.user_metadata?.profile_complete) {
         setPage("profile-setup");
       }
     });
@@ -19252,10 +19248,16 @@ export default function App() {
   }
 
   function handleLoginSuccess(freshUser) {
-    // Set loader first so it is batched in the same render as the page change —
-    // prevents a blank flash between the auth page unmounting and the loader mounting.
+    setIsLoggedIn(true);
     setLoginLoading(true);
-    if (freshUser) setUser(freshUser);
+    if (freshUser) {
+      setUser(freshUser);
+      const meta = freshUser.user_metadata || {};
+      if (meta.appearance_dark_mode !== undefined)    setDarkMode(!!meta.appearance_dark_mode);
+      if (meta.appearance_accent_colour)              setAccentColor(meta.appearance_accent_colour);
+      if (meta.appearance_font_size)                  setFontSize(meta.appearance_font_size);
+      if (meta.appearance_density)                    setDensity(meta.appearance_density);
+    }
     setPage("home");
   }
 
@@ -19313,6 +19315,16 @@ export default function App() {
 
   const isMobileLayout = devicePref === "mobile" || (devicePref === "auto" && windowWidth < 768);
   const showSidebar    = !isMobileLayout && !!user && windowWidth >= 1024;
+
+  if (initialising) {
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "#1E3A5F", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 28, fontWeight: 700, letterSpacing: -0.3 }}>
+          <span style={{ color: "#FFFFFF" }}>Lender</span><span style={{ color: "#3B82F6" }}>Build</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-primary)" }}>
