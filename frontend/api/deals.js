@@ -806,5 +806,263 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
     return res.status(200).json({ ok: true, checkout_url: session.url });
   }
 
+  // ── POST action="confirm-deal-amount" ────────────────────────────────────
+  // Either party submits their independently agreed deal amount.
+  // When both sides confirm with matching amounts (within £1), the deal is
+  // auto-created and a Stripe checkout session is returned for the builder.
+  if (action === "confirm-deal-amount") {
+    const { other_name, amount } = req.body;
+    const amountNum = Number(amount);
+    if (!other_name || !amountNum || amountNum < 100) {
+      return res.status(400).json({ error: "other_name and amount (min £100) required" });
+    }
+
+    // Resolve IDs via conversations table
+    const builderId = role === "builder" ? user.id : null;
+    const lenderId  = role === "lender"  ? user.id : null;
+
+    let resolvedBuilderId = builderId;
+    let resolvedLenderId  = lenderId;
+
+    if (role === "builder") {
+      // Find lender by name in conversations
+      const { data: conv } = await supabase
+        .from("conversations")
+        .select("lender_id, lender_name")
+        .eq("builder_id", user.id)
+        .ilike("lender_name", other_name.trim())
+        .maybeSingle();
+      if (!conv) return res.status(404).json({ error: "Connected lender not found. Ensure you have an accepted connection." });
+      resolvedLenderId = conv.lender_id;
+    } else {
+      // Lender: find builder by name in conversations
+      const { data: conv } = await supabase
+        .from("conversations")
+        .select("builder_id, builder_name")
+        .eq("lender_id", user.id)
+        .ilike("builder_name", other_name.trim())
+        .maybeSingle();
+      if (!conv) return res.status(404).json({ error: "Connected builder not found. Ensure you have an accepted connection." });
+      resolvedBuilderId = conv.builder_id;
+    }
+
+    if (!resolvedBuilderId || !resolvedLenderId) {
+      return res.status(400).json({ error: "Could not resolve both party IDs" });
+    }
+
+    // Upsert this party's confirmation
+    const { error: upsertErr } = await supabase
+      .from("deal_amount_confirmations")
+      .upsert({
+        builder_id:       resolvedBuilderId,
+        lender_id:        resolvedLenderId,
+        confirmed_by:     role,
+        confirmed_amount: amountNum,
+        confirmed_at:     new Date().toISOString(),
+      }, { onConflict: "builder_id,lender_id,confirmed_by" });
+    if (upsertErr) return res.status(500).json({ error: upsertErr.message });
+
+    // Fetch both confirmations
+    const { data: confs } = await supabase
+      .from("deal_amount_confirmations")
+      .select("*")
+      .eq("builder_id", resolvedBuilderId)
+      .eq("lender_id", resolvedLenderId);
+
+    const builderConf = (confs || []).find(c => c.confirmed_by === "builder");
+    const lenderConf  = (confs || []).find(c => c.confirmed_by === "lender");
+
+    if (!builderConf || !lenderConf) {
+      return res.status(200).json({ status: "waiting" });
+    }
+
+    const bAmt = Number(builderConf.confirmed_amount);
+    const lAmt = Number(lenderConf.confirmed_amount);
+    if (Math.abs(bAmt - lAmt) > 1) {
+      return res.status(200).json({
+        status: "mismatch",
+        builder_amount: bAmt,
+        lender_amount:  lAmt,
+      });
+    }
+
+    // Amounts match — check if deal already created
+    const existingDealId = builderConf.deal_id || lenderConf.deal_id;
+    if (existingDealId) {
+      const { data: existingDeal } = await supabase.from("deals").select("id, finder_fee_status").eq("id", existingDealId).maybeSingle();
+      if (existingDeal?.finder_fee_status === "paid") {
+        return res.status(200).json({ status: "paid", deal_id: existingDealId });
+      }
+      if (existingDeal && role === "builder" && process.env.STRIPE_SECRET_KEY) {
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+        const feePence = Math.round(bAmt * 0.01 * 100);
+        if (feePence >= 50) {
+          const sess = await stripe.checkout.sessions.create({
+            payment_method_types: ["card"],
+            line_items: [{ price_data: { currency: "gbp", product_data: { name: "LenderBuild finder's fee", description: `1% of £${bAmt.toLocaleString()} agreed deal` }, unit_amount: feePence }, quantity: 1 }],
+            mode: "payment",
+            success_url: `${PLATFORM_URL}?finder_fee_paid=${existingDeal.id}&session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url:  `${PLATFORM_URL}`,
+            metadata: { deal_id: existingDeal.id, type: "finder_fee" },
+          });
+          await supabase.from("deals").update({ finder_fee_session_id: sess.id }).eq("id", existingDeal.id);
+          return res.status(200).json({ status: "confirmed", deal_id: existingDeal.id, agreed_amount: bAmt, fee_amount: Math.round(bAmt * 0.01 * 100) / 100, checkout_url: sess.url });
+        }
+      }
+      return res.status(200).json({ status: "confirmed", deal_id: existingDeal?.id, agreed_amount: bAmt, fee_pending: role === "builder" });
+    }
+
+    // Create the deal
+    const { data: builderUserData } = await supabase.auth.admin.getUserById(resolvedBuilderId);
+    const { data: lenderUserData  } = await supabase.auth.admin.getUserById(resolvedLenderId);
+    const builderUser = builderUserData?.user;
+    const lenderUser  = lenderUserData?.user;
+    const bName = builderUser?.user_metadata?.name || "Builder";
+    const lName = lenderUser?.user_metadata?.name  || "Lender";
+
+    const { data: deal, error: dealErr } = await supabase.from("deals").insert({
+      builder_id:        resolvedBuilderId,
+      lender_id:         resolvedLenderId,
+      builder_name:      sanitizeStr(bName, 100),
+      lender_name:       sanitizeStr(lName, 100),
+      title:             `${bName} & ${lName} — Deal`,
+      status:            "active",
+      agreed_amount:     bAmt,
+      deal_confirmed_at: new Date().toISOString(),
+      finder_fee_status: "pending",
+    }).select().single();
+    if (dealErr) return res.status(500).json({ error: dealErr.message });
+
+    // Placeholder milestone for the full amount so finder-fee calculation works
+    await supabase.from("milestones").insert({
+      deal_id:     deal.id,
+      title:       "Initial payment",
+      description: "Set the milestone amounts in the Project Tracker",
+      amount:      bAmt,
+      order_index: 1,
+      status:      "pending",
+    });
+
+    // Stamp deal_id on both confirmations
+    await supabase.from("deal_amount_confirmations")
+      .update({ deal_id: deal.id })
+      .eq("builder_id", resolvedBuilderId)
+      .eq("lender_id", resolvedLenderId);
+
+    const feeAmount = (bAmt * 0.01).toFixed(2);
+
+    // Emails
+    if (builderUser?.email) {
+      sendEmail(builderUser.email, `Deal confirmed with ${lName} — finder's fee due`,
+        `<p>Hi ${bName},</p>
+<p>Your deal with <strong>${lName}</strong> for <strong>£${bAmt.toLocaleString()}</strong> has been confirmed on LenderBuild.</p>
+<p>The LenderBuild finder's fee of <strong>£${Number(feeAmount).toLocaleString()} (1%)</strong> is now due. Please log in and pay to unlock your Project Tracker and Deal Room.</p>
+<p><a href="${PLATFORM_URL}">Pay finder's fee on LenderBuild</a></p>`
+      );
+    }
+    if (lenderUser?.email) {
+      sendEmail(lenderUser.email, `Deal confirmed with ${bName}`,
+        `<p>Hi ${lName},</p>
+<p>Your deal with <strong>${bName}</strong> for <strong>£${bAmt.toLocaleString()}</strong> has been confirmed on LenderBuild.</p>
+<p>The builder will pay the platform finder's fee of £${Number(feeAmount).toLocaleString()} to unlock the Project Tracker.</p>
+<p><a href="${PLATFORM_URL}">View your deal on LenderBuild</a></p>`
+      );
+    }
+    sendEmail(ADMIN_EMAIL, `New deal confirmed — £${bAmt.toLocaleString()} | Finder's fee: £${Number(feeAmount).toLocaleString()}`,
+      `<p><strong>${bName}</strong> (builder) and <strong>${lName}</strong> (lender) confirmed a deal for <strong>£${bAmt.toLocaleString()}</strong>.</p>
+<p><strong>Finder's fee (1%):</strong> £${Number(feeAmount).toLocaleString()}</p>
+<p>Deal ID: ${deal.id}</p><p><a href="${PLATFORM_URL}">View in admin panel</a></p>`
+    );
+
+    // Stripe checkout for builder
+    if (!process.env.STRIPE_SECRET_KEY) {
+      return res.status(200).json({ status: "confirmed", deal_id: deal.id, agreed_amount: bAmt, fee_amount: Number(feeAmount), fee_pending: role === "builder" });
+    }
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    const feePence = Math.round(Number(feeAmount) * 100);
+    if (feePence < 50) {
+      return res.status(200).json({ status: "confirmed", deal_id: deal.id, agreed_amount: bAmt, fee_amount: Number(feeAmount) });
+    }
+    const sess = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: [{ price_data: { currency: "gbp", product_data: { name: "LenderBuild finder's fee", description: `1% of £${bAmt.toLocaleString()} — deal with ${lName}` }, unit_amount: feePence }, quantity: 1 }],
+      mode: "payment",
+      success_url: `${PLATFORM_URL}?finder_fee_paid=${deal.id}&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url:  `${PLATFORM_URL}`,
+      metadata: { deal_id: deal.id, type: "finder_fee" },
+    });
+    await supabase.from("deals").update({ finder_fee_session_id: sess.id }).eq("id", deal.id);
+
+    const checkoutUrl = role === "builder" ? sess.url : null;
+    return res.status(200).json({ status: "confirmed", deal_id: deal.id, agreed_amount: bAmt, fee_amount: Number(feeAmount), checkout_url: checkoutUrl });
+  }
+
+  // ── POST action="get-deal-confirmation" ───────────────────────────────────
+  // Returns current confirmation status for this user + a named counterparty.
+  if (action === "get-deal-confirmation") {
+    const { other_name } = req.body;
+    if (!other_name) return res.status(400).json({ error: "other_name required" });
+
+    let resolvedBuilderId, resolvedLenderId;
+    if (role === "builder") {
+      const { data: conv } = await supabase.from("conversations").select("lender_id").eq("builder_id", user.id).ilike("lender_name", other_name.trim()).maybeSingle();
+      if (!conv) return res.status(200).json({ status: "no_connection" });
+      resolvedBuilderId = user.id;
+      resolvedLenderId  = conv.lender_id;
+    } else {
+      const { data: conv } = await supabase.from("conversations").select("builder_id").eq("lender_id", user.id).ilike("builder_name", other_name.trim()).maybeSingle();
+      if (!conv) return res.status(200).json({ status: "no_connection" });
+      resolvedBuilderId = conv.builder_id;
+      resolvedLenderId  = user.id;
+    }
+
+    const { data: confs } = await supabase.from("deal_amount_confirmations").select("*").eq("builder_id", resolvedBuilderId).eq("lender_id", resolvedLenderId);
+    const builderConf = (confs || []).find(c => c.confirmed_by === "builder");
+    const lenderConf  = (confs || []).find(c => c.confirmed_by === "lender");
+    const myConf      = role === "builder" ? builderConf : lenderConf;
+    const theirConf   = role === "builder" ? lenderConf  : builderConf;
+
+    let status = "none";
+    if (myConf && !theirConf) status = "waiting";
+    else if (myConf && theirConf) {
+      status = Math.abs(Number(myConf.confirmed_amount) - Number(theirConf.confirmed_amount)) <= 1 ? "confirmed" : "mismatch";
+    }
+
+    const dealId = builderConf?.deal_id || lenderConf?.deal_id || null;
+    let finderFeePaid = false;
+    let checkoutUrl = null;
+
+    if (dealId) {
+      const { data: deal } = await supabase.from("deals").select("id, finder_fee_status, agreed_amount").eq("id", dealId).maybeSingle();
+      finderFeePaid = deal?.finder_fee_status === "paid";
+      if (!finderFeePaid && role === "builder" && process.env.STRIPE_SECRET_KEY) {
+        const agreedAmt = Number(deal?.agreed_amount || myConf?.confirmed_amount || 0);
+        const feePence = Math.round(agreedAmt * 0.01 * 100);
+        if (feePence >= 50) {
+          const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+          const sess = await stripe.checkout.sessions.create({
+            payment_method_types: ["card"],
+            line_items: [{ price_data: { currency: "gbp", product_data: { name: "LenderBuild finder's fee", description: `1% of £${agreedAmt.toLocaleString()}` }, unit_amount: feePence }, quantity: 1 }],
+            mode: "payment",
+            success_url: `${PLATFORM_URL}?finder_fee_paid=${dealId}&session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url:  `${PLATFORM_URL}`,
+            metadata: { deal_id: dealId, type: "finder_fee" },
+          });
+          await supabase.from("deals").update({ finder_fee_session_id: sess.id }).eq("id", dealId);
+          checkoutUrl = sess.url;
+        }
+      }
+    }
+
+    return res.status(200).json({
+      status,
+      my_amount:       myConf?.confirmed_amount    || null,
+      their_amount:    theirConf?.confirmed_amount || null,
+      deal_id:         dealId,
+      finder_fee_paid: finderFeePaid,
+      checkout_url:    checkoutUrl,
+    });
+  }
+
   return res.status(400).json({ error: "Unknown action" });
 };

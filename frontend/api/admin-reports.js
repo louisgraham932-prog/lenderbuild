@@ -274,6 +274,37 @@ ${ban_reason ? `<p><strong>Reason:</strong> ${ban_reason}</p>` : ""}
       return res.status(200).json({ ok: true });
     }
 
+    // ── chase-finder-fee ───────────────────────────────────────────────────
+    if (action === "chase-finder-fee") {
+      const { deal_id } = req.body;
+      if (!deal_id) return res.status(400).json({ error: "deal_id required" });
+
+      const { data: deal } = await supabase
+        .from("deals")
+        .select("id, title, builder_id, builder_name, lender_name, agreed_amount, finder_fee_status")
+        .eq("id", deal_id)
+        .maybeSingle();
+      if (!deal) return res.status(404).json({ error: "Deal not found" });
+      if (deal.finder_fee_status === "paid") return res.status(400).json({ error: "Fee already paid" });
+
+      const { data: builderAuth } = await supabase.auth.admin.getUserById(deal.builder_id);
+      const builderEmail = builderAuth?.user?.email;
+      if (!builderEmail) return res.status(404).json({ error: "Builder email not found" });
+
+      const fee = (Number(deal.agreed_amount) * 0.01).toFixed(2);
+      await sendEmail(
+        builderEmail,
+        `Action required: LenderBuild finder's fee outstanding — £${Number(fee).toLocaleString()}`,
+        `<p>Hi ${deal.builder_name},</p>
+<p>A reminder that your LenderBuild finder's fee of <strong>£${Number(fee).toLocaleString()}</strong> (1% of your £${Number(deal.agreed_amount).toLocaleString()} deal with ${deal.lender_name}) is still outstanding.</p>
+<p>The finder's fee must be paid before milestone payments can be released. Please log in to complete payment.</p>
+<p><a href="${PLATFORM_URL}">Pay finder's fee on LenderBuild</a></p>
+<p>If you have any questions, please contact us at <a href="mailto:${ADMIN_EMAIL}">${ADMIN_EMAIL}</a>.</p>`
+      );
+
+      return res.status(200).json({ ok: true, emailed: builderEmail });
+    }
+
     return res.status(400).json({ error: "Unknown action" });
   }
 
@@ -508,6 +539,32 @@ ${ban_reason ? `<p><strong>Reason:</strong> ${ban_reason}</p>` : ""}
       .order("created_at", { ascending: false });
 
     return res.status(200).json({ checked: results.length, alerts_sent: results.filter(r => r.alert_sent).length, flagged_defaults: defaults || [] });
+  }
+
+  // ── GET ?type=deals: all confirmed deals + revenue summary ───────────────
+  if (req.query.type === "deals") {
+    const { data: deals, error: dealErr } = await supabase
+      .from("deals")
+      .select("id, title, builder_name, lender_name, agreed_amount, finder_fee_status, deal_confirmed_at, created_at")
+      .order("created_at", { ascending: false });
+    if (dealErr) return res.status(500).json({ error: dealErr.message });
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+    const allDeals = deals || [];
+    const paidDeals = allDeals.filter(d => d.finder_fee_status === "paid");
+    const totalRevenue = paidDeals.reduce((s, d) => s + (Number(d.agreed_amount) * 0.01 || 0), 0);
+    const monthRevenue = paidDeals.filter(d => (d.deal_confirmed_at || d.created_at) >= monthStart)
+      .reduce((s, d) => s + (Number(d.agreed_amount) * 0.01 || 0), 0);
+    const unpaidDeals = allDeals.filter(d => d.deal_confirmed_at && d.finder_fee_status !== "paid");
+
+    return res.status(200).json({
+      deals: allDeals,
+      total_revenue: Math.round(totalRevenue * 100) / 100,
+      month_revenue: Math.round(monthRevenue * 100) / 100,
+      unpaid_count:  unpaidDeals.length,
+    });
   }
 
   // ── GET: main report (reports + flagged users) ─────────────────────────────

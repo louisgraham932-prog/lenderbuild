@@ -694,22 +694,21 @@ function RoleBadge({ userRole, authRole }) {
 }
 
 function MatchBadge({ score, breakdown }) {
-  const [show, setShow]     = useState(false);
-  const [tipPos, setTipPos] = useState({ bottom: 0, left: 0, arrowLeft: 120 });
-  const containerRef        = useRef(null);
+  const [show, setShow] = useState(false);
+  const [cardPos, setCardPos] = useState({ top: 0, left: 0 });
+  const badgeRef = useRef(null);
+  const cardRef = useRef(null);
 
   let label, bg, color;
   if (score >= 80)      { label = "Great match";    bg = "#E1F5EE"; color = "#0F6E56"; }
   else if (score >= 60) { label = "Good match";     bg = "#EBF2FF"; color = "#1E3A5F"; }
   else                  { label = "Possible match"; bg = "#FEF2F2"; color = "#DC2626"; }
 
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 600;
-
-  // Close when clicking outside
   useEffect(() => {
     if (!show) return;
     const handle = e => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) setShow(false);
+      if (cardRef.current && !cardRef.current.contains(e.target) &&
+          badgeRef.current && !badgeRef.current.contains(e.target)) setShow(false);
     };
     document.addEventListener("mousedown", handle);
     document.addEventListener("touchstart", handle);
@@ -718,97 +717,53 @@ function MatchBadge({ score, breakdown }) {
 
   function handleToggle(e) {
     e.stopPropagation();
-    if (!show && containerRef.current && !isMobile) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const TIP_W = 260;
-      // Centre above the badge, then clamp to viewport edges
-      let left = rect.left + rect.width / 2 - TIP_W / 2;
-      left = Math.max(8, Math.min(left, window.innerWidth - TIP_W - 8));
-      // Arrow points at badge centre
-      const arrowLeft = Math.max(10, Math.min((rect.left + rect.width / 2) - left - 5, TIP_W - 20));
-      // 8px gap between badge top and tooltip bottom
-      const bottom = window.innerHeight - rect.top + 8;
-      setTipPos({ bottom, left, arrowLeft });
+    if (!show && badgeRef.current) {
+      const rect = badgeRef.current.getBoundingClientRect();
+      const CARD_W = 220;
+      const CARD_H = 220;
+      const PAD = 8;
+      let left = rect.left + rect.width / 2 - CARD_W / 2;
+      if (left < PAD) left = PAD;
+      if (left + CARD_W > window.innerWidth - PAD) left = window.innerWidth - CARD_W - PAD;
+      let top = rect.top - CARD_H - 8;
+      if (top < PAD) top = rect.bottom + 8;
+      setCardPos({ top, left });
     }
     setShow(s => !s);
   }
 
-  const tooltipBreakdown = (
-    <>
-      <div style={{ fontWeight: 700, marginBottom: 9, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(255,255,255,0.7)" }}>Why this match?</div>
-      {breakdown.map(({ label: lbl, earned, max, detail }) => {
+  const card = show ? createPortal(
+    <div ref={cardRef} onClick={e => e.stopPropagation()}
+      style={{ position: "fixed", top: cardPos.top, left: cardPos.left, width: 220, background: "#fff", borderRadius: 10, padding: "12px 14px 14px", boxShadow: "0 4px 20px rgba(0,0,0,0.13)", zIndex: 9999, border: "0.5px solid #e8e8e8" }}>
+      <button onClick={() => setShow(false)}
+        style={{ position: "absolute", top: 8, right: 8, width: 20, height: 20, borderRadius: "50%", background: "#e5e7eb", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, color: "#6b7280", fontSize: 12, fontWeight: 700, lineHeight: 1 }}>×</button>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#1E3A5F", marginBottom: 10, paddingRight: 24 }}>Why this match?</div>
+      {breakdown.map(({ label: lbl, earned, max }) => {
         const ratio = earned / max;
-        const barColor = ratio >= 0.7 ? "#6EE7B7" : ratio >= 0.4 ? "#FCD34D" : "#FCA5A5";
+        const barColor = ratio >= 0.7 ? "#16A34A" : ratio >= 0.4 ? "#D97706" : "#DC2626";
         return (
-          <div key={lbl} style={{ marginBottom: 8 }}>
+          <div key={lbl} style={{ marginBottom: 7 }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-              <span style={{ color: "rgba(255,255,255,0.85)", fontSize: 11 }}>{lbl}</span>
+              <span style={{ fontSize: 11, color: "#555" }}>{lbl}</span>
               <span style={{ fontWeight: 700, fontSize: 11, color: barColor }}>{earned}/{max}</span>
             </div>
-            <div style={{ height: 3, background: "rgba(255,255,255,0.15)", borderRadius: 2 }}>
-              <div style={{ height: 3, borderRadius: 2, background: barColor, width: `${ratio * 100}%`, transition: "width 0.3s" }} />
+            <div style={{ height: 3, background: "#f0f0f0", borderRadius: 2 }}>
+              <div style={{ height: 3, borderRadius: 2, background: barColor, width: `${ratio * 100}%` }} />
             </div>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.55)", marginTop: 3 }}>{detail}</div>
           </div>
         );
       })}
-    </>
-  );
+    </div>,
+    document.body
+  ) : null;
 
   return (
-    <div ref={containerRef} style={{ position: "relative", display: "inline-block" }}
-      onMouseEnter={() => { if (!isMobile && !show) handleToggle({ stopPropagation: () => {} }); }}
-      onMouseLeave={() => { if (!isMobile) setShow(false); }}
-      onClick={handleToggle}
-    >
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: bg, color, cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>
-        {score}% · {label}
-        <HelpTooltip text="This score shows how well matched you are based on budget alignment, project type, location and activity level" />
-      </span>
-
-      {/* Mobile: bottom sheet */}
-      {show && isMobile && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 99999, display: "flex", alignItems: "flex-end" }}
-          onClick={e => { e.stopPropagation(); setShow(false); }}>
-          <div style={{ background: "#1E3A5F", color: "#fff", borderRadius: "20px 20px 0 0", padding: "8px 18px 36px", width: "100%", boxShadow: "0 -8px 32px rgba(0,0,0,0.3)" }}
-            onClick={e => e.stopPropagation()}>
-            <div style={{ width: 36, height: 4, background: "rgba(255,255,255,0.3)", borderRadius: 2, margin: "10px auto 16px" }} />
-            {tooltipBreakdown}
-            <button onClick={() => setShow(false)}
-              style={{ marginTop: 14, width: "100%", padding: "12px", background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 10, color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Desktop: fixed tooltip, always above the badge */}
-      {show && !isMobile && (
-        <div style={{
-          position: "fixed",
-          bottom: tipPos.bottom,
-          left: tipPos.left,
-          width: 260,
-          maxWidth: 260,
-          background: "#1E3A5F",
-          color: "#fff",
-          borderRadius: 10,
-          padding: "11px 13px",
-          fontSize: 12,
-          zIndex: 99999,
-          boxShadow: "0 8px 28px rgba(0,0,0,0.28)",
-          pointerEvents: "none",
-        }}>
-          {tooltipBreakdown}
-          {/* Arrow pointing down toward the badge */}
-          <div style={{
-            position: "absolute", bottom: -5, left: tipPos.arrowLeft,
-            width: 10, height: 10, background: "#1E3A5F", transform: "rotate(45deg)",
-            boxShadow: "2px 2px 4px rgba(0,0,0,0.1)",
-          }} />
-        </div>
-      )}
-    </div>
+    <span ref={badgeRef} onClick={handleToggle}
+      style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: bg, color, cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>
+      {score}% · {label}
+      <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: "50%", background: "rgba(0,0,0,0.08)", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>?</span>
+      {card}
+    </span>
   );
 }
 
@@ -1319,7 +1274,6 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
   const displayName = user?.user_metadata?.name || user?.email?.split("@")[0] || "";
   const role        = user?.user_metadata?.role;
   const avatarUrl   = user?.user_metadata?.avatar_url;
-  const [switchError, setSwitchError] = useState("");
 
   const [mobileOpen,  setMobileOpen]  = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -1680,35 +1634,16 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
             const savedAccounts = getSavedAccounts();
             const otherAccounts = savedAccounts.filter(a => a.user_id !== user?.id);
 
-            async function handleSwitchAccount(acct) {
-              setSwitchError("");
-              const { error: sessErr } = await supabase.auth.setSession({
-                access_token: acct.access_token,
-                refresh_token: acct.refresh_token,
-              });
-              if (sessErr) {
-                removeSavedAccount(acct.user_id);
-                setSwitchError("Session expired for " + acct.email + ". Please log in again.");
-                return;
-              }
-              setPage("home");
-            }
-
-            async function handleAddAccount() {
-              // Save current session to list before signing out
+            async function goToSwitchPage() {
               const { data: { session: curSess } } = await supabase.auth.getSession();
               if (curSess && user) {
                 upsertSavedAccount({
-                  user_id: user.id,
-                  email: user.email,
-                  name: displayName,
+                  user_id: user.id, email: user.email, name: displayName,
                   avatar_url: avatarUrl || null,
-                  access_token: curSess.access_token,
-                  refresh_token: curSess.refresh_token,
+                  access_token: curSess.access_token, refresh_token: curSess.refresh_token,
                 });
               }
-              await supabase.auth.signOut();
-              setPage("auth");
+              go("switch-account");
             }
 
             return (
@@ -1726,7 +1661,7 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
                   <div style={{ borderBottom: "0.5px solid #f0f0f0" }}>
                     <div style={{ padding: "6px 14px 4px", fontSize: 10, fontWeight: 600, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.07em" }}>Switch account</div>
                     {otherAccounts.map(acct => (
-                      <button key={acct.user_id} onClick={() => handleSwitchAccount(acct)}
+                      <button key={acct.user_id} onClick={goToSwitchPage}
                         style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 14px", fontSize: 12, background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
                         onMouseEnter={e => e.currentTarget.style.background = "#f9f9f7"}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}
@@ -1741,7 +1676,6 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
                         </div>
                       </button>
                     ))}
-                    {switchError && <div style={{ fontSize: 11, color: "#D85A30", padding: "4px 14px 6px" }}>{switchError}</div>}
                   </div>
                 )}
 
@@ -1758,7 +1692,7 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
                   <span style={{ fontSize: 15 }}>🔍</span>Saved searches
                 </button>
                 {savedAccounts.length < 3 && (
-                  <button onClick={handleAddAccount} style={{ ...ddItemStyle(false), color: "#3B82F6" }}>
+                  <button onClick={goToSwitchPage} style={{ ...ddItemStyle(false), color: "#3B82F6" }}>
                     <span style={{ fontSize: 15 }}>＋</span> Add account
                   </button>
                 )}
@@ -6745,6 +6679,7 @@ function AdminPage({ user }) {
   const [banForm,        setBanForm]        = useState({}); // { [userId]: { open, reason, type } }
   const [kycChecks,      setKycChecks]      = useState([]);
   const [dealsRevenue,   setDealsRevenue]   = useState(null);
+  const [chaseMsg,       setChaseMsg]       = useState({});
 
   useEffect(() => {
     (async () => {
@@ -6920,6 +6855,25 @@ function AdminPage({ user }) {
       setCommMod(prev => prev ? { ...prev, bans: prev.bans.filter(b => b.id !== banId) } : prev);
       setCommMsg("User unbanned.");
       setTimeout(() => setCommMsg(""), 3000);
+    }
+  }
+
+  async function handleChaseFee(dealId) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    setChaseMsg(prev => ({ ...prev, [dealId]: "Sending…" }));
+    const res = await fetch("/api/admin-reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "chase-finder-fee", deal_id: dealId }),
+    });
+    if (res.ok) {
+      setChaseMsg(prev => ({ ...prev, [dealId]: "Chased!" }));
+      setTimeout(() => setChaseMsg(prev => { const n = { ...prev }; delete n[dealId]; return n; }), 4000);
+    } else {
+      const j = await res.json();
+      setChaseMsg(prev => ({ ...prev, [dealId]: j.error || "Failed" }));
+      setTimeout(() => setChaseMsg(prev => { const n = { ...prev }; delete n[dealId]; return n; }), 4000);
     }
   }
 
@@ -7279,6 +7233,36 @@ function AdminPage({ user }) {
             ))}
           </div>
         )}
+        {dealsRevenue && (() => {
+          // Build monthly revenue chart data from confirmed deals
+          const confirmedDeals = (dealsRevenue.deals || []).filter(d => d.deal_confirmed_at && d.finder_fee_status === "paid");
+          const monthMap = {};
+          for (const d of confirmedDeals) {
+            const dt = new Date(d.deal_confirmed_at);
+            const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+            const label = dt.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+            if (!monthMap[key]) monthMap[key] = { key, label, revenue: 0 };
+            monthMap[key].revenue += Number(d.agreed_amount) * 0.01;
+          }
+          const chartData = Object.keys(monthMap).sort().map(k => ({
+            label: monthMap[k].label,
+            revenue: Math.round(monthMap[k].revenue * 100) / 100,
+          }));
+          if (chartData.length === 0) return null;
+          return (
+            <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1rem", marginBottom: "1.25rem" }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 10 }}>Monthly revenue — finder's fees collected</div>
+              <ResponsiveContainer width="100%" height={120}>
+                <BarChart data={chartData} margin={{ top: 2, right: 4, left: -20, bottom: 2 }}>
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#aaa" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "#aaa" }} tickFormatter={v => `£${v}`} />
+                  <Tooltip formatter={v => [`£${Number(v).toLocaleString("en-GB", { minimumFractionDigits: 2 })}`, "Revenue"]} contentStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="revenue" fill="#0F6E56" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          );
+        })()}
         {!dealsRevenue ? (
           <div style={{ fontSize: 13, color: "#64748B", background: "#f9f9f7", borderRadius: 8, padding: "1rem" }}>Loading deals…</div>
         ) : (dealsRevenue.deals || []).filter(d => d.deal_confirmed_at).length === 0 ? (
@@ -7288,6 +7272,7 @@ function AdminPage({ user }) {
             {(dealsRevenue.deals || []).filter(d => d.deal_confirmed_at).map(deal => {
               const fee = (Number(deal.agreed_amount) * 0.01).toFixed(2);
               const paid = deal.finder_fee_status === "paid";
+              const msg = chaseMsg[deal.id];
               return (
                 <div key={deal.id} style={{ background: "#fff", border: `0.5px solid ${paid ? "#A8DFC9" : "#FCD34D"}`, borderRadius: 10, padding: "0.9rem 1.25rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -7297,9 +7282,21 @@ function AdminPage({ user }) {
                       {deal.deal_confirmed_at && ` · ${new Date(deal.deal_confirmed_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`}
                     </div>
                   </div>
-                  <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20, background: paid ? "#E1F5EE" : "#FEF3C7", color: paid ? "#0F6E56" : "#B45309", flexShrink: 0 }}>
-                    {paid ? "Fee paid" : "Fee unpaid"}
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                    {!paid && (
+                      msg ? (
+                        <span style={{ fontSize: 11, color: msg === "Chased!" ? "#0F6E56" : "#DC2626" }}>{msg}</span>
+                      ) : (
+                        <button onClick={() => handleChaseFee(deal.id)}
+                          style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 20, background: "#FEF3C7", color: "#B45309", border: "1px solid #FCD34D", cursor: "pointer" }}>
+                          Chase payment
+                        </button>
+                      )
+                    )}
+                    <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20, background: paid ? "#E1F5EE" : "#FEF2F2", color: paid ? "#0F6E56" : "#DC2626" }}>
+                      {paid ? "Fee paid" : "Fee unpaid"}
+                    </span>
+                  </div>
                 </div>
               );
             })}
@@ -18386,31 +18383,43 @@ function OnboardingChecklist({ user, setPage }) {
 }
 
 // ─── SWITCH ACCOUNT PAGE ──────────────────────────────────────────────────────
-function SwitchAccountPage({ user, setPage }) {
+function SwitchAccountPage({ user, setPage, onLoginSuccess }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const savedSessionRef = useRef(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      savedSessionRef.current = session;
+    });
+  }, []);
+
+  async function restorePrevSession() {
+    const s = savedSessionRef.current;
+    if (s) {
+      await supabase.auth.setSession({ access_token: s.access_token, refresh_token: s.refresh_token });
+    }
+  }
+
+  async function handleCancel() {
+    await restorePrevSession();
+    setPage("profile-menu");
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
     setLoading(true);
     setError("");
-    // Capture current session so we can restore it if the new login fails
-    const { data: { session: prevSession } } = await supabase.auth.getSession();
     const { data, error: loginErr } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (loginErr) {
-      // Restore the previous session — keeps the current user logged in
-      if (prevSession) {
-        await supabase.auth.setSession({
-          access_token: prevSession.access_token,
-          refresh_token: prevSession.refresh_token,
-        });
-      }
+      await restorePrevSession();
       setError(loginErr.message);
       return;
     }
+    console.log("[SwitchAccount] login succeeded, navigating to dashboard", data?.user?.email);
     if (data?.user && data?.session) {
       upsertSavedAccount({
         user_id: data.user.id, email: data.user.email,
@@ -18419,13 +18428,15 @@ function SwitchAccountPage({ user, setPage }) {
         access_token: data.session.access_token, refresh_token: data.session.refresh_token,
       });
     }
-    setPage("home");
+    // Auth listener handles navigation via onAuthStateChange SIGNED_IN,
+    // but call onLoginSuccess as a fallback in case event fired before this point.
+    if (onLoginSuccess) onLoginSuccess(data?.user ?? null);
   }
 
   return (
     <div style={{ minHeight: "100vh", background: "#f5f5f5", paddingBottom: "calc(60px + env(safe-area-inset-bottom, 0px))" }}>
       <div style={{ background: "#1E3A5F", position: "sticky", top: 0, zIndex: 100, height: 56, display: "flex", alignItems: "center" }}>
-        <button onClick={() => setPage("profile-menu")} style={{ background: "none", border: "none", cursor: "pointer", color: "#fff", display: "flex", alignItems: "center", padding: "8px 14px", lineHeight: 0 }}>
+        <button onClick={handleCancel} style={{ background: "none", border: "none", cursor: "pointer", color: "#fff", display: "flex", alignItems: "center", padding: "8px 14px", lineHeight: 0 }}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
         </button>
         <div style={{ flex: 1, textAlign: "center", color: "#fff", fontWeight: 600, fontSize: 17, marginRight: 44 }}>Switch account</div>
@@ -18442,7 +18453,7 @@ function SwitchAccountPage({ user, setPage }) {
             style={{ height: 52, background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 10, fontSize: 16, fontWeight: 600, cursor: loading ? "default" : "pointer", marginTop: 4 }}>
             {loading ? "Logging in…" : "Log in as different user"}
           </button>
-          <button type="button" onClick={() => setPage("profile-menu")}
+          <button type="button" onClick={handleCancel}
             style={{ height: 52, background: "transparent", color: "#64748B", border: "1px solid #E2E8F0", borderRadius: 10, fontSize: 16, cursor: "pointer" }}>
             Cancel
           </button>
@@ -18457,23 +18468,7 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
   const role = user?.user_metadata?.role;
   const avatarUrl = user?.user_metadata?.avatar_url;
   const displayName = user?.user_metadata?.name || user?.email?.split("@")[0] || "";
-  const [savedAccountsError, setSavedAccountsError] = useState("");
-
   const savedAccounts = getSavedAccounts().filter(a => a.user_id !== user?.id);
-
-  async function handleSwitchToSaved(acct) {
-    setSavedAccountsError("");
-    const { error: sessErr } = await supabase.auth.setSession({
-      access_token: acct.access_token,
-      refresh_token: acct.refresh_token,
-    });
-    if (sessErr) {
-      removeSavedAccount(acct.user_id);
-      setSavedAccountsError("Session expired for " + acct.email + ". Please log in again.");
-      return;
-    }
-    setPage("home");
-  }
 
   async function handleGoToSwitchPage() {
     const { data: { session: curSess } } = await supabase.auth.getSession();
@@ -18540,7 +18535,7 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
           {savedAccounts.length > 0 && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: "0 20px 8px" }}>
               {savedAccounts.map(acct => (
-                <button key={acct.user_id} onClick={() => handleSwitchToSaved(acct)}
+                <button key={acct.user_id} onClick={handleGoToSwitchPage}
                   style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 6px 8px", borderRadius: 24, border: "1px solid #E2E8F0", background: "#F8FAFC", cursor: "pointer", maxWidth: "100%" }}
                   onTouchStart={e => e.currentTarget.style.background = "#EEF2FF"}
                   onTouchEnd={e => e.currentTarget.style.background = "#F8FAFC"}
@@ -18559,7 +18554,6 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
               ))}
             </div>
           )}
-          {savedAccountsError && <div style={{ fontSize: 12, color: "#DC2626", padding: "0 20px 8px" }}>{savedAccountsError}</div>}
           {getSavedAccounts().length < 3 && (
             <button onClick={handleGoToSwitchPage}
               style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "0 20px", fontSize: 14, background: "transparent", border: "none", cursor: "pointer", minHeight: 44, color: "#3B82F6", fontWeight: 500 }}
@@ -19162,8 +19156,10 @@ export default function App() {
         if (meta.appearance_accent_colour)              setAccentColor(meta.appearance_accent_colour);
         if (meta.appearance_font_size)                  setFontSize(meta.appearance_font_size);
         if (meta.appearance_density)                    setDensity(meta.appearance_density);
-        // Start login loader as early as possible when signing in from auth page
-        if (pageRef.current === "auth") setLoginLoading(true);
+        // Start login loader when signing in from auth page or switch-account page
+        if (pageRef.current === "auth" || pageRef.current === "switch-account") setLoginLoading(true);
+        // Navigate to dashboard when completing a switch-account login
+        if (pageRef.current === "switch-account") setPage("home");
       } else if (event === "SIGNED_OUT") {
         // Skip logout side-effects during an account-switch attempt — the switch
         // handler will restore the session if the new login fails.
@@ -19349,7 +19345,7 @@ export default function App() {
           {page === "forgot-password"  && <ForgotPasswordPage setPage={navigateTo} />}
           {page === "reset-password"   && <ResetPasswordPage  setPage={navigateTo} />}
           {page === "profile-menu"     && user && <ProfileMenuPage   user={user} setPage={navigateTo} onLogout={handleLogout} />}
-          {page === "switch-account"   && <SwitchAccountPage user={user} setPage={navigateTo} />}
+          {page === "switch-account"   && <SwitchAccountPage user={user} setPage={navigateTo} onLoginSuccess={handleLoginSuccess} />}
           {page === "account"          && user && <AccountPage      user={user} setPage={navigateTo} userProfile={userProfile} viewerRoleProfile={viewerRoleProfile} onReplayTour={handleReplayTour} darkMode={darkMode} setDarkMode={setDarkMode} accentColor={accentColor} setAccentColor={setAccentColor} fontSize={fontSize} setFontSize={setFontSize} density={density} setDensity={setDensity} />}
           {page === "profile-setup"   && user && <ProfileSetupPage user={user} setPage={navigateTo} setCelebration={setCelebration} />}
           {page === "messages"         && user && <MessagesPage user={user} initialConversationId={openConversationId} setPage={navigateTo} onViewProfile={handleViewProfile} onViewBuilderProfile={handleViewBuilderProfile} />}
