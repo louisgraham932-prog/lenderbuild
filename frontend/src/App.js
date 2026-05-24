@@ -1634,16 +1634,38 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
             const savedAccounts = getSavedAccounts();
             const otherAccounts = savedAccounts.filter(a => a.user_id !== user?.id);
 
-            async function goToSwitchPage() {
+            async function doNavSwitch(acct) {
+              // Show overlay immediately before any async work
+              const overlay = document.createElement("div");
+              overlay.style.cssText = "position:fixed;inset:0;z-index:9999;background:#1E3A5F;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;";
+              overlay.innerHTML = `<div style="font-family:'Playfair Display',Georgia,serif;font-size:28px;font-weight:700;letter-spacing:-0.5px;"><span style="color:#fff">Lender</span><span style="color:#3B82F6">Build</span></div><div style="display:flex;align-items:center;gap:10px;color:rgba(255,255,255,0.75);font-size:15px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:lb-spin 0.8s linear infinite"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>Switching account…</div><style>@keyframes lb-spin{to{transform:rotate(360deg)}}</style>`;
+              document.body.appendChild(overlay);
+
               const { data: { session: curSess } } = await supabase.auth.getSession();
               if (curSess && user) {
                 upsertSavedAccount({
                   user_id: user.id, email: user.email, name: displayName,
-                  avatar_url: avatarUrl || null,
+                  avatar_url: avatarUrl || null, role: user.user_metadata?.role || null,
+                  member_id: userProfile?.sequential_id || null,
                   access_token: curSess.access_token, refresh_token: curSess.refresh_token,
                 });
               }
-              go("switch-account");
+              const { error } = await supabase.auth.setSession({ access_token: acct.access_token, refresh_token: acct.refresh_token });
+              if (error) { document.body.removeChild(overlay); go("profile-menu"); return; }
+              window.location.href = "/";
+            }
+
+            async function goToAddAccount() {
+              const { data: { session: curSess } } = await supabase.auth.getSession();
+              if (curSess && user) {
+                upsertSavedAccount({
+                  user_id: user.id, email: user.email, name: displayName,
+                  avatar_url: avatarUrl || null, role: user.user_metadata?.role || null,
+                  member_id: userProfile?.sequential_id || null,
+                  access_token: curSess.access_token, refresh_token: curSess.refresh_token,
+                });
+              }
+              go("profile-menu");
             }
 
             return (
@@ -1661,7 +1683,7 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
                   <div style={{ borderBottom: "0.5px solid #f0f0f0" }}>
                     <div style={{ padding: "6px 14px 4px", fontSize: 10, fontWeight: 600, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.07em" }}>Switch account</div>
                     {otherAccounts.map(acct => (
-                      <button key={acct.user_id} onClick={goToSwitchPage}
+                      <button key={acct.user_id} onClick={() => doNavSwitch(acct)}
                         style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 14px", fontSize: 12, background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
                         onMouseEnter={e => e.currentTarget.style.background = "#f9f9f7"}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}
@@ -1671,7 +1693,17 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
                           : <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#EBF2FF", color: "#1E3A5F", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{nameInitials(acct.name)}</div>
                         }
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 500, color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.name || acct.email.split("@")[0]}</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "nowrap" }}>
+                            <span style={{ fontWeight: 500, color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.name || acct.email.split("@")[0]}</span>
+                            {acct.role && (
+                              <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: acct.role === "lender" ? "#EFF6FF" : "#F0FDF4", color: acct.role === "lender" ? "#2563EB" : "#16A34A", border: `1px solid ${acct.role === "lender" ? "#BFDBFE" : "#BBF7D0"}`, flexShrink: 0, whiteSpace: "nowrap" }}>
+                                {acct.role === "lender" ? "Lender" : "Builder"}
+                              </span>
+                            )}
+                            {acct.member_id && (
+                              <span style={{ fontSize: 9, color: "#aaa", fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>{fmtId(acct.member_id)}</span>
+                            )}
+                          </div>
                           <div style={{ fontSize: 11, color: "#aaa", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.email}</div>
                         </div>
                       </button>
@@ -1692,7 +1724,7 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
                   <span style={{ fontSize: 15 }}>🔍</span>Saved searches
                 </button>
                 {savedAccounts.length < 3 && (
-                  <button onClick={goToSwitchPage} style={{ ...ddItemStyle(false), color: "#3B82F6" }}>
+                  <button onClick={goToAddAccount} style={{ ...ddItemStyle(false), color: "#3B82F6" }}>
                     <span style={{ fontSize: 15 }}>＋</span> Add account
                   </button>
                 )}
@@ -1763,10 +1795,16 @@ function AuthPage({ setPage, onLoginSuccess, initialTab = "login" }) {
     const { data: { user: freshUser } } = await supabase.auth.getUser();
     const { data: { session: freshSess } } = await supabase.auth.getSession();
     if (freshUser && freshSess) {
+      let acctRole = freshUser.user_metadata?.role || null;
+      let acctMemberId = null;
+      const { data: prof } = await supabase.from("profiles").select("role, sequential_id").eq("id", freshUser.id).maybeSingle();
+      if (!acctRole) acctRole = prof?.role || null;
+      acctMemberId = prof?.sequential_id || null;
       upsertSavedAccount({
         user_id: freshUser.id, email: freshUser.email,
         name: freshUser.user_metadata?.name || freshUser.email.split("@")[0],
-        avatar_url: freshUser.user_metadata?.avatar_url || null,
+        avatar_url: freshUser.user_metadata?.avatar_url || null, role: acctRole,
+        member_id: acctMemberId,
         access_token: freshSess.access_token, refresh_token: freshSess.refresh_token,
       });
     }
@@ -1792,10 +1830,16 @@ function AuthPage({ setPage, onLoginSuccess, initialTab = "login" }) {
     const { data: { user: freshUser } } = await supabase.auth.getUser();
     const { data: { session: freshSess } } = await supabase.auth.getSession();
     if (freshUser && freshSess) {
+      let acctRole = freshUser.user_metadata?.role || null;
+      let acctMemberId = null;
+      const { data: prof } = await supabase.from("profiles").select("role, sequential_id").eq("id", freshUser.id).maybeSingle();
+      if (!acctRole) acctRole = prof?.role || null;
+      acctMemberId = prof?.sequential_id || null;
       upsertSavedAccount({
         user_id: freshUser.id, email: freshUser.email,
         name: freshUser.user_metadata?.name || freshUser.email.split("@")[0],
-        avatar_url: freshUser.user_metadata?.avatar_url || null,
+        avatar_url: freshUser.user_metadata?.avatar_url || null, role: acctRole,
+        member_id: acctMemberId,
         access_token: freshSess.access_token, refresh_token: freshSess.refresh_token,
       });
     }
@@ -3069,11 +3113,45 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
   const [chSelectedDirector,  setChSelectedDirector]  = useState("");
   const [chDirectorMatch,     setChDirectorMatch]     = useState(true);
 
+  // Bank details (builders only)
+  const [bdAccountName,   setBdAccountName]   = useState(viewerRoleProfile?.bank_account_name || "");
+  const [bdSortCode,      setBdSortCode]      = useState(() => {
+    const sc = viewerRoleProfile?.bank_sort_code || "";
+    const d = sc.replace(/\D/g, "");
+    return d.length === 6 ? `${d.slice(0,2)}-${d.slice(2,4)}-${d.slice(4)}` : sc;
+  });
+  const [bdAccountNumber, setBdAccountNumber] = useState(viewerRoleProfile?.bank_account_number || "");
+  const [bdSaving,        setBdSaving]        = useState(false);
+  const [bdError,         setBdError]         = useState("");
+  const [bdSaved,         setBdSaved]         = useState(false);
+
   useEffect(() => { loadFactors(); }, []);
 
   async function loadFactors() {
     const { data } = await supabase.auth.mfa.listFactors();
     setFactors(data?.totp || []);
+  }
+
+  async function saveBankDetails(e) {
+    e.preventDefault();
+    setBdError("");
+    const sc = bdSortCode.replace(/\D/g, "");
+    const an = bdAccountNumber.replace(/\D/g, "");
+    if (!bdAccountName.trim()) { setBdError("Please enter the account holder name."); return; }
+    if (sc.length !== 6) { setBdError("Sort code must be 6 digits."); return; }
+    if (an.length !== 8) { setBdError("Account number must be 8 digits."); return; }
+    setBdSaving(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/save-profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "save-bank-details", bank_account_name: bdAccountName.trim(), bank_sort_code: sc, bank_account_number: an }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBdSaving(false);
+    if (!res.ok) { setBdError(d.error || "Failed to save bank details."); return; }
+    setBdSaved(true);
+    setTimeout(() => setBdSaved(false), 3000);
   }
 
   async function startEnroll() {
@@ -3387,6 +3465,87 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
           </div>
         </div>
       </div>
+      )}
+
+      {/* ─── SUB: BANK DETAILS ────────────────────────────── */}
+      {openSection === "bank-details" && role === "builder" && (
+        <div style={subPageWrap}>
+          <SubNav title="Bank Details" />
+          <div style={{ padding: "16px", maxWidth: 600, margin: "0 auto" }}>
+            <div style={card}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#1E3A5F", marginBottom: 4 }}>
+                Bank details for receiving payments
+              </div>
+              <p style={{ fontSize: 13, color: "#64748B", margin: "0 0 16px", lineHeight: 1.55 }}>
+                Enter the account you want lenders to transfer milestone payments into.
+              </p>
+
+              {/* Privacy note */}
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, background: "#F0F4FF", border: "0.5px solid #C7D7F5", borderRadius: 10, padding: "10px 12px", marginBottom: 18 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1E3A5F" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+                <span style={{ fontSize: 12, color: "#1E3A5F", lineHeight: 1.5 }}>
+                  Your bank details are only shared with lenders after a deal is confirmed and a milestone is approved. They are never publicly visible.
+                </span>
+              </div>
+
+              <form onSubmit={saveBankDetails} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 5 }}>Account holder name</label>
+                  <input
+                    type="text"
+                    value={bdAccountName}
+                    onChange={e => setBdAccountName(e.target.value)}
+                    placeholder="e.g. John Smith"
+                    style={{ width: "100%", height: 44, border: "1.5px solid #d1d5db", borderRadius: 8, padding: "0 12px", fontSize: 14, boxSizing: "border-box" }}
+                  />
+                </div>
+
+                <div style={{ display: "flex", gap: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 5 }}>Sort code</label>
+                    <input
+                      type="text"
+                      value={bdSortCode}
+                      onChange={e => {
+                        const digits = e.target.value.replace(/\D/g, "").slice(0, 6);
+                        const fmt = digits.length > 4 ? `${digits.slice(0,2)}-${digits.slice(2,4)}-${digits.slice(4)}` : digits.length > 2 ? `${digits.slice(0,2)}-${digits.slice(2)}` : digits;
+                        setBdSortCode(fmt);
+                      }}
+                      placeholder="XX-XX-XX"
+                      maxLength={8}
+                      style={{ width: "100%", height: 44, border: "1.5px solid #d1d5db", borderRadius: 8, padding: "0 12px", fontSize: 14, fontFamily: "monospace", letterSpacing: "0.05em", boxSizing: "border-box" }}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 5 }}>Account number</label>
+                    <input
+                      type="text"
+                      value={bdAccountNumber}
+                      onChange={e => setBdAccountNumber(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                      placeholder="12345678"
+                      maxLength={8}
+                      style={{ width: "100%", height: 44, border: "1.5px solid #d1d5db", borderRadius: 8, padding: "0 12px", fontSize: 14, fontFamily: "monospace", letterSpacing: "0.05em", boxSizing: "border-box" }}
+                    />
+                  </div>
+                </div>
+
+                {bdError && (
+                  <div style={{ background: "#FEE2E2", color: "#991B1B", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>{bdError}</div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={bdSaving}
+                  style={{ height: 46, background: bdSaved ? "#166534" : bdSaving ? "#aaa" : "#1E3A5F", color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 600, cursor: bdSaving ? "default" : "pointer" }}
+                >
+                  {bdSaved ? "✓ Saved" : bdSaving ? "Saving…" : "Save bank details"}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ─── SUB: APPEARANCE ──────────────────────────────── */}
@@ -3719,6 +3878,7 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
             {[
               { id: "account",       icon: "👤", title: "Account" },
               ...(role === "builder" ? [{ id: "companies-house", icon: "🏢", title: "Companies House" }] : []),
+              ...(role === "builder" ? [{ id: "bank-details", icon: "🏦", title: "Bank Details" }] : []),
               { id: "appearance",    icon: "🎨", title: "Appearance" },
               { id: "notifications", icon: "🔔", title: "Notifications" },
               { id: "privacy",       icon: "🔐", title: "Privacy" },
@@ -7734,7 +7894,7 @@ function DealConfirmWidget({ user, otherName, otherRole }) {
   if (status === "confirmed" && role === "lender") {
     return (
       <div style={{ marginTop: 10, padding: "10px 14px", background: "#EBF2FF", borderRadius: 10, fontSize: 12, color: "#1E3A5F" }}>
-        ✓ Deal confirmed for £{Number(myAmount || 0).toLocaleString()} — waiting for builder to pay the finder's fee
+        ✓ Deal confirmed for £{Number(myAmount || 0).toLocaleString()} — waiting for lender to pay the finder's fee
       </div>
     );
   }
@@ -7773,30 +7933,30 @@ function DealConfirmWidget({ user, otherName, otherRole }) {
     );
   }
 
-  // None — show the confirmation form
+  // None — show the confirmation form (large, prominent)
   return (
-    <div style={{ marginTop: 10, padding: "12px 14px", background: "#F8FAFC", border: "0.5px solid #e0e0e0", borderRadius: 10 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", marginBottom: 4 }}>
-        Confirm your deal with {otherName}
+    <div style={{ marginTop: 10, padding: "16px 18px", background: "#fff", border: "2px solid #1E3A5F", borderRadius: 12, boxShadow: "0 2px 12px rgba(30,58,95,0.08)" }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: "#1E3A5F", marginBottom: 4 }}>
+        Confirm your deal amount with {otherName}
       </div>
-      <div style={{ fontSize: 12, color: "#64748B", marginBottom: 10 }}>
-        Have you agreed to work together? Enter the total deal amount you've agreed to — both parties must confirm the same amount independently before your Project Tracker unlocks.
+      <div style={{ fontSize: 13, color: "#64748B", marginBottom: 14, lineHeight: 1.5 }}>
+        Have you verbally agreed on a deal? Enter the total amount — both of you must confirm the same figure independently. Once matched, your Project Tracker unlocks automatically.
       </div>
-      <form onSubmit={handleSubmit} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <div style={{ position: "relative" }}>
-          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#64748B" }}>£</span>
+      <form onSubmit={handleSubmit} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "stretch" }}>
+        <div style={{ position: "relative", flex: "1 1 180px" }}>
+          <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 15, color: "#64748B", fontWeight: 500 }}>£</span>
           <input
             type="number" min="100" step="any" value={inputAmt} onChange={e => setInputAmt(e.target.value)}
-            placeholder="Agreed amount" required
-            style={{ height: 36, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px 0 22px", fontSize: 13, width: 160 }}
+            placeholder="e.g. 250000" required
+            style={{ width: "100%", height: 48, border: "1.5px solid #1E3A5F", borderRadius: 8, padding: "0 12px 0 28px", fontSize: 16, fontWeight: 500, boxSizing: "border-box" }}
           />
         </div>
         <button type="submit" disabled={submitting}
-          style={{ padding: "0 16px", height: 36, background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: submitting ? "default" : "pointer" }}>
-          {submitting ? "Confirming…" : "Confirm deal"}
+          style={{ flex: "0 0 auto", padding: "0 22px", height: 48, background: submitting ? "#aaa" : "#1E3A5F", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: submitting ? "default" : "pointer" }}>
+          {submitting ? "Confirming…" : "Confirm deal amount"}
         </button>
       </form>
-      {error && <div style={{ fontSize: 12, color: "#DC2626", marginTop: 6 }}>{error}</div>}
+      {error && <div style={{ fontSize: 12, color: "#DC2626", marginTop: 8 }}>{error}</div>}
     </div>
   );
 }
@@ -9585,6 +9745,15 @@ function MessagesPage({ user, initialConversationId, setPage, onViewProfile, onV
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
                     Clear
                   </button>
+                </div>
+
+                {/* Deal confirm widget pinned above messages */}
+                <div style={{ padding: "8px 16px 0", borderBottom: "0.5px solid #f0f0f0" }}>
+                  <DealConfirmWidget
+                    user={user}
+                    otherName={getOtherName(selectedConvo)}
+                    otherRole={getOtherRole(selectedConvo).toLowerCase()}
+                  />
                 </div>
 
                 {/* Messages list */}
@@ -12966,8 +13135,8 @@ function DealRoomPage({ user, setPage, deal }) {
 
   const tabs = ["Summary", "Documents", "Timeline", "Notes", "Milestones", "Messages", "Solicitors"];
 
-  const statusColors = { pending: { bg: "#F1EFE8", text: "#5F5E5A" }, completed: { bg: "#EBF2FF", text: "#1E3A5F" }, approved: { bg: "#EEEDFE", text: "#534AB7" }, paid: { bg: "#E1F5EE", text: "#0F6E56" } };
-  const statusLabels = { pending: "Pending", completed: "Awaiting approval", approved: "Approved", paid: "Paid" };
+  const statusColors = { pending: { bg: "#F1EFE8", text: "#5F5E5A" }, completed: { bg: "#EBF2FF", text: "#1E3A5F" }, approved: { bg: "#FEF3C7", text: "#B45309" }, payment_sent: { bg: "#EEEDFE", text: "#534AB7" }, paid: { bg: "#E1F5EE", text: "#0F6E56" } };
+  const statusLabels = { pending: "Pending", completed: "Awaiting approval", approved: "Approved — awaiting transfer", payment_sent: "Transfer sent — confirm receipt", paid: "Paid" };
 
   return (
     <div style={{ maxWidth: 780, margin: "0 auto", padding: "1.5rem 1.25rem" }}>
@@ -13110,7 +13279,27 @@ function DealRoomPage({ user, setPage, deal }) {
 
       {/* ── Milestones ── */}
       {activeTab === "milestones" && (
-        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: "#1E3A5F" }}>How payments work</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+              {[
+                { n: 1, label: "Builder marks milestone complete" },
+                { n: 2, label: "Lender approves the milestone" },
+                { n: 3, label: "Platform shows builder bank details and amount due" },
+                { n: 4, label: "Lender transfers funds directly via their bank" },
+                { n: 5, label: "Lender clicks 'I have sent this payment'" },
+                { n: 6, label: "Builder confirms receipt of funds" },
+                { n: 7, label: "Milestone marked as paid" },
+              ].map((step, i, arr) => (
+                <div key={step.n} style={{ display: "flex", gap: 10, alignItems: "center", paddingBottom: i < arr.length - 1 ? 8 : 0, marginBottom: i < arr.length - 1 ? 8 : 0, borderBottom: i < arr.length - 1 ? "0.5px solid #f5f5f3" : "none" }}>
+                  <div style={{ width: 22, height: 22, borderRadius: "50%", background: "#1E3A5F", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{step.n}</div>
+                  <div style={{ fontSize: 12, color: "#333" }}>{step.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem" }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Milestones</div>
           {milestones.map((m, i) => {
             const sc = statusColors[m.status] || { bg: "#F1F5F9", text: "#64748B" };
@@ -13126,6 +13315,7 @@ function DealRoomPage({ user, setPage, deal }) {
               </div>
             );
           })}
+          </div>
         </div>
       )}
 
@@ -14188,6 +14378,30 @@ function DealsPage({ user, setPage, setCelebration }) {
 
   return (
     <div style={{ padding: "1.5rem 1.25rem", minHeight: "calc(100vh - 56px)" }}>
+
+      {/* ── How it works banner ─────────────────────────────────────────── */}
+      <div style={{ background: "#EBF2FF", border: "0.5px solid #BFDBFE", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: "1.5rem" }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>How it works</div>
+        <div style={{ display: "flex", gap: 0, flexWrap: "wrap" }}>
+          {[
+            { n: 1, label: "Connect",     desc: "Match with a lender or builder" },
+            { n: 2, label: "Agree amount", desc: "Both confirm the same deal figure" },
+            { n: 3, label: "Pay 1% fee",  desc: "Builder pays via Stripe to unlock" },
+            { n: 4, label: "Funds transfer", desc: "Lender sends funds to builder's bank" },
+            { n: 5, label: "Confirm receipt", desc: "Both parties confirm funds received" },
+          ].map((step, i, arr) => (
+            <div key={step.n} style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "4px 8px", minWidth: 70 }}>
+                <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#1E3A5F", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, marginBottom: 4 }}>{step.n}</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#1E3A5F", textAlign: "center", lineHeight: 1.2 }}>{step.label}</div>
+                <div style={{ fontSize: 10, color: "#64748B", textAlign: "center", lineHeight: 1.3, marginTop: 2 }}>{step.desc}</div>
+              </div>
+              {i < arr.length - 1 && <div style={{ fontSize: 14, color: "#93C5FD", flexShrink: 0, margin: "0 2px", alignSelf: "flex-start", marginTop: 10 }}>→</div>}
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.5rem", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 22, fontWeight: 500, margin: 0, fontFamily: "'Georgia', serif" }}>
@@ -14409,14 +14623,63 @@ function DealsPage({ user, setPage, setCelebration }) {
       {loading ? (
         <div style={{ textAlign: "center", padding: "3rem", color: "#aaa", fontSize: 14 }}>Loading…</div>
       ) : deals.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "3rem 1.5rem" }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
-          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 8 }}>No projects yet</div>
-          <div style={{ fontSize: 13, color: "#64748B", lineHeight: 1.6, maxWidth: 380, margin: "0 auto" }}>
-            {role === "lender"
-              ? "Click \"+ New project\" to create a milestone payment project with a builder."
-              : "Your lender will create a milestone payment project once you have agreed the work."}
+        <div style={{ padding: "1.5rem 0" }}>
+          <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
+            <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>No projects yet</div>
+            <div style={{ fontSize: 13, color: "#64748B", lineHeight: 1.6 }}>
+              {role === "lender"
+                ? "Click \"+ New project\" to create a milestone payment project with a builder."
+                : "Once you and your lender both confirm the same deal amount below, your project tracker unlocks automatically."}
+            </div>
           </div>
+          {role === "builder" && (() => {
+            const accepted = (user?.user_metadata?.connections || []).filter(c => c.status === "accepted");
+            if (!accepted.length) return (
+              <div style={{ background: "#F8FAFC", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem 1.5rem", textAlign: "center" }}>
+                <div style={{ fontSize: 13, color: "#64748B", marginBottom: 8 }}>You don't have any connected lenders yet.</div>
+                <button onClick={() => setPage("search")} style={{ padding: "8px 20px", background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                  Find a lender →
+                </button>
+              </div>
+            );
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {accepted.map(conn => (
+                  <div key={conn.lender_name} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem 1.5rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                      <Avatar initials={nameInitials(conn.lender_name)} color={pickColor(conn.lender_name || "")} size={32} />
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 500 }}>{conn.lender_name}</div>
+                        <div style={{ fontSize: 11, color: "#64748B" }}>{conn.lender_type || "Lender"} · Connected</div>
+                      </div>
+                    </div>
+                    <DealConfirmWidget user={user} otherName={conn.lender_name} otherRole="lender" />
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+          {role === "lender" && (() => {
+            const accepted = (user?.user_metadata?.lender_connections || []).filter(c => c.status === "accepted");
+            if (!accepted.length) return null;
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {accepted.map(conn => (
+                  <div key={conn.builder_name} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem 1.5rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                      <Avatar initials={nameInitials(conn.builder_name)} color={pickColor(conn.builder_name || "")} size={32} />
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 500 }}>{conn.builder_name}</div>
+                        <div style={{ fontSize: 11, color: "#64748B" }}>Builder · Connected</div>
+                      </div>
+                    </div>
+                    <DealConfirmWidget user={user} otherName={conn.builder_name} otherRole="builder" />
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -14484,6 +14747,31 @@ function DealsPage({ user, setPage, setCelebration }) {
                     <div style={{ fontSize: 11, color: hasMissedRepayment ? "#B45309" : "#64748B", marginTop: 6 }}>
                       {hasMissedRepayment ? "⚠ Missed repayment — " : "Next repayment: "}
                       {fmt(nextRepayment.amount)} due {nextRepayment.due_date}
+                    </div>
+                  )}
+                  {deal.finder_fee_status !== "paid" && (
+                    <div style={{ marginTop: 12, background: role === "builder" ? "#FFF7ED" : "#EBF2FF", border: `0.5px solid ${role === "builder" ? "#FCD34D" : "#BFDBFE"}`, borderRadius: 10, padding: "10px 14px" }}>
+                      {role === "builder" ? (
+                        <>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: "#92400E", marginBottom: 6 }}>
+                            Action required — pay the 1% finder's fee to unlock milestones
+                          </div>
+                          <div style={{ fontSize: 12, color: "#78350F", marginBottom: 8 }}>
+                            Fee: <strong>£{(totalAmount(deal) * 0.01).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                            <span style={{ color: "#aaa", marginLeft: 6 }}>(1% of £{totalAmount(deal).toLocaleString()})</span>
+                          </div>
+                          <button
+                            onClick={ev => { ev.stopPropagation(); setPage("deal-detail", deal); }}
+                            style={{ padding: "8px 18px", background: "#F59E0B", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", minHeight: 36 }}
+                          >
+                            Pay finder's fee — £{(totalAmount(deal) * 0.01).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} →
+                          </button>
+                        </>
+                      ) : (
+                        <div style={{ fontSize: 12, color: "#1E3A5F" }}>
+                          Waiting for lender to pay the 1% finder's fee (£{(totalAmount(deal) * 0.01).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) before milestones unlock.
+                        </div>
+                      )}
                     </div>
                   )}
                   {["active","completed"].includes(deal.status) && (
@@ -14820,6 +15108,11 @@ function DealDetailPage({ user, setPage, deal: initialDeal, setCelebration }) {
   const [savingLegal,       setSavingLegal]       = useState(false);
   const [confirmingBank,    setConfirmingBank]    = useState(false);
   const [bankDetailsProvided, setBankDetailsProvided] = useState(!!initialDeal?.builder_bank_details_provided);
+  const [bankAccountName,   setBankAccountName]   = useState("");
+  const [bankSortCode,      setBankSortCode]      = useState("");
+  const [bankAccountNumber, setBankAccountNumber] = useState("");
+  const [markingPaymentSent, setMarkingPaymentSent] = useState(null);
+  const [confirmingMsReceipt, setConfirmingMsReceipt] = useState(null);
   const [chasingRepayment,      setChasingRepayment]      = useState(null);
   const [markingReceived,       setMarkingReceived]       = useState(null);
   const [confirmingReceiveDD,   setConfirmingReceiveDD]   = useState(null);
@@ -14920,15 +15213,59 @@ function DealDetailPage({ user, setPage, deal: initialDeal, setCelebration }) {
   }
 
   async function handleConfirmBankDetails() {
+    if (!bankAccountName.trim() || !bankSortCode.trim() || !bankAccountNumber.trim()) {
+      setError("Please enter your account name, sort code, and account number.");
+      return;
+    }
     setConfirmingBank(true);
+    setError("");
     const { data: { session } } = await supabase.auth.getSession();
     const res = await fetch("/api/deals", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ action: "confirm-bank-details" }),
+      body: JSON.stringify({ action: "confirm-bank-details", account_name: bankAccountName.trim(), sort_code: bankSortCode.trim(), account_number: bankAccountNumber.trim() }),
     });
+    const d = await res.json().catch(() => ({}));
     setConfirmingBank(false);
-    if (res.ok) setBankDetailsProvided(true);
+    if (!res.ok) { setError(d.error || "Failed to save bank details."); return; }
+    setBankDetailsProvided(true);
+  }
+
+  async function handleMarkPaymentSent(milestoneId) {
+    setMarkingPaymentSent(milestoneId);
+    setError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/deals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "mark-payment-sent", milestone_id: milestoneId }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setMarkingPaymentSent(null);
+    if (!res.ok) { setError(d.error || "Failed to mark payment as sent."); return; }
+    setMilestones(prev => prev.map(m => m.id === milestoneId ? { ...m, status: "payment_sent" } : m));
+  }
+
+  async function handleConfirmReceipt(milestoneId) {
+    setConfirmingMsReceipt(milestoneId);
+    setError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/deals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "confirm-receipt", milestone_id: milestoneId }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setConfirmingMsReceipt(null);
+    if (!res.ok) { setError(d.error || "Failed to confirm receipt."); return; }
+    setMilestones(prev => prev.map(m => m.id === milestoneId ? { ...m, status: "paid" } : m));
+    if (setCelebration) {
+      const celKey = "lb_cel_ms_paid";
+      if (!localStorage.getItem(celKey)) {
+        localStorage.setItem(celKey, "1");
+        setCelebration({ message: "Payment confirmed!", subtitle: "Milestone complete — great progress." });
+      }
+    }
   }
 
   async function handleChaseRepayment(repaymentId) {
@@ -14973,16 +15310,18 @@ function DealDetailPage({ user, setPage, deal: initialDeal, setCelebration }) {
   }
 
   const statusColors = {
-    pending:   { bg: "#F1EFE8", text: "#5F5E5A" },
-    completed: { bg: "#EBF2FF", text: "#1E3A5F" },
-    approved:  { bg: "#EEEDFE", text: "#534AB7" },
-    paid:      { bg: "#E1F5EE", text: "#0F6E56" },
+    pending:       { bg: "#F1EFE8", text: "#5F5E5A" },
+    completed:     { bg: "#EBF2FF", text: "#1E3A5F" },
+    approved:      { bg: "#FEF3C7", text: "#B45309" },
+    payment_sent:  { bg: "#EEEDFE", text: "#534AB7" },
+    paid:          { bg: "#E1F5EE", text: "#0F6E56" },
   };
   const statusLabels = {
-    pending:   "Pending",
-    completed: "Awaiting approval",
-    approved:  "Approved — payment initiated",
-    paid:      "Paid",
+    pending:       "Pending",
+    completed:     "Awaiting approval",
+    approved:      "Approved — transfer required",
+    payment_sent:  "Transfer sent — confirm receipt",
+    paid:          "Paid",
   };
 
   async function handlePhotoUpload(milestoneId, file) {
@@ -15134,19 +15473,7 @@ ${initialDeal.agreement_signed_builder_at ? `Signed electronically ${new Date(in
     const d = await res.json().catch(() => ({}));
     setApprovingId(null);
     if (!res.ok) { setError(d.error || "Failed to approve."); return; }
-    // Celebration: first milestone approved
-    if (setCelebration) {
-      const celKey = "lb_cel_first_ms_approved";
-      if (!localStorage.getItem(celKey)) {
-        localStorage.setItem(celKey, "1");
-        setCelebration({ message: "Milestone approved!", subtitle: "Payment is being processed for your builder." });
-      }
-    }
-    if (d.checkout_url) {
-      window.location.href = d.checkout_url;
-    } else {
-      setMilestones(prev => prev.map(m => m.id === milestoneId ? { ...m, status: "approved" } : m));
-    }
+    setMilestones(prev => prev.map(m => m.id === milestoneId ? { ...m, status: "approved" } : m));
   }
 
   if (!initialDeal) return null;
@@ -15506,14 +15833,35 @@ ${initialDeal.agreement_signed_builder_at ? `Signed electronically ${new Date(in
               <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                 <div style={{ width: 22, height: 22, borderRadius: "50%", background: step4Done ? "#0F6E56" : "#e0e0e0", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>{step4Done ? "✓" : "4"}</div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2 }}>Builder has provided bank details</div>
+                  <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>Builder's bank details for payment</div>
                   {step4Done
-                    ? <div style={{ fontSize: 12, color: "#0F6E56" }}>Builder has confirmed their bank details.</div>
+                    ? <div style={{ fontSize: 12, color: "#0F6E56" }}>Bank details saved. The lender will see these when transferring payments.</div>
                     : role === "builder"
-                    ? <button onClick={handleConfirmBankDetails} disabled={confirmingBank} style={{ marginTop: 6, padding: "6px 16px", background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: confirmingBank ? "default" : "pointer", minHeight: 32 }}>
-                        {confirmingBank ? "Saving…" : "Confirm my bank details are ready"}
-                      </button>
-                    : <div style={{ fontSize: 12, color: "#64748B" }}>Waiting for builder to confirm their bank details.</div>
+                    ? (
+                      <div>
+                        <div style={{ fontSize: 12, color: "#64748B", marginBottom: 8 }}>Enter the bank details where milestone payments should be sent.</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 340 }}>
+                          <div>
+                            <label style={{ fontSize: 11, fontWeight: 500, color: "#555", display: "block", marginBottom: 3 }}>Account name (full name on account)</label>
+                            <input value={bankAccountName} onChange={e => setBankAccountName(e.target.value)} placeholder="e.g. John Smith" style={{ width: "100%", height: 36, border: "0.5px solid #ccc", borderRadius: 7, padding: "0 10px", fontSize: 13, boxSizing: "border-box" }} />
+                          </div>
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: 11, fontWeight: 500, color: "#555", display: "block", marginBottom: 3 }}>Sort code</label>
+                              <input value={bankSortCode} onChange={e => setBankSortCode(e.target.value)} placeholder="e.g. 20-00-00" maxLength={8} style={{ width: "100%", height: 36, border: "0.5px solid #ccc", borderRadius: 7, padding: "0 10px", fontSize: 13, boxSizing: "border-box" }} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: 11, fontWeight: 500, color: "#555", display: "block", marginBottom: 3 }}>Account number</label>
+                              <input value={bankAccountNumber} onChange={e => setBankAccountNumber(e.target.value)} placeholder="e.g. 12345678" maxLength={8} style={{ width: "100%", height: 36, border: "0.5px solid #ccc", borderRadius: 7, padding: "0 10px", fontSize: 13, boxSizing: "border-box" }} />
+                            </div>
+                          </div>
+                        </div>
+                        <button onClick={handleConfirmBankDetails} disabled={confirmingBank} style={{ marginTop: 10, padding: "6px 16px", background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: confirmingBank ? "default" : "pointer", minHeight: 32 }}>
+                          {confirmingBank ? "Saving…" : "Save bank details"}
+                        </button>
+                      </div>
+                    )
+                    : <div style={{ fontSize: 12, color: "#64748B" }}>Waiting for builder to add their bank details.</div>
                   }
                 </div>
               </div>
@@ -15767,7 +16115,7 @@ ${initialDeal.agreement_signed_builder_at ? `Signed electronically ${new Date(in
               "Legal charge requirement",
               "Milestone-based payments",
               "Admin oversight",
-              "Stripe secure payments",
+              "Direct bank transfers",
             ].map(item => (
               <div key={item} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "#1E3A5F" }}>
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6.5" stroke="#16A34A" strokeWidth="1.3"/><path d="M4 7l2 2 4-4" stroke="#16A34A" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -15777,6 +16125,29 @@ ${initialDeal.agreement_signed_builder_at ? `Signed electronically ${new Date(in
           </div>
         </div>
       )}
+
+      {/* How payments work */}
+      <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.25rem" }}>
+        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: "#1E3A5F" }}>How payments work</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+          {[
+            { n: 1, title: "Builder marks milestone complete", desc: "The builder uploads proof of completion and marks the milestone as done." },
+            { n: 2, title: "Lender approves the milestone", desc: "The lender reviews the work and clicks Approve. The platform then shows the builder's bank details and the amount due." },
+            { n: 3, title: "Lender transfers funds directly", desc: "The lender transfers the exact milestone amount to the builder's bank account using their own bank (online banking, mobile app, or branch)." },
+            { n: 4, title: "Lender clicks 'I have sent this payment'", desc: "Once the transfer is made, the lender confirms on the platform. The builder is notified to expect the funds." },
+            { n: 5, title: "Builder confirms receipt", desc: "When the money arrives in their account, the builder clicks Confirm receipt on the platform." },
+            { n: 6, title: "Milestone marked complete", desc: "The milestone is recorded as paid. Both parties have a clear record of every payment made." },
+          ].map((step, i, arr) => (
+            <div key={step.n} style={{ display: "flex", gap: 12, alignItems: "flex-start", paddingBottom: i < arr.length - 1 ? 14 : 0, marginBottom: i < arr.length - 1 ? 14 : 0, borderBottom: i < arr.length - 1 ? "0.5px solid #f0f0f0" : "none" }}>
+              <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#1E3A5F", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{step.n}</div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{step.title}</div>
+                <div style={{ fontSize: 12, color: "#64748B", lineHeight: 1.5 }}>{step.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Milestones */}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -15870,11 +16241,11 @@ ${initialDeal.agreement_signed_builder_at ? `Signed electronically ${new Date(in
                 </div>
               )}
 
-              {/* Lender: approve + release payment */}
+              {/* Lender: approve milestone */}
               {role === "lender" && m.status === "completed" && (
                 <div style={{ marginTop: 12, paddingTop: 12, borderTop: "0.5px solid #f0f0f0" }}>
                   <div style={{ fontSize: 12, color: "#64748B", marginBottom: 8 }}>
-                    The builder has marked this milestone complete. Review their proof and approve to release payment via Stripe.
+                    The builder has marked this milestone complete. Review their proof, then approve to proceed to payment.
                   </div>
                   <button
                     onClick={() => handleApprove(m.id)}
@@ -15888,8 +16259,102 @@ ${initialDeal.agreement_signed_builder_at ? `Signed electronically ${new Date(in
                       width: isMobile ? "100%" : undefined,
                     }}
                   >
-                    {isApproving ? "Processing…" : `Approve & release £${Number(m.amount).toLocaleString()}`}
+                    {isApproving ? "Processing…" : "Approve milestone"}
                   </button>
+                </div>
+              )}
+
+              {/* Lender: transfer bank details + mark payment sent */}
+              {role === "lender" && m.status === "approved" && (() => {
+                const bd = initialDeal?.builder_bank_details;
+                return (
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: "0.5px solid #f0f0f0" }}>
+                    <div style={{ background: "#FEF3C7", border: "0.5px solid #FCD34D", borderRadius: 8, padding: "12px 14px", marginBottom: 12 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#92400E", marginBottom: 8 }}>Transfer this amount to the builder's bank account</div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                        <div style={{ background: "#fff", borderRadius: 7, padding: "8px 14px", flex: 1, minWidth: 90 }}>
+                          <div style={{ fontSize: 10, color: "#aaa", fontWeight: 500, marginBottom: 2 }}>AMOUNT</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#1E3A5F" }}>{fmt(m.amount)}</div>
+                        </div>
+                        {bd?.account_name && (
+                          <div style={{ background: "#fff", borderRadius: 7, padding: "8px 14px", flex: 1, minWidth: 120 }}>
+                            <div style={{ fontSize: 10, color: "#aaa", fontWeight: 500, marginBottom: 2 }}>ACCOUNT NAME</div>
+                            <div style={{ fontSize: 14, fontWeight: 600 }}>{bd.account_name}</div>
+                          </div>
+                        )}
+                        {bd?.sort_code && (
+                          <div style={{ background: "#fff", borderRadius: 7, padding: "8px 14px", flex: 1, minWidth: 90 }}>
+                            <div style={{ fontSize: 10, color: "#aaa", fontWeight: 500, marginBottom: 2 }}>SORT CODE</div>
+                            <div style={{ fontSize: 14, fontWeight: 600, letterSpacing: 1 }}>{bd.sort_code}</div>
+                          </div>
+                        )}
+                        {bd?.account_number && (
+                          <div style={{ background: "#fff", borderRadius: 7, padding: "8px 14px", flex: 1, minWidth: 100 }}>
+                            <div style={{ fontSize: 10, color: "#aaa", fontWeight: 500, marginBottom: 2 }}>ACCOUNT NUMBER</div>
+                            <div style={{ fontSize: 14, fontWeight: 600, letterSpacing: 1 }}>{bd.account_number}</div>
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#92400E", lineHeight: 1.5 }}>
+                        Use your bank's online banking, mobile app, or branch to send this transfer. Include the deal reference <strong>LB-{initialDeal?.id?.slice(0,8).toUpperCase()}</strong> in the payment reference.
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleMarkPaymentSent(m.id)}
+                      disabled={!!markingPaymentSent}
+                      style={{
+                        padding: "8px 20px", minHeight: 44,
+                        background: markingPaymentSent ? "#aaa" : "#0F6E56",
+                        color: "#fff", border: "none", borderRadius: 8,
+                        fontSize: 13, fontWeight: 600,
+                        cursor: markingPaymentSent ? "default" : "pointer",
+                        width: isMobile ? "100%" : undefined,
+                      }}
+                    >
+                      {markingPaymentSent === m.id ? "Confirming…" : "I have sent this payment"}
+                    </button>
+                  </div>
+                );
+              })()}
+
+              {/* Builder: confirm receipt */}
+              {role === "builder" && m.status === "payment_sent" && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "0.5px solid #f0f0f0" }}>
+                  <div style={{ background: "#EEEDFE", border: "0.5px solid #C5C3F9", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#534AB7", lineHeight: 1.5 }}>
+                    The lender has confirmed they have sent the bank transfer of <strong>{fmt(m.amount)}</strong>. Once the funds arrive in your account, click below to confirm receipt.
+                  </div>
+                  <button
+                    onClick={() => handleConfirmReceipt(m.id)}
+                    disabled={!!confirmingMsReceipt}
+                    style={{
+                      padding: "8px 20px", minHeight: 44,
+                      background: confirmingMsReceipt ? "#aaa" : "#0F6E56",
+                      color: "#fff", border: "none", borderRadius: 8,
+                      fontSize: 13, fontWeight: 600,
+                      cursor: confirmingMsReceipt ? "default" : "pointer",
+                      width: isMobile ? "100%" : undefined,
+                    }}
+                  >
+                    {confirmingMsReceipt === m.id ? "Confirming…" : "Confirm receipt"}
+                  </button>
+                </div>
+              )}
+
+              {/* Lender: awaiting builder confirmation */}
+              {role === "lender" && m.status === "payment_sent" && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "0.5px solid #f0f0f0" }}>
+                  <div style={{ fontSize: 12, color: "#534AB7", background: "#EEEDFE", border: "0.5px solid #C5C3F9", borderRadius: 8, padding: "10px 14px", lineHeight: 1.5 }}>
+                    You have marked this payment as sent. Waiting for the builder to confirm receipt of the funds.
+                  </div>
+                </div>
+              )}
+
+              {/* Builder: awaiting lender to send */}
+              {role === "builder" && m.status === "approved" && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "0.5px solid #f0f0f0" }}>
+                  <div style={{ fontSize: 12, color: "#B45309", background: "#FEF3C7", border: "0.5px solid #FCD34D", borderRadius: 8, padding: "10px 14px", lineHeight: 1.5 }}>
+                    Your lender has approved this milestone and will transfer <strong>{fmt(m.amount)}</strong> to your bank account. You will be notified when the payment is sent.
+                  </div>
                 </div>
               )}
             </div>
@@ -18383,104 +18848,84 @@ function OnboardingChecklist({ user, setPage }) {
 }
 
 // ─── SWITCH ACCOUNT PAGE ──────────────────────────────────────────────────────
-function SwitchAccountPage({ user, setPage, onLoginSuccess }) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const savedSessionRef = useRef(null);
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      savedSessionRef.current = session;
-    });
-  }, []);
-
-  async function restorePrevSession() {
-    const s = savedSessionRef.current;
-    if (s) {
-      await supabase.auth.setSession({ access_token: s.access_token, refresh_token: s.refresh_token });
-    }
-  }
-
-  async function handleCancel() {
-    await restorePrevSession();
-    setPage("profile-menu");
-  }
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
-    const { data, error: loginErr } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (loginErr) {
-      await restorePrevSession();
-      setError(loginErr.message);
-      return;
-    }
-    // Navigate immediately — auth listener is suppressed during switch-account
-    if (onLoginSuccess) onLoginSuccess(data.user);
-    // Save account for quick switching (non-blocking)
-    try {
-      if (data?.user && data?.session) {
-        upsertSavedAccount({
-          user_id: data.user.id, email: data.user.email,
-          name: data.user.user_metadata?.name || data.user.email.split("@")[0],
-          avatar_url: data.user.user_metadata?.avatar_url || null,
-          access_token: data.session.access_token, refresh_token: data.session.refresh_token,
-        });
-      }
-    } catch (_) {}
-  }
-
-  return (
-    <div style={{ minHeight: "100vh", background: "#f5f5f5", paddingBottom: "calc(60px + env(safe-area-inset-bottom, 0px))" }}>
-      <div style={{ background: "#1E3A5F", position: "sticky", top: 0, zIndex: 100, height: 56, display: "flex", alignItems: "center" }}>
-        <button onClick={handleCancel} style={{ background: "none", border: "none", cursor: "pointer", color: "#fff", display: "flex", alignItems: "center", padding: "8px 14px", lineHeight: 0 }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
-        </button>
-        <div style={{ flex: 1, textAlign: "center", color: "#fff", fontWeight: 600, fontSize: 17, marginRight: 44 }}>Switch account</div>
-      </div>
-      <div style={{ padding: "28px 20px" }}>
-        <p style={{ fontSize: 14, color: "#64748B", marginBottom: 24, lineHeight: 1.5 }}>Log in as a different user. Your current account will be saved for quick switching.</p>
-        {error && <div style={{ background: "#FEF2F2", color: "#DC2626", padding: "12px 16px", borderRadius: 10, fontSize: 14, marginBottom: 16 }}>{error}</div>}
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <input type="email" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} required autoFocus
-            style={{ height: 52, border: "1px solid #E2E8F0", borderRadius: 10, padding: "0 16px", fontSize: 16, outline: "none", background: "#fff", width: "100%", boxSizing: "border-box" }} />
-          <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required
-            style={{ height: 52, border: "1px solid #E2E8F0", borderRadius: 10, padding: "0 16px", fontSize: 16, outline: "none", background: "#fff", width: "100%", boxSizing: "border-box" }} />
-          <button type="submit" disabled={loading}
-            style={{ height: 52, background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 10, fontSize: 16, fontWeight: 600, cursor: loading ? "default" : "pointer", marginTop: 4 }}>
-            {loading ? "Logging in…" : "Log in as different user"}
-          </button>
-          <button type="button" onClick={handleCancel}
-            style={{ height: 52, background: "transparent", color: "#64748B", border: "1px solid #E2E8F0", borderRadius: 10, fontSize: 16, cursor: "pointer" }}>
-            Cancel
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
 // ─── PROFILE MENU PAGE ────────────────────────────────────────────────────────
 function ProfileMenuPage({ user, setPage, onLogout }) {
   const role = user?.user_metadata?.role;
   const avatarUrl = user?.user_metadata?.avatar_url;
   const displayName = user?.user_metadata?.name || user?.email?.split("@")[0] || "";
-  const savedAccounts = getSavedAccounts().filter(a => a.user_id !== user?.id);
+  const [savedAccounts, setSavedAccounts] = useState(() => getSavedAccounts().filter(a => a.user_id !== user?.id));
+  const [switchLoadingId, setSwitchLoadingId] = useState(null);
+  const [showSwitchOverlay, setShowSwitchOverlay] = useState(false);
+  const [expiredAcct, setExpiredAcct] = useState(null);
+  const [expiredPassword, setExpiredPassword] = useState("");
+  const [expiredError, setExpiredError] = useState("");
+  const [addingAccount, setAddingAccount] = useState(false);
+  const [addEmail, setAddEmail] = useState("");
+  const [addPassword, setAddPassword] = useState("");
+  const [addLoading, setAddLoading] = useState(false);
+  const [addError, setAddError] = useState("");
 
-  async function handleGoToSwitchPage() {
+  async function saveCurrentSession() {
     const { data: { session: curSess } } = await supabase.auth.getSession();
     if (curSess && user) {
+      const { data: prof } = await supabase.from("profiles").select("sequential_id").eq("id", user.id).maybeSingle();
       upsertSavedAccount({
         user_id: user.id, email: user.email, name: displayName,
-        avatar_url: avatarUrl || null,
+        avatar_url: avatarUrl || null, role: role || null,
+        member_id: prof?.sequential_id || null,
         access_token: curSess.access_token, refresh_token: curSess.refresh_token,
       });
     }
-    setPage("switch-account");
+  }
+
+  function doSwitchRedirect() {
+    setShowSwitchOverlay(true);
+    setTimeout(() => { window.location.href = "/"; }, 300);
+  }
+
+  async function handleSwitch(acct) {
+    setSwitchLoadingId(acct.user_id);
+    await saveCurrentSession();
+    const { error } = await supabase.auth.setSession({ access_token: acct.access_token, refresh_token: acct.refresh_token });
+    if (error) {
+      setSwitchLoadingId(null);
+      setExpiredAcct(acct);
+      setExpiredPassword("");
+      setExpiredError("");
+      return;
+    }
+    doSwitchRedirect();
+  }
+
+  async function handleSwitchWithPassword(e) {
+    e.preventDefault();
+    setSwitchLoadingId(expiredAcct.user_id);
+    setExpiredError("");
+    const { data, error } = await supabase.auth.signInWithPassword({ email: expiredAcct.email, password: expiredPassword });
+    if (error) { setSwitchLoadingId(null); setExpiredError(error.message); return; }
+    upsertSavedAccount({ ...expiredAcct, access_token: data.session.access_token, refresh_token: data.session.refresh_token });
+    doSwitchRedirect();
+  }
+
+  async function handleAddAccount(e) {
+    e.preventDefault();
+    setAddLoading(true);
+    setAddError("");
+    const { data, error } = await supabase.auth.signInWithPassword({ email: addEmail, password: addPassword });
+    setAddLoading(false);
+    if (error) { setAddError(error.message); return; }
+    await saveCurrentSession();
+    let newAcctRole = data.user.user_metadata?.role || null;
+    const { data: newProf } = await supabase.from("profiles").select("role, sequential_id").eq("id", data.user.id).maybeSingle();
+    if (!newAcctRole) newAcctRole = newProf?.role || null;
+    upsertSavedAccount({
+      user_id: data.user.id, email: data.user.email,
+      name: data.user.user_metadata?.name || data.user.email.split("@")[0],
+      avatar_url: data.user.user_metadata?.avatar_url || null,
+      role: newAcctRole, member_id: newProf?.sequential_id || null,
+      access_token: data.session.access_token, refresh_token: data.session.refresh_token,
+    });
+    window.location.href = "/";
   }
 
   const navItems = [
@@ -18498,6 +18943,19 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
 
   return (
     <div style={{ minHeight: "100vh", background: "#f5f5f5", paddingBottom: "calc(60px + env(safe-area-inset-bottom, 0px))" }}>
+      {/* Switch account overlay */}
+      {showSwitchOverlay && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "#1E3A5F", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20 }}>
+          <div style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 28, fontWeight: 700, letterSpacing: -0.5 }}>
+            <span style={{ color: "#fff" }}>Lender</span><span style={{ color: "#3B82F6" }}>Build</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, color: "rgba(255,255,255,0.75)", fontSize: 15 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "lb-spin 0.8s linear infinite" }}><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+            Switching account…
+          </div>
+          <style>{`@keyframes lb-spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
       {/* Navbar */}
       <div style={{ background: "#1E3A5F", position: "sticky", top: 0, zIndex: 100, height: 56, display: "flex", alignItems: "center" }}>
         <button onClick={() => setPage("home")} style={{ background: "none", border: "none", cursor: "pointer", color: "#fff", display: "flex", alignItems: "center", padding: "8px 14px", lineHeight: 0 }}>
@@ -18514,50 +18972,74 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
         }
         <div style={{ fontWeight: 700, fontSize: 18, color: "#1E3A5F", marginBottom: 8 }}>{displayName}</div>
         {role && <RoleBadge userRole={role} authRole={role} />}
-        {/* Action pills */}
+        {/* Action pill */}
         <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
           <button onClick={onLogout}
             style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 18px", borderRadius: 24, border: "1.5px solid #D1D5DB", background: "transparent", color: "#374151", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
             Log out
           </button>
-          <button onClick={handleGoToSwitchPage}
-            style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 18px", borderRadius: 24, border: "1.5px solid #D1D5DB", background: "transparent", color: "#374151", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
-            Switch account
-          </button>
         </div>
       </div>
 
-      {/* Saved accounts */}
+      {/* Saved accounts — one-tap switch */}
       {(savedAccounts.length > 0 || getSavedAccounts().length < 3) && (
-        <div style={{ background: "#fff", marginTop: 12, paddingBottom: 4 }}>
-          <div style={{ padding: "10px 20px 6px", fontSize: 11, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.07em" }}>Saved accounts</div>
-          {savedAccounts.length > 0 && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: "0 20px 8px" }}>
-              {savedAccounts.map(acct => (
-                <button key={acct.user_id} onClick={handleGoToSwitchPage}
-                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 6px 8px", borderRadius: 24, border: "1px solid #E2E8F0", background: "#F8FAFC", cursor: "pointer", maxWidth: "100%" }}
-                  onTouchStart={e => e.currentTarget.style.background = "#EEF2FF"}
-                  onTouchEnd={e => e.currentTarget.style.background = "#F8FAFC"}
-                  onMouseEnter={e => e.currentTarget.style.background = "#EEF2FF"}
-                  onMouseLeave={e => e.currentTarget.style.background = "#F8FAFC"}
-                >
-                  {acct.avatar_url
-                    ? <img src={acct.avatar_url} alt="" style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
-                    : <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#1E3A5F", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{nameInitials(acct.name || acct.email)}</div>
-                  }
-                  <div style={{ textAlign: "left", minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.name || acct.email.split("@")[0]}</div>
-                    <div style={{ fontSize: 11, color: "#94A3B8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Tap to switch</div>
+        <div style={{ background: "#fff", marginTop: 12 }}>
+          <div style={{ padding: "10px 20px 6px", fontSize: 11, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.07em" }}>Switch account</div>
+          {savedAccounts.map(acct => (
+            <div key={acct.user_id}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 20px", borderBottom: "1px solid #F1F5F9" }}>
+                {acct.avatar_url
+                  ? <img src={acct.avatar_url} alt="" style={{ width: 38, height: 38, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+                  : <div style={{ width: 38, height: 38, borderRadius: "50%", background: "#1E3A5F", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{nameInitials(acct.name || acct.email)}</div>
+                }
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap" }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.name || acct.email.split("@")[0]}</span>
+                    {acct.role && (
+                      <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 10, background: acct.role === "lender" ? "#EFF6FF" : "#F0FDF4", color: acct.role === "lender" ? "#2563EB" : "#16A34A", border: `1px solid ${acct.role === "lender" ? "#BFDBFE" : "#BBF7D0"}`, flexShrink: 0, whiteSpace: "nowrap" }}>
+                        {acct.role === "lender" ? "Lender" : "Builder"}
+                      </span>
+                    )}
+                    {acct.member_id && (
+                      <span style={{ fontSize: 10, color: "#aaa", fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>{fmtId(acct.member_id)}</span>
+                    )}
                   </div>
+                  <div style={{ fontSize: 11, color: "#94A3B8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.email}</div>
+                </div>
+                <button onClick={() => handleSwitch(acct)} disabled={switchLoadingId !== null || showSwitchOverlay}
+                  style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 20, border: "1.5px solid #1E3A5F", background: switchLoadingId === acct.user_id || showSwitchOverlay ? "#1E3A5F" : "transparent", color: switchLoadingId === acct.user_id || showSwitchOverlay ? "#fff" : "#1E3A5F", fontSize: 13, fontWeight: 600, cursor: (switchLoadingId !== null || showSwitchOverlay) ? "default" : "pointer", whiteSpace: "nowrap", transition: "background 0.15s, color 0.15s" }}>
+                  {(switchLoadingId === acct.user_id || showSwitchOverlay) && (
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ animation: "lb-spin 0.8s linear infinite", flexShrink: 0 }}><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+                  )}
+                  {switchLoadingId === acct.user_id || showSwitchOverlay ? "Switching…" : `Switch to ${acct.name?.split(" ")[0] || acct.email.split("@")[0]}`}
                 </button>
-              ))}
+              </div>
+              {/* Inline password prompt when token is expired */}
+              {expiredAcct?.user_id === acct.user_id && (
+                <form onSubmit={handleSwitchWithPassword} style={{ padding: "12px 20px 16px", background: "#FFFBEB", borderBottom: "1px solid #F1F5F9" }}>
+                  <div style={{ fontSize: 13, color: "#92400E", marginBottom: 10 }}>Session expired — enter password for {acct.email}</div>
+                  {expiredError && <div style={{ fontSize: 13, color: "#DC2626", marginBottom: 8 }}>{expiredError}</div>}
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input type="password" placeholder="Password" value={expiredPassword} onChange={e => setExpiredPassword(e.target.value)} required autoFocus
+                      style={{ flex: 1, height: 42, border: "1px solid #E2E8F0", borderRadius: 8, padding: "0 12px", fontSize: 15, outline: "none" }} />
+                    <button type="submit" disabled={switchLoadingId !== null}
+                      style={{ padding: "0 16px", height: 42, background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+                      {switchLoadingId === acct.user_id ? "…" : "Go"}
+                    </button>
+                    <button type="button" onClick={() => setExpiredAcct(null)}
+                      style={{ padding: "0 12px", height: 42, background: "transparent", color: "#64748B", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 14, cursor: "pointer" }}>
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
-          )}
-          {getSavedAccounts().length < 3 && (
-            <button onClick={handleGoToSwitchPage}
-              style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "0 20px", fontSize: 14, background: "transparent", border: "none", cursor: "pointer", minHeight: 44, color: "#3B82F6", fontWeight: 500 }}
+          ))}
+          {/* Add account */}
+          {getSavedAccounts().length < 3 && !addingAccount && (
+            <button onClick={() => setAddingAccount(true)}
+              style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "0 20px", fontSize: 14, background: "transparent", border: "none", cursor: "pointer", minHeight: 48, color: "#3B82F6", fontWeight: 500 }}
               onTouchStart={e => e.currentTarget.style.background = "#EFF6FF"}
               onTouchEnd={e => e.currentTarget.style.background = "transparent"}
               onMouseEnter={e => e.currentTarget.style.background = "#EFF6FF"}
@@ -18568,6 +19050,28 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
               </div>
               Add account
             </button>
+          )}
+          {addingAccount && (
+            <form onSubmit={handleAddAccount} style={{ padding: "14px 20px 18px" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", marginBottom: 10 }}>Log in to another account</div>
+              {addError && <div style={{ fontSize: 13, color: "#DC2626", marginBottom: 8 }}>{addError}</div>}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <input type="email" placeholder="Email" value={addEmail} onChange={e => setAddEmail(e.target.value)} required autoFocus
+                  style={{ height: 44, border: "1px solid #E2E8F0", borderRadius: 8, padding: "0 12px", fontSize: 15, outline: "none" }} />
+                <input type="password" placeholder="Password" value={addPassword} onChange={e => setAddPassword(e.target.value)} required
+                  style={{ height: 44, border: "1px solid #E2E8F0", borderRadius: 8, padding: "0 12px", fontSize: 15, outline: "none" }} />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="submit" disabled={addLoading}
+                    style={{ flex: 1, height: 44, background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: addLoading ? "default" : "pointer" }}>
+                    {addLoading ? "Signing in…" : "Log in"}
+                  </button>
+                  <button type="button" onClick={() => { setAddingAccount(false); setAddEmail(""); setAddPassword(""); setAddError(""); }}
+                    style={{ padding: "0 16px", height: 44, background: "transparent", color: "#64748B", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 14, cursor: "pointer" }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </form>
           )}
         </div>
       )}
@@ -18935,6 +19439,7 @@ export default function App() {
     return DEEP_LINK.has(path) ? path : "home";
   });
   const pageRef = useRef("home");
+  const isSwitchingAccountRef = useRef(false);
   const [authInitialTab, setAuthInitialTab]     = useState("login");
   const [user, setUser]                         = useState(null);
   const [selectedLender, setSelectedLender]     = useState(null);
@@ -19150,9 +19655,7 @@ export default function App() {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      // During an account switch handleLoginSuccess owns all state — skip listener side-effects
-      // entirely to prevent double-navigation and interference with the switch flow.
-      if (pageRef.current === "switch-account") return;
+      if (isSwitchingAccountRef.current) return;
 
       if (event === "SIGNED_IN" && session?.user) {
         setIsLoggedIn(true);
@@ -19170,7 +19673,10 @@ export default function App() {
       }
       setUser(session?.user ?? null);
       if (event === "PASSWORD_RECOVERY") setPage("reset-password");
-      if (event === "SIGNED_IN" && session?.user && !session.user.user_metadata?.profile_complete) {
+      // Only redirect to profile-setup from the auth page — not from token-refresh SIGNED_IN
+      // events that fire while already navigated elsewhere (e.g. after account switch).
+      if (event === "SIGNED_IN" && session?.user && !session.user.user_metadata?.profile_complete
+          && (pageRef.current === "auth" || pageRef.current === "profile-setup")) {
         setPage("profile-setup");
       }
     });
@@ -19248,6 +19754,9 @@ export default function App() {
   }
 
   function handleLoginSuccess(freshUser) {
+    // Gate the auth listener for the duration of the switch so trailing Supabase
+    // SIGNED_IN events (token-refresh, session-init) cannot clobber the page state.
+    isSwitchingAccountRef.current = true;
     setIsLoggedIn(true);
     setLoginLoading(true);
     if (freshUser) {
@@ -19258,7 +19767,9 @@ export default function App() {
       if (meta.appearance_font_size)                  setFontSize(meta.appearance_font_size);
       if (meta.appearance_density)                    setDensity(meta.appearance_density);
     }
-    setPage("home");
+    navigateTo("home");
+    // Release the gate after Supabase's trailing events settle (token-refresh fires async)
+    setTimeout(() => { isSwitchingAccountRef.current = false; }, 1000);
   }
 
   function handleLoginDone() {
@@ -19357,7 +19868,6 @@ export default function App() {
           {page === "forgot-password"  && <ForgotPasswordPage setPage={navigateTo} />}
           {page === "reset-password"   && <ResetPasswordPage  setPage={navigateTo} />}
           {page === "profile-menu"     && user && <ProfileMenuPage   user={user} setPage={navigateTo} onLogout={handleLogout} />}
-          {page === "switch-account"   && <SwitchAccountPage user={user} setPage={navigateTo} onLoginSuccess={handleLoginSuccess} />}
           {page === "account"          && user && <AccountPage      user={user} setPage={navigateTo} userProfile={userProfile} viewerRoleProfile={viewerRoleProfile} onReplayTour={handleReplayTour} darkMode={darkMode} setDarkMode={setDarkMode} accentColor={accentColor} setAccentColor={setAccentColor} fontSize={fontSize} setFontSize={setFontSize} density={density} setDensity={setDensity} />}
           {page === "profile-setup"   && user && <ProfileSetupPage user={user} setPage={navigateTo} setCelebration={setCelebration} />}
           {page === "messages"         && user && <MessagesPage user={user} initialConversationId={openConversationId} setPage={navigateTo} onViewProfile={handleViewProfile} onViewBuilderProfile={handleViewBuilderProfile} />}

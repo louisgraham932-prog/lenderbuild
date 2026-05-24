@@ -70,18 +70,45 @@ function generateRepayments(dealId, returnType, params, totalLoan) {
   return rows;
 }
 
+// ── Fix 4: warn loudly if a live Stripe key is loaded ───────────────────────
+if (process.env.STRIPE_SECRET_KEY?.startsWith("sk_live_")) {
+  console.warn("[deals] WARNING: STRIPE_SECRET_KEY is a LIVE key (sk_live_...). Use sk_test_... for testing.");
+}
+
+async function resolveUserByName(targetRole, name) {
+  let page = 1;
+  while (true) {
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error || !data) break;
+    const found = data.users.find(
+      u => u.user_metadata?.role === targetRole &&
+           u.user_metadata?.name?.toLowerCase() === name.trim().toLowerCase()
+    );
+    if (found) return found;
+    if (data.users.length < 1000) break;
+    page++;
+  }
+  return null;
+}
+
 module.exports = async function handler(req, res) {
 
   // ── Stripe webhook ────────────────────────────────────────────────────────
   if (req.method === "POST" && req.headers["stripe-signature"]) {
     if (!process.env.STRIPE_SECRET_KEY) return res.status(400).end();
+    // Fix 1: prefer STRIPE_WEBHOOK_SECRET; STRIPE_MILESTONE_WEBHOOK_SECRET is a legacy alias
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || process.env.STRIPE_MILESTONE_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      console.error("[deals] STRIPE_WEBHOOK_SECRET is not set — webhook cannot be verified");
+      return res.status(500).json({ error: "Webhook secret not configured" });
+    }
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-    const webhookSecret = process.env.STRIPE_MILESTONE_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
     let event;
     try {
       const rawBody = req.rawBody || (typeof req.body === "string" ? req.body : JSON.stringify(req.body));
       event = stripe.webhooks.constructEvent(rawBody, req.headers["stripe-signature"], webhookSecret);
     } catch (err) {
+      console.error("[deals] Webhook signature verification failed:", err.message);
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
@@ -191,8 +218,8 @@ module.exports = async function handler(req, res) {
       // Fetch builder bank details for all deals
       const builderIds = [...new Set((deals || []).map(d => d.builder_id).filter(Boolean))];
       if (builderIds.length > 0) {
-        const { data: bps } = await supabase.from("builder_profiles").select("user_id, bank_details_provided").in("user_id", builderIds);
-        (bps || []).forEach(bp => { builderBankMap[bp.user_id] = bp.bank_details_provided || false; });
+        const { data: bps } = await supabase.from("builder_profiles").select("user_id, bank_details_provided, bank_account_name, bank_sort_code, bank_account_number").in("user_id", builderIds);
+        (bps || []).forEach(bp => { builderBankMap[bp.user_id] = { provided: bp.bank_details_provided || false, account_name: bp.bank_account_name || "", sort_code: bp.bank_sort_code || "", account_number: bp.bank_account_number || "" }; });
       }
 
       (docs || []).forEach(d => { if (!dealDocsMap[d.deal_id]) dealDocsMap[d.deal_id] = []; dealDocsMap[d.deal_id].push(d); });
@@ -312,7 +339,8 @@ ${isBuilder ? "<p>Please make this repayment immediately to avoid further action
       deal_documents: dealDocsMap[d.id] || [],
       disputes: disputesMap[d.id] || [],
       repayments: repaymentsMap[d.id] || [],
-      builder_bank_details_provided: builderBankMap[d.builder_id] || false,
+      builder_bank_details_provided: builderBankMap[d.builder_id]?.provided || false,
+      builder_bank_details: builderBankMap[d.builder_id] || null,
     }));
 
     return res.status(200).json({ deals: enriched });
@@ -485,22 +513,7 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
           return res.status(400).json({ error: "Legal protection step 4 incomplete: the builder has not confirmed their bank details." });
       }
     }
-    if (!process.env.STRIPE_SECRET_KEY) return res.status(500).json({ error: "Payment processing not configured" });
-
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-    const amountPence = Math.round(Number(milestone.amount) * 100);
-    if (amountPence < 50) return res.status(400).json({ error: "Amount too small to process" });
-
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ["card"],
-      line_items: [{ price_data: { currency: "gbp", product_data: { name: `Milestone: ${milestone.title}`, description: `Deal: ${milestone.deals.title}` }, unit_amount: amountPence }, quantity: 1 }],
-      mode: "payment",
-      success_url: `${PLATFORM_URL}?milestone_paid=${milestone_id}&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${PLATFORM_URL}?milestone_cancelled=${milestone_id}`,
-      metadata: { milestone_id, type: "milestone_payment" },
-    });
-
-    await supabase.from("milestones").update({ status: "approved", approved_at: new Date().toISOString(), stripe_session_id: session.id }).eq("id", milestone_id);
+    await supabase.from("milestones").update({ status: "approved", approved_at: new Date().toISOString() }).eq("id", milestone_id);
 
     const lenderName = user.user_metadata?.name || "Your lender";
     if (milestone.deals.builder_id) {
@@ -508,15 +521,14 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
       if (builderData?.user?.email) {
         sendEmail(builderData.user.email, `Milestone approved — ${milestone.title}`,
           `<p>Hi ${builderData.user.user_metadata?.name || ""},</p>
-<p><strong>${lenderName}</strong> approved milestone <em>"${milestone.title}"</em> — payment of <strong>£${Number(milestone.amount).toLocaleString()}</strong> is being released.</p>
+<p><strong>${lenderName}</strong> approved milestone <em>"${milestone.title}"</em> (£${Number(milestone.amount).toLocaleString()}).</p>
+<p>The lender will now transfer the funds directly to your bank account. You will receive a notification once they confirm the payment has been sent — please confirm receipt when the funds arrive.</p>
 <p><a href="${PLATFORM_URL}">View on LenderBuild</a></p>`
         );
       }
+      supabase.from("notifications").insert({ user_id: milestone.deals.builder_id, type: "milestone_approved", message: `${lenderName} approved milestone "${milestone.title}" — awaiting bank transfer` }).then(() => {}).catch(() => {});
     }
-    if (milestone.deals.builder_id) {
-      supabase.from("notifications").insert({ user_id: milestone.deals.builder_id, type: "milestone_approved", message: `${lenderName} approved milestone "${milestone.title}" — payment releasing` }).then(() => {}).catch(() => {});
-    }
-    return res.status(200).json({ ok: true, checkout_url: session.url });
+    return res.status(200).json({ ok: true });
   }
 
   // ── POST action="finder-fee" ──────────────────────────────────────────────
@@ -659,12 +671,86 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
   if (action === "confirm-bank-details") {
     if (role !== "builder") return res.status(403).json({ error: "Builders only" });
 
+    const { account_name, sort_code, account_number } = req.body;
+    if (!account_name?.trim() || !sort_code?.trim() || !account_number?.trim())
+      return res.status(400).json({ error: "Account name, sort code, and account number are required." });
+
     const { data: bp } = await supabase.from("builder_profiles").select("user_id").eq("user_id", user.id).maybeSingle();
     if (!bp) return res.status(404).json({ error: "Builder profile not found" });
 
-    const { error: upErr } = await supabase.from("builder_profiles").update({ bank_details_provided: true }).eq("user_id", user.id);
+    const { error: upErr } = await supabase.from("builder_profiles").update({
+      bank_details_provided: true,
+      bank_account_name: account_name.trim(),
+      bank_sort_code: sort_code.trim(),
+      bank_account_number: account_number.trim(),
+    }).eq("user_id", user.id);
     if (upErr) return res.status(500).json({ error: upErr.message });
 
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── POST action="mark-payment-sent" (lender only) ─────────────────────────
+  if (action === "mark-payment-sent") {
+    if (role !== "lender") return res.status(403).json({ error: "Lenders only" });
+
+    const { milestone_id } = req.body;
+    if (!milestone_id) return res.status(400).json({ error: "milestone_id required" });
+
+    const { data: milestone } = await supabase.from("milestones")
+      .select("*, deals!inner(id, lender_id, builder_id, title, builder_name)")
+      .eq("id", milestone_id).maybeSingle();
+
+    if (!milestone) return res.status(404).json({ error: "Milestone not found" });
+    if (milestone.deals.lender_id !== user.id) return res.status(403).json({ error: "Forbidden" });
+    if (milestone.status !== "approved") return res.status(400).json({ error: "Milestone must be approved first" });
+
+    await supabase.from("milestones").update({ status: "payment_sent", payment_sent_at: new Date().toISOString() }).eq("id", milestone_id);
+
+    const lenderName = user.user_metadata?.name || "Your lender";
+    if (milestone.deals.builder_id) {
+      const { data: builderData } = await supabase.auth.admin.getUserById(milestone.deals.builder_id);
+      if (builderData?.user?.email) {
+        sendEmail(builderData.user.email, `Payment sent — ${milestone.title}`,
+          `<p>Hi ${builderData.user.user_metadata?.name || ""},</p>
+<p><strong>${lenderName}</strong> has confirmed they have sent the bank transfer of <strong>£${Number(milestone.amount).toLocaleString()}</strong> for milestone <em>"${milestone.title}"</em>.</p>
+<p>Please log in to confirm receipt once the funds arrive in your account.</p>
+<p><a href="${PLATFORM_URL}">Confirm receipt on LenderBuild</a></p>`
+        );
+      }
+      supabase.from("notifications").insert({ user_id: milestone.deals.builder_id, type: "payment_sent", message: `${lenderName} has sent payment for milestone "${milestone.title}" — please confirm receipt` }).then(() => {}).catch(() => {});
+    }
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── POST action="confirm-receipt" (builder only) ──────────────────────────
+  if (action === "confirm-receipt") {
+    if (role !== "builder") return res.status(403).json({ error: "Builders only" });
+
+    const { milestone_id } = req.body;
+    if (!milestone_id) return res.status(400).json({ error: "milestone_id required" });
+
+    const { data: milestone } = await supabase.from("milestones")
+      .select("*, deals!inner(id, lender_id, builder_id, title, lender_name)")
+      .eq("id", milestone_id).maybeSingle();
+
+    if (!milestone) return res.status(404).json({ error: "Milestone not found" });
+    if (milestone.deals.builder_id !== user.id) return res.status(403).json({ error: "Forbidden" });
+    if (milestone.status !== "payment_sent") return res.status(400).json({ error: "Payment must be marked as sent first" });
+
+    await supabase.from("milestones").update({ status: "paid", receipt_confirmed_at: new Date().toISOString() }).eq("id", milestone_id);
+
+    if (milestone.deals.lender_id) {
+      const { data: lenderData } = await supabase.auth.admin.getUserById(milestone.deals.lender_id);
+      if (lenderData?.user?.email) {
+        sendEmail(lenderData.user.email, `Payment confirmed — ${milestone.title}`,
+          `<p>Hi ${lenderData.user.user_metadata?.name || ""},</p>
+<p>The builder has confirmed receipt of your payment for milestone <em>"${milestone.title}"</em> (£${Number(milestone.amount).toLocaleString()}).</p>
+<p>This milestone is now complete.</p>
+<p><a href="${PLATFORM_URL}">View on LenderBuild</a></p>`
+        );
+      }
+      supabase.from("notifications").insert({ user_id: milestone.deals.lender_id, type: "receipt_confirmed", message: `Builder confirmed receipt for milestone "${milestone.title}" — milestone complete` }).then(() => {}).catch(() => {});
+    }
     return res.status(200).json({ ok: true });
   }
 
@@ -825,25 +911,45 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
     let resolvedLenderId  = lenderId;
 
     if (role === "builder") {
-      // Find lender by name in conversations
+      // Fix 3: try conversations first, fall back to user-metadata lookup
       const { data: conv } = await supabase
         .from("conversations")
         .select("lender_id, lender_name")
         .eq("builder_id", user.id)
         .ilike("lender_name", other_name.trim())
         .maybeSingle();
-      if (!conv) return res.status(404).json({ error: "Connected lender not found. Ensure you have an accepted connection." });
-      resolvedLenderId = conv.lender_id;
+      if (conv) {
+        resolvedLenderId = conv.lender_id;
+      } else {
+        const lenderUser = await resolveUserByName("lender", other_name);
+        if (!lenderUser) return res.status(404).json({ error: "Connected lender not found. Ensure you have an accepted connection." });
+        resolvedLenderId = lenderUser.id;
+        // Backfill conversations so future lookups and messaging work
+        await supabase.from("conversations").upsert(
+          { lender_id: lenderUser.id, builder_id: user.id, lender_name: lenderUser.user_metadata?.name || other_name, builder_name: user.user_metadata?.name || "" },
+          { onConflict: "lender_id,builder_id", ignoreDuplicates: true }
+        );
+      }
     } else {
-      // Lender: find builder by name in conversations
+      // Lender: Fix 3: try conversations first, fall back to user-metadata lookup
       const { data: conv } = await supabase
         .from("conversations")
         .select("builder_id, builder_name")
         .eq("lender_id", user.id)
         .ilike("builder_name", other_name.trim())
         .maybeSingle();
-      if (!conv) return res.status(404).json({ error: "Connected builder not found. Ensure you have an accepted connection." });
-      resolvedBuilderId = conv.builder_id;
+      if (conv) {
+        resolvedBuilderId = conv.builder_id;
+      } else {
+        const builderUser = await resolveUserByName("builder", other_name);
+        if (!builderUser) return res.status(404).json({ error: "Connected builder not found. Ensure you have an accepted connection." });
+        resolvedBuilderId = builderUser.id;
+        // Backfill conversations so future lookups and messaging work
+        await supabase.from("conversations").upsert(
+          { lender_id: user.id, builder_id: builderUser.id, lender_name: user.user_metadata?.name || "", builder_name: builderUser.user_metadata?.name || other_name },
+          { onConflict: "lender_id,builder_id", ignoreDuplicates: true }
+        );
+      }
     }
 
     if (!resolvedBuilderId || !resolvedLenderId) {
@@ -873,7 +979,7 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
     const lenderConf  = (confs || []).find(c => c.confirmed_by === "lender");
 
     if (!builderConf || !lenderConf) {
-      return res.status(200).json({ status: "waiting" });
+      return res.status(200).json({ status: "waiting", finder_fee_paid: false });
     }
 
     const bAmt = Number(builderConf.confirmed_amount);
@@ -881,8 +987,9 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
     if (Math.abs(bAmt - lAmt) > 1) {
       return res.status(200).json({
         status: "mismatch",
-        builder_amount: bAmt,
-        lender_amount:  lAmt,
+        builder_amount:  bAmt,
+        lender_amount:   lAmt,
+        finder_fee_paid: false,
       });
     }
 
@@ -890,8 +997,9 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
     const existingDealId = builderConf.deal_id || lenderConf.deal_id;
     if (existingDealId) {
       const { data: existingDeal } = await supabase.from("deals").select("id, finder_fee_status").eq("id", existingDealId).maybeSingle();
+      // Fix 2: read finder_fee_status from DB and include finder_fee_paid in all responses
       if (existingDeal?.finder_fee_status === "paid") {
-        return res.status(200).json({ status: "paid", deal_id: existingDealId });
+        return res.status(200).json({ status: "paid", deal_id: existingDealId, finder_fee_paid: true });
       }
       if (existingDeal && role === "builder" && process.env.STRIPE_SECRET_KEY) {
         const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -906,10 +1014,10 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
             metadata: { deal_id: existingDeal.id, type: "finder_fee" },
           });
           await supabase.from("deals").update({ finder_fee_session_id: sess.id }).eq("id", existingDeal.id);
-          return res.status(200).json({ status: "confirmed", deal_id: existingDeal.id, agreed_amount: bAmt, fee_amount: Math.round(bAmt * 0.01 * 100) / 100, checkout_url: sess.url });
+          return res.status(200).json({ status: "confirmed", deal_id: existingDeal.id, agreed_amount: bAmt, fee_amount: Math.round(bAmt * 0.01 * 100) / 100, checkout_url: sess.url, finder_fee_paid: false });
         }
       }
-      return res.status(200).json({ status: "confirmed", deal_id: existingDeal?.id, agreed_amount: bAmt, fee_pending: role === "builder" });
+      return res.status(200).json({ status: "confirmed", deal_id: existingDeal?.id, agreed_amount: bAmt, fee_pending: role === "builder", finder_fee_paid: false });
     }
 
     // Create the deal
@@ -964,7 +1072,7 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
       sendEmail(lenderUser.email, `Deal confirmed with ${bName}`,
         `<p>Hi ${lName},</p>
 <p>Your deal with <strong>${bName}</strong> for <strong>£${bAmt.toLocaleString()}</strong> has been confirmed on LenderBuild.</p>
-<p>The builder will pay the platform finder's fee of £${Number(feeAmount).toLocaleString()} to unlock the Project Tracker.</p>
+<p>The lender will pay the platform finder's fee of £${Number(feeAmount).toLocaleString()} to unlock the Project Tracker.</p>
 <p><a href="${PLATFORM_URL}">View your deal on LenderBuild</a></p>`
       );
     }
@@ -975,13 +1083,14 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
     );
 
     // Stripe checkout for builder
+    // Fix 2: include finder_fee_paid: false in all new-deal responses (fee is always pending at creation)
     if (!process.env.STRIPE_SECRET_KEY) {
-      return res.status(200).json({ status: "confirmed", deal_id: deal.id, agreed_amount: bAmt, fee_amount: Number(feeAmount), fee_pending: role === "builder" });
+      return res.status(200).json({ status: "confirmed", deal_id: deal.id, agreed_amount: bAmt, fee_amount: Number(feeAmount), fee_pending: role === "builder", finder_fee_paid: false });
     }
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
     const feePence = Math.round(Number(feeAmount) * 100);
     if (feePence < 50) {
-      return res.status(200).json({ status: "confirmed", deal_id: deal.id, agreed_amount: bAmt, fee_amount: Number(feeAmount) });
+      return res.status(200).json({ status: "confirmed", deal_id: deal.id, agreed_amount: bAmt, fee_amount: Number(feeAmount), finder_fee_paid: false });
     }
     const sess = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
@@ -994,7 +1103,7 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
     await supabase.from("deals").update({ finder_fee_session_id: sess.id }).eq("id", deal.id);
 
     const checkoutUrl = role === "builder" ? sess.url : null;
-    return res.status(200).json({ status: "confirmed", deal_id: deal.id, agreed_amount: bAmt, fee_amount: Number(feeAmount), checkout_url: checkoutUrl });
+    return res.status(200).json({ status: "confirmed", deal_id: deal.id, agreed_amount: bAmt, fee_amount: Number(feeAmount), checkout_url: checkoutUrl, finder_fee_paid: false });
   }
 
   // ── POST action="get-deal-confirmation" ───────────────────────────────────
@@ -1003,17 +1112,28 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
     const { other_name } = req.body;
     if (!other_name) return res.status(400).json({ error: "other_name required" });
 
+    // Fix 3: fall back to user-metadata lookup if no conversations row yet
     let resolvedBuilderId, resolvedLenderId;
     if (role === "builder") {
       const { data: conv } = await supabase.from("conversations").select("lender_id").eq("builder_id", user.id).ilike("lender_name", other_name.trim()).maybeSingle();
-      if (!conv) return res.status(200).json({ status: "no_connection" });
+      if (conv) {
+        resolvedLenderId = conv.lender_id;
+      } else {
+        const lenderUser = await resolveUserByName("lender", other_name);
+        if (!lenderUser) return res.status(200).json({ status: "no_connection" });
+        resolvedLenderId = lenderUser.id;
+      }
       resolvedBuilderId = user.id;
-      resolvedLenderId  = conv.lender_id;
     } else {
       const { data: conv } = await supabase.from("conversations").select("builder_id").eq("lender_id", user.id).ilike("builder_name", other_name.trim()).maybeSingle();
-      if (!conv) return res.status(200).json({ status: "no_connection" });
-      resolvedBuilderId = conv.builder_id;
-      resolvedLenderId  = user.id;
+      if (conv) {
+        resolvedBuilderId = conv.builder_id;
+      } else {
+        const builderUser = await resolveUserByName("builder", other_name);
+        if (!builderUser) return res.status(200).json({ status: "no_connection" });
+        resolvedBuilderId = builderUser.id;
+      }
+      resolvedLenderId = user.id;
     }
 
     const { data: confs } = await supabase.from("deal_amount_confirmations").select("*").eq("builder_id", resolvedBuilderId).eq("lender_id", resolvedLenderId);

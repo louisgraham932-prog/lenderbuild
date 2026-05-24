@@ -444,7 +444,25 @@ module.exports = async function handler(req, res) {
     }
   }
 
-  // ── Main profile save ──────────────────────────────────────────────────────
+  // ── Action: save-bank-details (builders only) ─────────────────────────────
+  if (action === "save-bank-details") {
+    if (role !== "builder") return res.status(403).json({ error: "Builders only" });
+    const { bank_account_name, bank_sort_code, bank_account_number } = raw;
+    const sc = (bank_sort_code || "").replace(/\D/g, "");
+    const an = (bank_account_number || "").replace(/\D/g, "");
+    if (!bank_account_name?.trim()) return res.status(400).json({ error: "Account holder name required" });
+    if (sc.length !== 6) return res.status(400).json({ error: "Sort code must be 6 digits" });
+    if (an.length !== 8) return res.status(400).json({ error: "Account number must be 8 digits" });
+    const { data: existing } = await supabase.from("builder_profiles").select("id").eq("user_id", user.id).maybeSingle();
+    const patch = { bank_account_name: bank_account_name.trim(), bank_sort_code: sc, bank_account_number: an, bank_details_provided: true };
+    const { error: bpErr } = existing
+      ? await supabase.from("builder_profiles").update(patch).eq("user_id", user.id)
+      : await supabase.from("builder_profiles").insert({ user_id: user.id, is_active: true, ...patch });
+    if (bpErr) return res.status(500).json({ error: bpErr.message });
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── Main profile save ─────────────────────────────────────────────────────
   const {
     location = "",
     bio = "",
