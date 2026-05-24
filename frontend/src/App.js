@@ -1288,6 +1288,12 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
   const helpRef         = useRef(null);
   const moreRef         = useRef(null);
   const presenceChanRef = useRef(null);
+  const [navAddingAcct,  setNavAddingAcct]  = useState(false);
+  const [navAddEmail,    setNavAddEmail]    = useState("");
+  const [navAddPassword, setNavAddPassword] = useState("");
+  const [navAddLoading,  setNavAddLoading]  = useState(false);
+  const [navAddError,    setNavAddError]    = useState("");
+  const [navAccounts,    setNavAccounts]    = useState(getSavedAccounts);
 
   useEffect(() => {
     const onResize = () => setWidth(window.innerWidth);
@@ -1334,6 +1340,55 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
       if (presenceChanRef.current) supabase.removeChannel(presenceChanRef.current);
     };
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!profileOpen) {
+      setNavAddingAcct(false); setNavAddEmail(""); setNavAddPassword(""); setNavAddError("");
+      return;
+    }
+    const accts = getSavedAccounts();
+    const missing = accts.filter(a => !a.member_id && a.user_id);
+    if (!missing.length) { setNavAccounts(accts); return; }
+    (async () => {
+      const { data } = await supabase.from("profiles").select("id, sequential_id").in("id", missing.map(a => a.user_id));
+      if (data?.length) {
+        data.forEach(p => {
+          const acct = accts.find(a => a.user_id === p.id);
+          if (acct && p.sequential_id) { acct.member_id = p.sequential_id; upsertSavedAccount(acct); }
+        });
+      }
+      setNavAccounts(getSavedAccounts());
+    })();
+  }, [profileOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleNavAddAccount(e) {
+    e.preventDefault();
+    setNavAddLoading(true);
+    setNavAddError("");
+    const { data: { session: curSess } } = await supabase.auth.getSession();
+    if (curSess && user) {
+      upsertSavedAccount({
+        user_id: user.id, email: user.email, name: displayName,
+        avatar_url: avatarUrl || null, role: user.user_metadata?.role || null,
+        member_id: userProfile?.sequential_id || null,
+        access_token: curSess.access_token, refresh_token: curSess.refresh_token,
+      });
+    }
+    const { data, error } = await supabase.auth.signInWithPassword({ email: navAddEmail, password: navAddPassword });
+    setNavAddLoading(false);
+    if (error) { setNavAddError(error.message); return; }
+    let newRole = data.user.user_metadata?.role || null;
+    const { data: newProf } = await supabase.from("profiles").select("role, sequential_id").eq("id", data.user.id).maybeSingle();
+    if (!newRole) newRole = newProf?.role || null;
+    upsertSavedAccount({
+      user_id: data.user.id, email: data.user.email,
+      name: data.user.user_metadata?.name || data.user.email.split("@")[0],
+      avatar_url: data.user.user_metadata?.avatar_url || null,
+      role: newRole, member_id: newProf?.sequential_id || null,
+      access_token: data.session.access_token, refresh_token: data.session.refresh_token,
+    });
+    window.location.href = "/";
+  }
 
   const isMobile = width < 820;
 
@@ -1631,8 +1686,7 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
             <NavChevron open={profileOpen} />
           </button>
           {(profileOpen || tourForceProfileOpen) && (() => {
-            const savedAccounts = getSavedAccounts();
-            const otherAccounts = savedAccounts.filter(a => a.user_id !== user?.id);
+            const otherAccounts = navAccounts.filter(a => a.user_id !== user?.id);
 
             async function doNavSwitch(acct) {
               // Show overlay immediately before any async work
@@ -1653,19 +1707,6 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
               const { error } = await supabase.auth.setSession({ access_token: acct.access_token, refresh_token: acct.refresh_token });
               if (error) { document.body.removeChild(overlay); go("profile-menu"); return; }
               window.location.href = "/";
-            }
-
-            async function goToAddAccount() {
-              const { data: { session: curSess } } = await supabase.auth.getSession();
-              if (curSess && user) {
-                upsertSavedAccount({
-                  user_id: user.id, email: user.email, name: displayName,
-                  avatar_url: avatarUrl || null, role: user.user_metadata?.role || null,
-                  member_id: userProfile?.sequential_id || null,
-                  access_token: curSess.access_token, refresh_token: curSess.refresh_token,
-                });
-              }
-              go("profile-menu");
             }
 
             return (
@@ -1723,10 +1764,32 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
                 <button onClick={() => go("saved-searches")} style={ddItemStyle(page === "saved-searches")}>
                   <span style={{ fontSize: 15 }}>🔍</span>Saved searches
                 </button>
-                {savedAccounts.length < 3 && (
-                  <button onClick={goToAddAccount} style={{ ...ddItemStyle(false), color: "#3B82F6" }}>
+                {navAccounts.length < 3 && !navAddingAcct && (
+                  <button onClick={() => setNavAddingAcct(true)} style={{ ...ddItemStyle(false), color: "#3B82F6" }}>
                     <span style={{ fontSize: 15 }}>＋</span> Add account
                   </button>
+                )}
+                {navAddingAcct && (
+                  <form onSubmit={handleNavAddAccount} style={{ padding: "10px 14px 14px", borderTop: "0.5px solid #f0f0f0" }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#1E3A5F", marginBottom: 8 }}>Log in to another account</div>
+                    {navAddError && <div style={{ fontSize: 12, color: "#DC2626", marginBottom: 6 }}>{navAddError}</div>}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <input type="email" placeholder="Email" value={navAddEmail} onChange={e => setNavAddEmail(e.target.value)} required autoFocus
+                        style={{ height: 36, border: "1px solid #E2E8F0", borderRadius: 7, padding: "0 10px", fontSize: 13, outline: "none" }} />
+                      <input type="password" placeholder="Password" value={navAddPassword} onChange={e => setNavAddPassword(e.target.value)} required
+                        style={{ height: 36, border: "1px solid #E2E8F0", borderRadius: 7, padding: "0 10px", fontSize: 13, outline: "none" }} />
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button type="submit" disabled={navAddLoading}
+                          style={{ flex: 1, height: 36, background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: navAddLoading ? "default" : "pointer" }}>
+                          {navAddLoading ? "Signing in…" : "Log in"}
+                        </button>
+                        <button type="button" onClick={() => { setNavAddingAcct(false); setNavAddEmail(""); setNavAddPassword(""); setNavAddError(""); }}
+                          style={{ padding: "0 10px", height: 36, background: "transparent", color: "#64748B", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 13, cursor: "pointer" }}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </form>
                 )}
                 <button onClick={onLogout} style={{ ...ddItemStyle(false), color: "#D85A30" }}>
                   <span style={{ fontSize: 15 }}>→</span> Log out
@@ -18864,6 +18927,22 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
   const [addPassword, setAddPassword] = useState("");
   const [addLoading, setAddLoading] = useState(false);
   const [addError, setAddError] = useState("");
+
+  useEffect(() => {
+    const accts = getSavedAccounts().filter(a => a.user_id !== user?.id);
+    const missing = accts.filter(a => !a.member_id && a.user_id);
+    if (!missing.length) return;
+    (async () => {
+      const { data } = await supabase.from("profiles").select("id, sequential_id").in("id", missing.map(a => a.user_id));
+      if (!data?.length) return;
+      let updated = false;
+      data.forEach(p => {
+        const acct = accts.find(a => a.user_id === p.id);
+        if (acct && p.sequential_id) { acct.member_id = p.sequential_id; upsertSavedAccount(acct); updated = true; }
+      });
+      if (updated) setSavedAccounts(getSavedAccounts().filter(a => a.user_id !== user?.id));
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function saveCurrentSession() {
     const { data: { session: curSess } } = await supabase.auth.getSession();
