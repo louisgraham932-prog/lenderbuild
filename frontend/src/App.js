@@ -19,6 +19,17 @@ const COLORS = {
 
 const fmt = (n) => "£" + Number(n).toLocaleString();
 
+// Comma-format a number for display in inputs (digits only → "200,000")
+function fmtInput(val) {
+  const raw = String(val).replace(/[^0-9]/g, "");
+  if (!raw) return "";
+  return Number(raw).toLocaleString("en-GB");
+}
+// Strip commas/non-digits before sending to API or parsing
+function parseInput(val) {
+  return String(val).replace(/[^0-9]/g, "");
+}
+
 // ─── SAVED PROFILES (localStorage) ───────────────────────────────────────────
 function getSavedProfiles(userId) {
   try { return JSON.parse(localStorage.getItem(`lb_saved_${userId}`) || "[]"); } catch { return []; }
@@ -2849,9 +2860,9 @@ function ProfileSetupPage({ user, setPage, setCelebration }) {
             <div>
               <label style={label}>Maximum amount you can lend (£)</label>
               <input
-                type="number" min="1000" step="1000"
-                value={budgetMax} onChange={e => setBudgetMax(e.target.value)}
-                placeholder="e.g. 200000" style={inp}
+                type="text" inputMode="numeric"
+                value={fmtInput(budgetMax)} onChange={e => setBudgetMax(parseInput(e.target.value))}
+                placeholder="e.g. 200,000" style={inp}
               />
             </div>
           </div>
@@ -2958,7 +2969,7 @@ function ProfileSetupPage({ user, setPage, setCelebration }) {
               </div>
               <div>
                 <label style={label}>Total value of projects built (£)</label>
-                <input type="number" min="0" step="1000" value={totalValue} onChange={e => setTotalValue(e.target.value)} placeholder="e.g. 500000" style={inp} />
+                <input type="text" inputMode="numeric" value={fmtInput(totalValue)} onChange={e => setTotalValue(parseInput(e.target.value))} placeholder="e.g. 500,000" style={inp} />
               </div>
               <div>
                 <label style={label}>On-time completion rate (%)</label>
@@ -8260,7 +8271,7 @@ function DealConfirmWidget({ user, otherName, otherRole }) {
         </div>
         <form onSubmit={handleSubmit} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <input
-            type="number" min="100" step="any" value={inputAmt} onChange={e => setInputAmt(e.target.value)}
+            type="text" inputMode="numeric" value={fmtInput(inputAmt)} onChange={e => setInputAmt(parseInput(e.target.value))}
             placeholder="New amount (£)" required
             style={{ height: 36, border: "0.5px solid #FCA5A5", borderRadius: 8, padding: "0 10px", fontSize: 13, width: 160 }}
           />
@@ -8296,8 +8307,8 @@ function DealConfirmWidget({ user, otherName, otherRole }) {
         <div style={{ position: "relative", flex: "1 1 180px" }}>
           <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 15, color: "#64748B", fontWeight: 500 }}>£</span>
           <input
-            type="number" min="100" step="any" value={inputAmt} onChange={e => setInputAmt(e.target.value)}
-            placeholder="e.g. 250000" required
+            type="text" inputMode="numeric" value={fmtInput(inputAmt)} onChange={e => setInputAmt(parseInput(e.target.value))}
+            placeholder="e.g. 250,000" required
             style={{ width: "100%", height: 48, border: "1.5px solid #1E3A5F", borderRadius: 8, padding: "0 12px 0 28px", fontSize: 16, fontWeight: 500, boxSizing: "border-box" }}
           />
         </div>
@@ -8785,9 +8796,9 @@ function PostDetailPage({ post: initialPost, user, setPage, onMessage, onBack, o
                 <label style={{ fontSize: 13, fontWeight: 500, color: "#374151", display: "block", marginBottom: 6 }}>How much would you like to commit? (£)</label>
                 <div style={{ display: "flex", gap: 8 }}>
                   <input
-                    type="number" min="1" required
-                    value={fundAmount} onChange={e => setFundAmount(e.target.value)}
-                    placeholder="e.g. 25000"
+                    type="text" inputMode="numeric" required
+                    value={fmtInput(fundAmount)} onChange={e => setFundAmount(parseInput(e.target.value))}
+                    placeholder="e.g. 25,000"
                     style={{ flex: 1, height: 46, border: "1.5px solid #7E22CE", borderRadius: 8, padding: "0 14px", fontSize: 15, fontWeight: 500, boxSizing: "border-box", outline: "none" }}
                   />
                   <button type="submit" disabled={fundLoading} style={{ padding: "0 20px", height: 46, background: "#7E22CE", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: fundLoading ? "default" : "pointer", whiteSpace: "nowrap" }}>
@@ -9270,9 +9281,9 @@ function PostsFeedPage({ user, setPage }) {
             <form onSubmit={submitFundPost}>
               <label style={{ fontSize: 13, fontWeight: 500, color: "#374151", display: "block", marginBottom: 6 }}>How much would you like to commit? (£)</label>
               <input
-                type="number" min="1" required
-                value={fundAmount} onChange={e => setFundAmount(e.target.value)}
-                placeholder="e.g. 25000"
+                type="text" inputMode="numeric" required
+                value={fmtInput(fundAmount)} onChange={e => setFundAmount(parseInput(e.target.value))}
+                placeholder="e.g. 25,000"
                 style={{ width: "100%", height: 48, border: "1.5px solid #7E22CE", borderRadius: 8, padding: "0 14px", fontSize: 16, fontWeight: 500, boxSizing: "border-box", marginBottom: 12, outline: "none" }}
               />
               {fundError && <div style={{ color: "#DC2626", fontSize: 13, marginBottom: 10 }}>{fundError}</div>}
@@ -9491,9 +9502,9 @@ function CreateEditPostPage({ user, setPage, editPost = null, onSaved, onCancelB
               <div>
                 <label style={{ fontSize: 13, color: "#555", marginBottom: 6, display: "block" }}>Funding needed (£) *</label>
                 <input
-                  type="number" min="1" required={isGroupFunding}
-                  value={fundingNeeded} onChange={e => setFundingNeeded(e.target.value)}
-                  placeholder="e.g. 150000"
+                  type="text" inputMode="numeric" required={isGroupFunding}
+                  value={fmtInput(fundingNeeded)} onChange={e => setFundingNeeded(parseInput(e.target.value))}
+                  placeholder="e.g. 150,000"
                   style={{ ...inputStyle, height: 44 }}
                 />
               </div>
@@ -9566,8 +9577,8 @@ function CreateEditPostPage({ user, setPage, editPost = null, onSaved, onCancelB
                     <div>
                       <label style={{ fontSize: 12, color: "#555", display: "block", marginBottom: 4 }}>Floor area (m²)</label>
                       <input
-                        type="number" min="1"
-                        value={calcSize} onChange={e => setCalcSize(e.target.value)}
+                        type="text" inputMode="numeric"
+                        value={fmtInput(calcSize)} onChange={e => setCalcSize(parseInput(e.target.value))}
                         placeholder="e.g. 120"
                         style={{ ...inputStyle, height: 38, fontSize: 12 }}
                       />
@@ -13361,12 +13372,10 @@ function ProjectListingCard({ listing, user, isOwn, interestStatus, onExpressInt
                   <div style={{ flex: 1, position: "relative" }}>
                     <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#555" }}>£</span>
                     <input
-                      type="number"
-                      min={minCommitment || 1}
-                      step="1000"
-                      value={synCommitInput}
-                      onChange={e => { setSynCommitInput(e.target.value); setSynError(""); }}
-                      placeholder={minCommitment > 0 ? String(minCommitment) : "Amount"}
+                      type="text" inputMode="numeric"
+                      value={fmtInput(synCommitInput)}
+                      onChange={e => { setSynCommitInput(parseInput(e.target.value)); setSynError(""); }}
+                      placeholder={minCommitment > 0 ? fmtInput(String(minCommitment)) : "Amount"}
                       style={{ width: "100%", height: 40, border: "0.5px solid #BFDBFE", borderRadius: 8, padding: "0 10px 0 22px", fontSize: 14, boxSizing: "border-box" }}
                       autoFocus
                     />
@@ -13427,11 +13436,9 @@ function ProjectListingCard({ listing, user, isOwn, interestStatus, onExpressInt
                     <div style={{ flex: 1, position: "relative" }}>
                       <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#555" }}>£</span>
                       <input
-                        type="number"
-                        min="1"
-                        step="1000"
-                        value={commitInput}
-                        onChange={e => setCommitInput(e.target.value)}
+                        type="text" inputMode="numeric"
+                        value={fmtInput(commitInput)}
+                        onChange={e => setCommitInput(parseInput(e.target.value))}
                         placeholder="Amount"
                         style={{ width: "100%", height: 40, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px 0 22px", fontSize: 14, boxSizing: "border-box" }}
                         autoFocus
@@ -13628,7 +13635,7 @@ function CreateProjectListingPage({ user, setPage }) {
             </div>
             <div>
               <label style={lbl}>Funding needed (£)</label>
-              <input type="number" min="0" step="1000" value={fundingNeeded} onChange={e => setFundingNeeded(e.target.value)} placeholder="e.g. 150000" style={inp} />
+              <input type="text" inputMode="numeric" value={fmtInput(fundingNeeded)} onChange={e => setFundingNeeded(parseInput(e.target.value))} placeholder="e.g. 150,000" style={inp} />
             </div>
             <div>
               <label style={lbl}>Expected return for lender</label>
@@ -13705,7 +13712,7 @@ function CreateProjectListingPage({ user, setPage }) {
                       </div>
                       <div style={{ flex: 1 }}>
                         <label style={lbl}>Est. monthly rental (£)</label>
-                        <input type="number" min="0" step="100" value={synMonthlyRental} onChange={e => setSynMonthlyRental(e.target.value)} placeholder="e.g. 2500" style={inp} />
+                        <input type="text" inputMode="numeric" value={fmtInput(synMonthlyRental)} onChange={e => setSynMonthlyRental(parseInput(e.target.value))} placeholder="e.g. 2,500" style={inp} />
                       </div>
                     </div>
                   )}
@@ -13718,7 +13725,7 @@ function CreateProjectListingPage({ user, setPage }) {
                   <div style={{ display: "flex", gap: 10 }}>
                     <div style={{ flex: 1 }}>
                       <label style={lbl}>Min. contribution per lender (£) <span style={{ color: "#aaa", fontWeight: 400 }}>optional</span></label>
-                      <input type="number" min="0" step="1000" value={minCommitment} onChange={e => setMinCommitment(e.target.value)} placeholder="e.g. 10000" style={inp} />
+                      <input type="text" inputMode="numeric" value={fmtInput(minCommitment)} onChange={e => setMinCommitment(parseInput(e.target.value))} placeholder="e.g. 10,000" style={inp} />
                     </div>
                     <div style={{ flex: 1 }}>
                       <label style={lbl}>Max. lenders <span style={{ color: "#aaa", fontWeight: 400 }}>optional</span></label>
@@ -14776,8 +14783,8 @@ function BuildCostCalculatorPage({ setPage }) {
             <div>
               <label style={labelStyle}>Floor area (sq metres)</label>
               <input
-                type="number" min="1" max="50000"
-                value={size} onChange={e => setSize(e.target.value)}
+                type="text" inputMode="numeric"
+                value={fmtInput(size)} onChange={e => setSize(parseInput(e.target.value))}
                 placeholder="e.g. 120"
                 style={inputStyle}
               />
@@ -15752,7 +15759,7 @@ function DealsPage({ user, setPage, setCelebration }) {
             </div>
             <div>
               <label style={lbl}>Estimated property value (£) — used for LTV calculation</label>
-              <input type="number" min="1" step="1" value={propertyValue} onChange={e => setPropertyValue(e.target.value)} placeholder="e.g. 500000" style={inp} />
+              <input type="text" inputMode="numeric" value={fmtInput(propertyValue)} onChange={e => setPropertyValue(parseInput(e.target.value))} placeholder="e.g. 500,000" style={inp} />
             </div>
 
             <div>
@@ -15805,7 +15812,7 @@ function DealsPage({ user, setPage, setCelebration }) {
                   </div>
                   <div style={{ flex: 1 }}>
                     <label style={lbl}>Estimated monthly rental (£)</label>
-                    <input type="number" min="0" step="1" value={monthlyRental} onChange={e => setMonthlyRental(e.target.value)} placeholder="e.g. 1500" style={{ ...inp, height: 38, fontSize: 13 }} />
+                    <input type="text" inputMode="numeric" value={fmtInput(monthlyRental)} onChange={e => setMonthlyRental(parseInput(e.target.value))} placeholder="e.g. 1,500" style={{ ...inp, height: 38, fontSize: 13 }} />
                   </div>
                 </div>
                 <div>
@@ -15856,9 +15863,9 @@ function DealsPage({ user, setPage, setCelebration }) {
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <span style={{ fontSize: 14, color: "#555", flexShrink: 0 }}>£</span>
                       <input
-                        type="number" required min="1" step="0.01" value={m.amount}
-                        onChange={e => updateMilestone(i, "amount", e.target.value)}
-                        placeholder="Amount"
+                        type="text" inputMode="numeric" value={fmtInput(m.amount)}
+                        onChange={e => updateMilestone(i, "amount", parseInput(e.target.value))}
+                        placeholder="e.g. 50,000"
                         style={{ ...inp, flex: 1, height: 38, fontSize: 13 }}
                       />
                     </div>
