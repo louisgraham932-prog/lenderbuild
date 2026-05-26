@@ -491,5 +491,159 @@ module.exports = async function handler(req, res) {
     return res.status(403).json({ error: "Not authorised" });
   }
 
+  // ── FUNDING-ROOM-JOIN-POST ────────────────────────────────────────────────
+  // Lender joins a funding room linked to a community post (not a project listing)
+  if (action === "funding-room-join-post") {
+    if (userRole !== "lender") return res.status(403).json({ error: "Lenders only" });
+    const { post_id, post_author_id, amount } = req.body;
+    if (!post_id || !post_author_id || !amount) return res.status(400).json({ error: "post_id, post_author_id, amount required" });
+    const joinAmount = Number(amount);
+    if (!Number.isFinite(joinAmount) || joinAmount <= 0) return res.status(400).json({ error: "Invalid amount" });
+
+    // Find the funding room by listing_id = post_id
+    let { data: room } = await supabase.from("funding_rooms").select("*").eq("listing_id", post_id).single().catch(() => ({ data: null }));
+    if (!room) return res.status(404).json({ error: "Funding room not found for this post" });
+    if (room.status === "fully_funded") return res.status(400).json({ error: "Room is already fully funded" });
+
+    const lenderName = sanitizeStr(user.user_metadata?.name || user.email?.split("@")[0] || "Lender", 100);
+    const { error: memberErr } = await supabase.from("funding_room_members").upsert({
+      room_id: room.id, lender_id: user.id, lender_name: lenderName,
+      amount: joinAmount, joined_at: new Date().toISOString(), status: "committed",
+    }, { onConflict: "room_id,lender_id" });
+    if (memberErr) return res.status(500).json({ error: memberErr.message });
+
+    const { data: members } = await supabase.from("funding_room_members").select("amount").eq("room_id", room.id);
+    const totalCommitted = (members || []).reduce((s, m) => s + Number(m.amount), 0);
+    const newStatus = room.target_amount > 0 && totalCommitted >= room.target_amount ? "fully_funded" : "open";
+    await supabase.from("funding_rooms").update({ committed_amount: totalCommitted, status: newStatus }).eq("id", room.id).catch(() => {});
+
+    const fmtGbp = n => `£${Number(n).toLocaleString("en-GB")}`;
+    await supabase.from("funding_room_messages").insert({
+      room_id: room.id, sender_id: user.id, sender_name: "System",
+      message: `${lenderName} committed ${fmtGbp(joinAmount)} to the room.`, is_system: true,
+    }).catch(() => {});
+
+    try {
+      await supabase.from("notifications").insert({
+        user_id: post_author_id, type: "funding_room_join",
+        message: `${lenderName} committed ${fmtGbp(joinAmount)} to your group funding post`,
+      });
+    } catch (_) {}
+
+    return res.status(200).json({ ok: true, room_id: room.id });
+  }
+
+  // ── FUNDING-ROOM-SET-TERMS ────────────────────────────────────────────────
+  if (action === "funding-room-set-terms") {
+    if (userRole !== "builder") return res.status(403).json({ error: "Builders only" });
+    const { room_id, return_type, return_value } = req.body;
+    if (!room_id) return res.status(400).json({ error: "room_id required" });
+
+    const { data: room } = await supabase.from("funding_rooms").select("id, builder_id").eq("id", room_id).single().catch(() => ({ data: null }));
+    if (!room || room.builder_id !== user.id) return res.status(403).json({ error: "Not authorised" });
+
+    const { error: e } = await supabase.from("funding_rooms").update({
+      return_type: sanitizeStr(return_type, 30) || null,
+      return_value: return_value != null ? String(return_value) : null,
+      terms_set_at: new Date().toISOString(),
+    }).eq("id", room_id);
+    if (e) return res.status(500).json({ error: e.message });
+
+    // Notify all members
+    const { data: members } = await supabase.from("funding_room_members").select("lender_id").eq("room_id", room_id);
+    for (const m of members || []) {
+      await supabase.from("notifications").insert({
+        user_id: m.lender_id, type: "funding_room_terms",
+        message: "Investment terms have been set for your funding room — please review and agree.",
+      }).catch(() => {});
+    }
+
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── FUNDING-ROOM-AGREE-TERMS ──────────────────────────────────────────────
+  if (action === "funding-room-agree-terms") {
+    if (userRole !== "lender") return res.status(403).json({ error: "Lenders only" });
+    const { room_id } = req.body;
+    if (!room_id) return res.status(400).json({ error: "room_id required" });
+
+    const { error: e } = await supabase.from("funding_room_members")
+      .update({ status: "terms_agreed", terms_agreed_at: new Date().toISOString() })
+      .eq("room_id", room_id)
+      .eq("lender_id", user.id);
+    if (e) return res.status(500).json({ error: e.message });
+
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── FUNDING-ROOM-FINDER-FEE ───────────────────────────────────────────────
+  if (action === "funding-room-finder-fee") {
+    if (userRole !== "lender") return res.status(403).json({ error: "Lenders only" });
+    const { room_id } = req.body;
+    if (!room_id) return res.status(400).json({ error: "room_id required" });
+
+    const { data: membership } = await supabase.from("funding_room_members")
+      .select("*").eq("room_id", room_id).eq("lender_id", user.id).single().catch(() => ({ data: null }));
+    if (!membership) return res.status(404).json({ error: "Not a member of this room" });
+    if (membership.status === "fee_paid") return res.status(400).json({ error: "Finder fee already paid" });
+    if (membership.status !== "terms_agreed") return res.status(400).json({ error: "Please agree to terms before paying the finder fee" });
+
+    const feeAmount = Math.max(50, Math.round(Number(membership.amount) * 0.01 * 100)); // pence, min £0.50
+    const Stripe = require("stripe");
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+    const { data: room } = await supabase.from("funding_rooms").select("listing_id").eq("id", room_id).single().catch(() => ({ data: null }));
+    const description = `Finder's fee (1%) for funding room commitment of £${Number(membership.amount).toLocaleString("en-GB")}`;
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: [{
+        price_data: {
+          currency: "gbp",
+          unit_amount: feeAmount,
+          product_data: { name: "LenderBuild Finder's Fee", description },
+        },
+        quantity: 1,
+      }],
+      mode: "payment",
+      success_url: `${PLATFORM_URL}/?fee_paid=1&room_id=${room_id}`,
+      cancel_url:  `${PLATFORM_URL}/?room_id=${room_id}`,
+      metadata: { room_id, lender_id: user.id, type: "funding_room_finder_fee" },
+    });
+
+    await supabase.from("funding_room_members").update({
+      stripe_session_id: session.id,
+      fee_amount: Math.round(Number(membership.amount) * 0.01 * 100) / 100,
+    }).eq("room_id", room_id).eq("lender_id", user.id).catch(() => {});
+
+    return res.status(200).json({ ok: true, checkout_url: session.url });
+  }
+
+  // ── FUNDING-ROOM-FEE-CONFIRM ──────────────────────────────────────────────
+  // Called on return from Stripe to mark the fee as paid
+  if (action === "funding-room-fee-confirm") {
+    const { room_id } = req.body;
+    if (!room_id) return res.status(400).json({ error: "room_id required" });
+
+    const { error: e } = await supabase.from("funding_room_members")
+      .update({ status: "fee_paid", fee_paid_at: new Date().toISOString() })
+      .eq("room_id", room_id)
+      .eq("lender_id", user.id)
+      .in("status", ["terms_agreed"]);
+    if (e) return res.status(500).json({ error: e.message });
+
+    // Notify builder
+    const { data: room } = await supabase.from("funding_rooms").select("builder_id").eq("id", room_id).single().catch(() => ({ data: null }));
+    if (room?.builder_id) {
+      const lenderName = sanitizeStr(user.user_metadata?.name || user.email?.split("@")[0] || "Lender", 100);
+      await supabase.from("notifications").insert({
+        user_id: room.builder_id, type: "funding_room_fee_paid",
+        message: `${lenderName} has paid their finder's fee and is fully confirmed in your funding room.`,
+      }).catch(() => {});
+    }
+
+    return res.status(200).json({ ok: true });
+  }
+
   return res.status(400).json({ error: "Unknown action" });
 };

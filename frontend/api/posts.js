@@ -84,12 +84,51 @@ module.exports = async function handler(req, res) {
         id: randomUUID(), title, body,
         category: category || "general", created_at: now, updated_at: now, interested_by: [],
       };
+
+      // Group funding extra fields
+      if (category === "group-funding") {
+        newPost.funding_needed = req.body.funding_needed ? Number(req.body.funding_needed) : null;
+        newPost.location       = sanitizeStr(req.body.location, 80) || null;
+        newPost.return_type    = sanitizeStr(req.body.return_type, 30) || null;
+        newPost.return_value   = req.body.return_value != null ? Number(req.body.return_value) : null;
+        newPost.timeline       = sanitizeStr(req.body.timeline, 80) || null;
+      }
+
       const existing = user.user_metadata?.posts || [];
       const { error: e } = await supabase.auth.admin.updateUserById(user.id, {
         user_metadata: { ...user.user_metadata, posts: [...existing, newPost] },
       });
       if (e) return res.status(500).json({ error: e.message });
-      return res.status(200).json({ ok: true, post: newPost });
+
+      // Auto-create funding room for group-funding posts
+      let fundingRoomId = null;
+      if (category === "group-funding") {
+        try {
+          const { data: room } = await supabase.from("funding_rooms").insert({
+            listing_id:      newPost.id,
+            builder_id:      user.id,
+            target_amount:   newPost.funding_needed || 0,
+            committed_amount: 0,
+            status:          "open",
+            return_type:     newPost.return_type || null,
+            return_value:    newPost.return_value != null ? String(newPost.return_value) : null,
+          }).select().single();
+          fundingRoomId = room?.id || null;
+          if (fundingRoomId) {
+            // Store room ID back on post
+            const freshPosts = user.user_metadata?.posts ? [...user.user_metadata.posts] : [];
+            const idx2 = freshPosts.findIndex(p => p.id === newPost.id);
+            if (idx2 !== -1) {
+              freshPosts[idx2] = { ...freshPosts[idx2], funding_room_id: fundingRoomId };
+              await supabase.auth.admin.updateUserById(user.id, {
+                user_metadata: { ...user.user_metadata, posts: freshPosts },
+              }).catch(() => {});
+            }
+          }
+        } catch (_) {}
+      }
+
+      return res.status(200).json({ ok: true, post: newPost, funding_room_id: fundingRoomId });
     }
 
     if (action === "update") {
@@ -99,7 +138,19 @@ module.exports = async function handler(req, res) {
       const idx = existing.findIndex(p => p.id === post_id);
       if (idx === -1) return res.status(404).json({ error: "Post not found" });
       const updated = [...existing];
-      updated[idx] = { ...updated[idx], title, body, category: category || updated[idx].category, updated_at: new Date().toISOString() };
+      const updatedPost = {
+        ...updated[idx], title, body,
+        category: category || updated[idx].category,
+        updated_at: new Date().toISOString(),
+      };
+      if ((category || updated[idx].category) === "group-funding") {
+        updatedPost.funding_needed = req.body.funding_needed != null ? Number(req.body.funding_needed) : updated[idx].funding_needed;
+        updatedPost.location       = req.body.location !== undefined ? sanitizeStr(req.body.location, 80) : updated[idx].location;
+        updatedPost.return_type    = req.body.return_type !== undefined ? sanitizeStr(req.body.return_type, 30) : updated[idx].return_type;
+        updatedPost.return_value   = req.body.return_value != null ? Number(req.body.return_value) : updated[idx].return_value;
+        updatedPost.timeline       = req.body.timeline !== undefined ? sanitizeStr(req.body.timeline, 80) : updated[idx].timeline;
+      }
+      updated[idx] = updatedPost;
       const { error: e } = await supabase.auth.admin.updateUserById(user.id, {
         user_metadata: { ...user.user_metadata, posts: updated },
       });

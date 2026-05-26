@@ -8314,14 +8314,15 @@ function DealConfirmWidget({ user, otherName, otherRole }) {
 // ─── POSTS FEED PAGE ─────────────────────────────────────────────────────────
 
 const CATEGORY_META = {
-  "looking-for-lender":  { label: "Looking for funding",  bg: "#EBF2FF", text: "#1E3A5F" },
-  "looking-for-builder": { label: "Available to lend",    bg: "#E1F5EE", text: "#0F6E56" },
-  "project-update":      { label: "Project update",       bg: "#FFF7ED", text: "#C2410C" },
-  "question":            { label: "Question",             bg: "#F5F3FF", text: "#6D28D9" },
-  "general":             { label: "General",              bg: "#F1EFE8", text: "#5F5E5A" },
+  "looking-for-lender":  { label: "Looking for funding",       bg: "#EBF2FF", text: "#1E3A5F" },
+  "looking-for-builder": { label: "Available to lend",         bg: "#E1F5EE", text: "#0F6E56" },
+  "project-update":      { label: "Project update",            bg: "#FFF7ED", text: "#C2410C" },
+  "question":            { label: "Question",                  bg: "#F5F3FF", text: "#6D28D9" },
+  "general":             { label: "General",                   bg: "#F1EFE8", text: "#5F5E5A" },
+  "group-funding":       { label: "Group Funding Opportunity", bg: "#FDF4FF", text: "#7E22CE" },
 };
 
-function PostCard({ post, isOwn, onView, onEdit, onDelete, user, onConnect, onMessage }) {
+function PostCard({ post, isOwn, onView, onEdit, onDelete, user, onConnect, onMessage, onFundPost }) {
   const cat = CATEGORY_META[post.category] || CATEGORY_META.general;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [removing,         setRemoving]         = useState(false);
@@ -8446,7 +8447,15 @@ function PostCard({ post, isOwn, onView, onEdit, onDelete, user, onConnect, onMe
       ) : (
         <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, color: "#3B82F6", fontWeight: 500 }}>Read more →</span>
-          {showConnect && (
+          {post.category === "group-funding" && onFundPost && user?.user_metadata?.role === "lender" && (
+            <button
+              onClick={e => { e.stopPropagation(); onFundPost(post); }}
+              style={{ marginLeft: "auto", padding: "6px 16px", minHeight: 36, borderRadius: 8, border: "none", background: "#7E22CE", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+            >
+              Fund this project
+            </button>
+          )}
+          {post.category !== "group-funding" && showConnect && (
             (alreadyAccepted || (connectStatus === "done" && !alreadySent)) ? (
               <button
                 onClick={handleMessage}
@@ -8469,12 +8478,20 @@ function PostCard({ post, isOwn, onView, onEdit, onDelete, user, onConnect, onMe
               </button>
             )
           )}
-          {!user && post.author_role && (
+          {!user && post.author_role && post.category !== "group-funding" && (
             <button
               onClick={e => { e.stopPropagation(); /* caller handles auth */ onConnect && onConnect(post); }}
               style={{ marginLeft: "auto", padding: "6px 14px", minHeight: 36, borderRadius: 8, border: "none", background: "#3B82F6", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
             >
               {post.author_role === "builder" ? "Connect with this builder" : "Connect with this lender"}
+            </button>
+          )}
+          {!user && post.category === "group-funding" && (
+            <button
+              onClick={e => { e.stopPropagation(); setPage && setPage("auth"); }}
+              style={{ marginLeft: "auto", padding: "6px 16px", minHeight: 36, borderRadius: 8, border: "none", background: "#7E22CE", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+            >
+              Fund this project
             </button>
           )}
         </div>
@@ -8498,6 +8515,10 @@ function PostDetailPage({ post: initialPost, user, setPage, onMessage, onBack, o
   const [copied,         setCopied]        = useState(false);
   const [connectStatus,  setConnectStatus] = useState("idle");
   const [relatedPosts,   setRelatedPosts]  = useState([]);
+  const [fundAmount,     setFundAmount]    = useState("");
+  const [fundLoading,    setFundLoading]   = useState(false);
+  const [fundError,      setFundError]     = useState("");
+  const [showFundForm,   setShowFundForm]  = useState(false);
 
   const viewerRole     = user?.user_metadata?.role;
   const showConnect    = user && !isOwn && viewerRole && post.author_role && viewerRole !== post.author_role;
@@ -8612,6 +8633,25 @@ function PostDetailPage({ post: initialPost, user, setPage, onMessage, onBack, o
     }
   }
 
+  async function handleFundSubmit(e) {
+    e.preventDefault();
+    if (!user) { setPage("auth"); return; }
+    const amount = Number(fundAmount);
+    if (!amount || amount <= 0) { setFundError("Please enter a valid amount"); return; }
+    setFundLoading(true);
+    setFundError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/project-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "funding-room-join-post", post_id: post.id, post_author_id: post.author_id, amount }),
+    });
+    const json = await res.json();
+    setFundLoading(false);
+    if (!res.ok) { setFundError(json.error || "Failed to join funding room"); return; }
+    if (json.room_id) setPage("funding-room", json.room_id);
+  }
+
   const connectLabel = alreadySent || connectStatus === "done" ? "Request sent"
     : connectStatus === "loading" ? "Sending…"
     : connectStatus === "error"   ? "Try again"
@@ -8696,6 +8736,81 @@ function PostDetailPage({ post: initialPost, user, setPage, onMessage, onBack, o
       <div style={{ fontSize: 15, color: "#333", lineHeight: 1.8, whiteSpace: "pre-wrap", marginBottom: "1rem" }}>
         {post.body}
       </div>
+
+      {/* Group Funding Info Panel */}
+      {post.category === "group-funding" && (
+        <div style={{ background: "#FDF4FF", border: "1.5px solid #D8B4FE", borderRadius: 12, padding: "1.25rem", marginBottom: "1.25rem" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#7E22CE", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>Group Funding Opportunity</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem", marginBottom: post.funding_needed ? 14 : 0 }}>
+            {post.funding_needed && (
+              <div style={{ flex: 1, minWidth: 120 }}>
+                <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 2 }}>Funding target</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#7E22CE" }}>£{Number(post.funding_needed).toLocaleString("en-GB")}</div>
+              </div>
+            )}
+            {post.return_type && (
+              <div style={{ flex: 1, minWidth: 120 }}>
+                <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 2 }}>Return</div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: "#1E3A5F" }}>
+                  {post.return_value ? `${post.return_value}%` : "—"}{" "}
+                  <span style={{ fontSize: 12, fontWeight: 400, color: "#64748B" }}>
+                    {post.return_type === "fixed_interest" ? "fixed interest" : post.return_type === "revenue_share" ? "revenue share" : "equity stake"}
+                  </span>
+                </div>
+              </div>
+            )}
+            {post.timeline && (
+              <div style={{ flex: 1, minWidth: 120 }}>
+                <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 2 }}>Timeline</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: "#1E3A5F" }}>{post.timeline}</div>
+              </div>
+            )}
+            {post.location && (
+              <div style={{ flex: 1, minWidth: 120 }}>
+                <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 2 }}>Location</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: "#1E3A5F" }}>{post.location}</div>
+              </div>
+            )}
+          </div>
+          {!isOwn && user?.user_metadata?.role === "lender" && (
+            !showFundForm ? (
+              <button
+                onClick={() => setShowFundForm(true)}
+                style={{ width: "100%", height: 46, background: "#7E22CE", color: "#fff", border: "none", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer", marginTop: 4 }}
+              >
+                I want to fund this project
+              </button>
+            ) : (
+              <form onSubmit={handleFundSubmit} style={{ marginTop: 8 }}>
+                <label style={{ fontSize: 13, fontWeight: 500, color: "#374151", display: "block", marginBottom: 6 }}>How much would you like to commit? (£)</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="number" min="1" required
+                    value={fundAmount} onChange={e => setFundAmount(e.target.value)}
+                    placeholder="e.g. 25000"
+                    style={{ flex: 1, height: 46, border: "1.5px solid #7E22CE", borderRadius: 8, padding: "0 14px", fontSize: 15, fontWeight: 500, boxSizing: "border-box", outline: "none" }}
+                  />
+                  <button type="submit" disabled={fundLoading} style={{ padding: "0 20px", height: 46, background: "#7E22CE", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: fundLoading ? "default" : "pointer", whiteSpace: "nowrap" }}>
+                    {fundLoading ? "Joining…" : "Commit & Enter Room"}
+                  </button>
+                  <button type="button" onClick={() => setShowFundForm(false)} style={{ padding: "0 14px", height: 46, background: "transparent", color: "#555", border: "1px solid #ccc", borderRadius: 8, fontSize: 14, cursor: "pointer" }}>
+                    Cancel
+                  </button>
+                </div>
+                {fundError && <div style={{ color: "#DC2626", fontSize: 13, marginTop: 8 }}>{fundError}</div>}
+              </form>
+            )
+          )}
+          {!user && (
+            <button
+              onClick={() => setPage("auth")}
+              style={{ width: "100%", height: 46, background: "#7E22CE", color: "#fff", border: "none", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer", marginTop: 4 }}
+            >
+              Log in to fund this project
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Stats line */}
       <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: "1.25rem" }}>
@@ -8860,6 +8975,7 @@ const POST_CATEGORY_FILTERS = [
   { key: "all",                 label: "All" },
   { key: "looking-for-lender",  label: "Looking for funding" },
   { key: "looking-for-builder", label: "Available to lend" },
+  { key: "group-funding",       label: "Group Funding" },
   { key: "project-update",      label: "Project updates" },
   { key: "question",            label: "Questions" },
   { key: "general",             label: "General" },
@@ -8871,6 +8987,10 @@ function PostsFeedPage({ user, setPage }) {
   const [error,        setError]        = useState("");
   const [myLocation,   setMyLocation]   = useState("");
   const [toast,        setToast]        = useState("");
+  const [fundModal,    setFundModal]    = useState(null); // post being funded
+  const [fundAmount,   setFundAmount]   = useState("");
+  const [fundLoading,  setFundLoading]  = useState(false);
+  const [fundError,    setFundError]    = useState("");
 
   // Filters
   const [catFilter,    setCatFilter]    = useState("all");
@@ -8936,6 +9056,40 @@ function PostsFeedPage({ user, setPage }) {
       }
     }
     setPage("post-detail", post);
+  }
+
+  async function handleFundPost(post) {
+    if (!user) { setPage("auth"); return; }
+    setFundModal(post);
+    setFundAmount("");
+    setFundError("");
+  }
+
+  async function submitFundPost(e) {
+    e.preventDefault();
+    if (!fundModal) return;
+    const amount = Number(fundAmount);
+    if (!amount || amount <= 0) { setFundError("Please enter a valid amount"); return; }
+    setFundLoading(true);
+    setFundError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/project-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({
+        action: "funding-room-join-post",
+        post_id: fundModal.id,
+        post_author_id: fundModal.author_id,
+        amount,
+      }),
+    });
+    const json = await res.json();
+    setFundLoading(false);
+    if (!res.ok) { setFundError(json.error || "Failed to join funding room"); return; }
+    setFundModal(null);
+    setToast("You've committed to this project!");
+    setTimeout(() => setToast(""), 4000);
+    if (json.room_id) setPage("funding-room", json.room_id);
   }
 
   const myReg = ukRegion(myLocation);
@@ -9100,6 +9254,41 @@ function PostsFeedPage({ user, setPage }) {
         </div>
       )}
 
+      {/* Fund-this-project modal */}
+      {fundModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
+          <div style={{ background: "#fff", borderRadius: 16, padding: "2rem", maxWidth: 440, width: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#7E22CE", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>Group Funding Room</div>
+            <h3 style={{ fontSize: 18, fontWeight: 600, margin: "0 0 6px", color: "#1E3A5F" }}>{fundModal.title}</h3>
+            {fundModal.funding_needed && (
+              <div style={{ fontSize: 13, color: "#64748B", marginBottom: 6 }}>
+                Target: <strong>£{Number(fundModal.funding_needed).toLocaleString("en-GB")}</strong>
+                {fundModal.return_type && ` · Return: ${fundModal.return_type === "fixed_interest" ? `${fundModal.return_value}% fixed interest` : fundModal.return_type === "revenue_share" ? `${fundModal.return_value}% revenue share` : `${fundModal.return_value}% equity`}`}
+              </div>
+            )}
+            {fundModal.timeline && <div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 16 }}>Timeline: {fundModal.timeline}</div>}
+            <form onSubmit={submitFundPost}>
+              <label style={{ fontSize: 13, fontWeight: 500, color: "#374151", display: "block", marginBottom: 6 }}>How much would you like to commit? (£)</label>
+              <input
+                type="number" min="1" required
+                value={fundAmount} onChange={e => setFundAmount(e.target.value)}
+                placeholder="e.g. 25000"
+                style={{ width: "100%", height: 48, border: "1.5px solid #7E22CE", borderRadius: 8, padding: "0 14px", fontSize: 16, fontWeight: 500, boxSizing: "border-box", marginBottom: 12, outline: "none" }}
+              />
+              {fundError && <div style={{ color: "#DC2626", fontSize: 13, marginBottom: 10 }}>{fundError}</div>}
+              <div style={{ display: "flex", gap: 10 }}>
+                <button type="submit" disabled={fundLoading} style={{ flex: 1, height: 46, background: fundLoading ? "#9333EA" : "#7E22CE", color: "#fff", border: "none", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: fundLoading ? "default" : "pointer" }}>
+                  {fundLoading ? "Joining…" : "Commit & Enter Room"}
+                </button>
+                <button type="button" onClick={() => setFundModal(null)} style={{ padding: "0 18px", height: 46, background: "transparent", color: "#555", border: "1px solid #ccc", borderRadius: 8, fontSize: 14, cursor: "pointer" }}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {sorted.map(p => (
         <PostCard
           key={p.id}
@@ -9108,6 +9297,7 @@ function PostsFeedPage({ user, setPage }) {
           onView={() => handleView(p)}
           onEdit={post => setPage("edit-post", post)}
           user={user}
+          onFundPost={handleFundPost}
           onConnect={async (post) => {
             if (!user) { setPage("auth"); return false; }
             const { data: { session } } = await supabase.auth.getSession();
@@ -9173,13 +9363,32 @@ function PostsFeedPage({ user, setPage }) {
 
 function CreateEditPostPage({ user, setPage, editPost = null, onSaved, onCancelBack }) {
   const isEdit = !!editPost;
-  const [title,    setTitle]    = useState(editPost?.title    || "");
-  const [body,     setBody]     = useState(editPost?.body     || "");
-  const [category, setCategory] = useState(editPost?.category || "general");
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState("");
-  const [toast,    setToast]    = useState(null); // { type: "success"|"error", msg }
-  const [visible,  setVisible]  = useState(false);
+  const [title,          setTitle]          = useState(editPost?.title          || "");
+  const [body,           setBody]           = useState(editPost?.body           || "");
+  const [category,       setCategory]       = useState(editPost?.category       || "general");
+  const [fundingNeeded,  setFundingNeeded]  = useState(editPost?.funding_needed ? String(editPost.funding_needed) : "");
+  const [location,       setPostLocation]   = useState(editPost?.location       || "");
+  const [returnType,     setReturnType]     = useState(editPost?.return_type    || "fixed_interest");
+  const [returnValue,    setReturnValue]    = useState(editPost?.return_value   ? String(editPost.return_value) : "");
+  const [timeline,       setTimeline]       = useState(editPost?.timeline       || "");
+  const [showCalc,       setShowCalc]       = useState(false);
+  const [calcType,       setCalcType]       = useState("New build residential");
+  const [calcRegion,     setCalcRegion]     = useState("South East");
+  const [calcSize,       setCalcSize]       = useState("");
+  const [loading,        setLoading]        = useState(false);
+  const [error,          setError]          = useState("");
+  const [toast,          setToast]          = useState(null);
+  const [visible,        setVisible]        = useState(false);
+
+  const isGroupFunding = category === "group-funding";
+
+  // Inline build calculator result
+  const calcSqm = parseFloat(calcSize) || 0;
+  const calcTypeData = BUILD_COST_DATA?.types?.[calcType];
+  const calcMult = BUILD_COST_DATA?.regionMultipliers?.[calcRegion] || 1.0;
+  const calcCostLow  = calcTypeData ? Math.round(calcTypeData.low  * calcMult * calcSqm) : 0;
+  const calcCostHigh = calcTypeData ? Math.round(calcTypeData.high * calcMult * calcSqm) : 0;
+  const calcFunding  = Math.round(((calcCostLow + calcCostHigh) / 2) * 0.8);
 
   useEffect(() => {
     const id = requestAnimationFrame(() => setVisible(true));
@@ -9195,12 +9404,17 @@ function CreateEditPostPage({ user, setPage, editPost = null, onSaved, onCancelB
   async function handleSubmit(e) {
     e.preventDefault();
     if (!title.trim() || !body.trim()) { setError("Title and body are required."); return; }
+    if (isGroupFunding && !fundingNeeded) { setError("Funding needed is required for group funding posts."); return; }
     setLoading(true);
     setError("");
     const { data: { session } } = await supabase.auth.getSession();
-    const payload = isEdit
+    const basePayload = isEdit
       ? { action: "update", post_id: editPost.id, title, body, category }
       : { action: "create", title, body, category };
+
+    const payload = isGroupFunding
+      ? { ...basePayload, funding_needed: Number(fundingNeeded), location, return_type: returnType, return_value: returnValue ? Number(returnValue) : null, timeline }
+      : basePayload;
 
     const res  = await fetch("/api/posts", {
       method: "POST",
@@ -9262,17 +9476,131 @@ function CreateEditPostPage({ user, setPage, editPost = null, onSaved, onCancelB
           >
             <option value="looking-for-lender">Looking for funding</option>
             <option value="looking-for-builder">Available to lend</option>
+            <option value="group-funding">Group Funding Opportunity</option>
             <option value="project-update">Project update</option>
             <option value="question">Question</option>
             <option value="general">General</option>
           </select>
         </div>
+
+        {/* Group funding extra fields */}
+        {isGroupFunding && (
+          <div style={{ background: "#FDF4FF", border: "1px solid #D8B4FE", borderRadius: 10, padding: "1.25rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#7E22CE", marginBottom: 2 }}>Group Funding Details</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+              <div>
+                <label style={{ fontSize: 13, color: "#555", marginBottom: 6, display: "block" }}>Funding needed (£) *</label>
+                <input
+                  type="number" min="1" required={isGroupFunding}
+                  value={fundingNeeded} onChange={e => setFundingNeeded(e.target.value)}
+                  placeholder="e.g. 150000"
+                  style={{ ...inputStyle, height: 44 }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 13, color: "#555", marginBottom: 6, display: "block" }}>Location</label>
+                <input
+                  type="text" maxLength={80}
+                  value={location} onChange={e => setPostLocation(e.target.value)}
+                  placeholder="e.g. Manchester"
+                  style={{ ...inputStyle, height: 44 }}
+                />
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+              <div>
+                <label style={{ fontSize: 13, color: "#555", marginBottom: 6, display: "block" }}>Return type</label>
+                <select value={returnType} onChange={e => setReturnType(e.target.value)} style={{ ...inputStyle, height: 44 }}>
+                  <option value="fixed_interest">Fixed interest</option>
+                  <option value="revenue_share">Revenue share</option>
+                  <option value="equity">Equity stake</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 13, color: "#555", marginBottom: 6, display: "block" }}>
+                  {returnType === "fixed_interest" ? "Interest rate (%)" : returnType === "revenue_share" ? "Revenue share (%)" : "Equity stake (%)"}
+                </label>
+                <input
+                  type="number" min="0" max="100" step="0.1"
+                  value={returnValue} onChange={e => setReturnValue(e.target.value)}
+                  placeholder="e.g. 8"
+                  style={{ ...inputStyle, height: 44 }}
+                />
+              </div>
+            </div>
+            <div>
+              <label style={{ fontSize: 13, color: "#555", marginBottom: 6, display: "block" }}>Timeline</label>
+              <input
+                type="text" maxLength={80}
+                value={timeline} onChange={e => setTimeline(e.target.value)}
+                placeholder="e.g. 18 months"
+                style={{ ...inputStyle, height: 44 }}
+              />
+            </div>
+
+            {/* Inline Build Calculator */}
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowCalc(v => !v)}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#EDE9FE", color: "#7E22CE", border: "1px solid #C4B5FD", borderRadius: 8, padding: "7px 14px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}
+              >
+                <Icon name="calculator" size={13} /> {showCalc ? "Hide" : "Use"} Build Calculator
+              </button>
+              {showCalc && (
+                <div style={{ marginTop: 12, background: "#fff", border: "0.5px solid #D8B4FE", borderRadius: 8, padding: "1rem" }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#7E22CE", marginBottom: 10 }}>Estimate your funding need</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 12, color: "#555", display: "block", marginBottom: 4 }}>Project type</label>
+                      <select value={calcType} onChange={e => setCalcType(e.target.value)} style={{ ...inputStyle, height: 38, fontSize: 12 }}>
+                        {BUILD_COST_DATA && Object.keys(BUILD_COST_DATA.types).map(t => <option key={t}>{t}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, color: "#555", display: "block", marginBottom: 4 }}>Region</label>
+                      <select value={calcRegion} onChange={e => setCalcRegion(e.target.value)} style={{ ...inputStyle, height: 38, fontSize: 12 }}>
+                        {BUILD_COST_DATA && Object.keys(BUILD_COST_DATA.regionMultipliers).map(r => <option key={r}>{r}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, color: "#555", display: "block", marginBottom: 4 }}>Floor area (m²)</label>
+                      <input
+                        type="number" min="1"
+                        value={calcSize} onChange={e => setCalcSize(e.target.value)}
+                        placeholder="e.g. 120"
+                        style={{ ...inputStyle, height: 38, fontSize: 12 }}
+                      />
+                    </div>
+                  </div>
+                  {calcSqm > 0 && (
+                    <div style={{ background: "#FDF4FF", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 11, color: "#7E22CE", fontWeight: 600, marginBottom: 2 }}>Recommended funding (80% of estimate)</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: "#7E22CE" }}>£{calcFunding.toLocaleString("en-GB")}</div>
+                        <div style={{ fontSize: 11, color: "#94A3B8" }}>Build cost range: £{calcCostLow.toLocaleString()} – £{calcCostHigh.toLocaleString()}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setFundingNeeded(String(calcFunding))}
+                        style={{ padding: "8px 16px", background: "#7E22CE", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", minHeight: 38 }}
+                      >
+                        Use this amount
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <div>
           <label style={{ fontSize: 13, color: "#555", marginBottom: 6, display: "block" }}>Title</label>
           <input
             type="text" required maxLength={120}
             value={title} onChange={e => setTitle(e.target.value)}
-            placeholder="What are you looking for?"
+            placeholder={isGroupFunding ? "e.g. Group investment for 4-bed new build in Manchester" : "What are you looking for?"}
             style={{ ...inputStyle, height: 44 }}
           />
         </div>
@@ -9281,7 +9609,7 @@ function CreateEditPostPage({ user, setPage, editPost = null, onSaved, onCancelB
           <textarea
             required rows={6}
             value={body} onChange={e => setBody(e.target.value)}
-            placeholder="Describe your project, funding needs, budget, location, timeline…"
+            placeholder={isGroupFunding ? "Describe the project, investment terms, risk profile, how funds will be used…" : "Describe your project, funding needs, budget, location, timeline…"}
             style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
           />
         </div>
@@ -9298,7 +9626,7 @@ function CreateEditPostPage({ user, setPage, editPost = null, onSaved, onCancelB
             {loading && (
               <span style={{ width: 14, height: 14, border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", animation: "lbSpin 0.7s linear infinite", flexShrink: 0 }} />
             )}
-            {loading ? "Saving…" : isEdit ? "Save changes" : "Publish post"}
+            {loading ? "Saving…" : isEdit ? "Save changes" : isGroupFunding ? "Publish & Create Funding Room" : "Publish post"}
           </button>
           <button
             type="button" onClick={handleBack} disabled={loading}
@@ -13581,18 +13909,26 @@ function AboutPage({ setPage }) {
 // ─── FUNDING ROOM PAGE ────────────────────────────────────────────────────────
 
 function FundingRoomPage({ user, setPage, roomId }) {
-  const [room,        setRoom]        = useState(null);
-  const [members,     setMembers]     = useState([]);
-  const [messages,    setMessages]    = useState([]);
-  const [listing,     setListing]     = useState(null);
-  const [builderName, setBuilderName] = useState("");
+  const [room,          setRoom]          = useState(null);
+  const [members,       setMembers]       = useState([]);
+  const [messages,      setMessages]      = useState([]);
+  const [listing,       setListing]       = useState(null);
+  const [builderName,   setBuilderName]   = useState("");
   const [builderAvatar, setBuilderAvatar] = useState(null);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState("");
-  const [chatInput,   setChatInput]   = useState("");
-  const [sending,     setSending]     = useState(false);
-  const [leaving,     setLeaving]     = useState(false);
-  const [leaveConfirm, setLeaveConfirm] = useState(false);
+  const [loading,       setLoading]       = useState(true);
+  const [error,         setError]         = useState("");
+  const [chatInput,     setChatInput]     = useState("");
+  const [sending,       setSending]       = useState(false);
+  const [leaving,       setLeaving]       = useState(false);
+  const [leaveConfirm,  setLeaveConfirm]  = useState(false);
+  // Terms
+  const [termsReturn,   setTermsReturn]   = useState("");
+  const [termsValue,    setTermsValue]    = useState("");
+  const [settingTerms,  setSettingTerms]  = useState(false);
+  const [agreeingTerms, setAgreeingTerms] = useState(false);
+  const [termsError,    setTermsError]    = useState("");
+  // Finder fee
+  const [feeLoading,    setFeeLoading]    = useState(false);
   const chatEndRef    = useRef(null);
   const realtimeChanRef = useRef(null);
 
@@ -13672,6 +14008,52 @@ function FundingRoomPage({ user, setPage, roomId }) {
     });
     setLeaving(false);
     if (res.ok) setPage("browse-projects");
+  }
+
+  async function handleSetTerms(e) {
+    e.preventDefault();
+    if (!termsReturn) { setTermsError("Please select a return type"); return; }
+    setSettingTerms(true);
+    setTermsError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/project-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "funding-room-set-terms", room_id: roomId, return_type: termsReturn, return_value: termsValue }),
+    });
+    const json = await res.json();
+    setSettingTerms(false);
+    if (!res.ok) { setTermsError(json.error || "Failed to set terms"); return; }
+    setRoom(prev => ({ ...prev, return_type: termsReturn, return_value: termsValue, terms_set_at: new Date().toISOString() }));
+  }
+
+  async function handleAgreeTerms() {
+    setAgreeingTerms(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/project-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "funding-room-agree-terms", room_id: roomId }),
+    });
+    setAgreeingTerms(false);
+    if (res.ok) {
+      setMembers(prev => prev.map(m => m.lender_id === user.id ? { ...m, status: "terms_agreed", terms_agreed_at: new Date().toISOString() } : m));
+    }
+  }
+
+  async function handlePayFinderFee() {
+    setFeeLoading(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/project-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "funding-room-finder-fee", room_id: roomId }),
+    });
+    const json = await res.json();
+    setFeeLoading(false);
+    if (res.ok && json.checkout_url) {
+      window.location.href = json.checkout_url;
+    }
   }
 
   const targetAmount    = room?.target_amount || 0;
@@ -13841,6 +14223,100 @@ function FundingRoomPage({ user, setPage, roomId }) {
           </button>
         </form>
       </div>
+
+      {/* Terms section */}
+      {isBuilder && !room?.terms_set_at && (
+        <div style={{ background: "var(--bg-card)", border: "1px solid #D8B4FE", borderRadius: 12, padding: "1.25rem", marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#7E22CE", marginBottom: 4 }}>Set Investment Terms</div>
+          <div style={{ fontSize: 12, color: "#64748B", marginBottom: 12 }}>Set the return terms for this funding room. Lenders must agree before paying their finder's fee.</div>
+          <form onSubmit={handleSetTerms} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div>
+                <label style={{ fontSize: 12, color: "#555", display: "block", marginBottom: 4 }}>Return type</label>
+                <select value={termsReturn} onChange={e => setTermsReturn(e.target.value)} required
+                  style={{ width: "100%", height: 40, border: "1px solid #D8B4FE", borderRadius: 8, padding: "0 10px", fontSize: 13 }}>
+                  <option value="">Select…</option>
+                  <option value="fixed_interest">Fixed interest</option>
+                  <option value="revenue_share">Revenue share</option>
+                  <option value="equity">Equity stake</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "#555", display: "block", marginBottom: 4 }}>
+                  {termsReturn === "fixed_interest" ? "Interest rate (%)" : termsReturn === "revenue_share" ? "Revenue share (%)" : "Equity (%)"}
+                </label>
+                <input
+                  type="number" min="0" max="100" step="0.1"
+                  value={termsValue} onChange={e => setTermsValue(e.target.value)}
+                  placeholder="e.g. 8"
+                  style={{ width: "100%", height: 40, border: "1px solid #D8B4FE", borderRadius: 8, padding: "0 10px", fontSize: 13, boxSizing: "border-box" }}
+                />
+              </div>
+            </div>
+            {termsError && <div style={{ color: "#DC2626", fontSize: 12 }}>{termsError}</div>}
+            <button type="submit" disabled={settingTerms} style={{ height: 40, background: "#7E22CE", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: settingTerms ? "default" : "pointer" }}>
+              {settingTerms ? "Saving…" : "Set Terms for All Lenders"}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Terms display + agree (lender) */}
+      {!isBuilder && myMembership && room?.terms_set_at && (
+        <div style={{ background: "var(--bg-card)", border: "1px solid #D8B4FE", borderRadius: 12, padding: "1.25rem", marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#7E22CE", marginBottom: 8 }}>Investment Terms</div>
+          <div style={{ background: "#FDF4FF", borderRadius: 8, padding: "12px 14px", marginBottom: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F" }}>
+              {room.return_type === "fixed_interest" ? "Fixed Interest" : room.return_type === "revenue_share" ? "Revenue Share" : "Equity Stake"}
+              {room.return_value ? `: ${room.return_value}%` : ""}
+            </div>
+            <div style={{ fontSize: 12, color: "#64748B", marginTop: 4 }}>
+              Your commitment: {fmt(myMembership.amount)} ·
+              Finder's fee (1%): {fmt(Number(myMembership.amount) * 0.01)}
+            </div>
+          </div>
+          {(!myMembership.status || myMembership.status === "committed") && (
+            <button
+              onClick={handleAgreeTerms} disabled={agreeingTerms}
+              style={{ width: "100%", height: 42, background: "#7E22CE", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: agreeingTerms ? "default" : "pointer" }}
+            >
+              {agreeingTerms ? "Confirming…" : "I agree to these terms"}
+            </button>
+          )}
+          {(myMembership.status === "terms_agreed") && (
+            <div>
+              <div style={{ fontSize: 12, color: "#16A34A", fontWeight: 600, marginBottom: 8 }}>Terms agreed ✓</div>
+              <button
+                onClick={handlePayFinderFee} disabled={feeLoading}
+                style={{ width: "100%", height: 42, background: "#16A34A", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: feeLoading ? "default" : "pointer" }}
+              >
+                {feeLoading ? "Redirecting…" : `Pay finder's fee — ${fmt(Number(myMembership.amount) * 0.01)}`}
+              </button>
+              <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 6, textAlign: "center" }}>1% of your commitment · Secure payment via Stripe</div>
+            </div>
+          )}
+          {myMembership.status === "fee_paid" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#DCFCE7", borderRadius: 8, padding: "10px 14px" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#166534" }}>Finder's fee paid — you're fully confirmed in this deal</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Terms set confirmation (builder) */}
+      {isBuilder && room?.terms_set_at && (
+        <div style={{ background: "var(--bg-card)", border: "1px solid #D8B4FE", borderRadius: 12, padding: "1.25rem", marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#7E22CE", marginBottom: 4 }}>Investment Terms Set</div>
+          <div style={{ fontSize: 13, color: "#1E3A5F" }}>
+            {room.return_type === "fixed_interest" ? "Fixed Interest" : room.return_type === "revenue_share" ? "Revenue Share" : "Equity Stake"}
+            {room.return_value ? `: ${room.return_value}%` : ""}
+          </div>
+          <div style={{ fontSize: 12, color: "#64748B", marginTop: 4 }}>
+            {members.filter(m => m.status === "terms_agreed" || m.status === "fee_paid").length} of {members.length} lender{members.length !== 1 ? "s" : ""} agreed · {members.filter(m => m.status === "fee_paid").length} paid finder's fee
+          </div>
+        </div>
+      )}
 
       {/* Leave room (lenders only, only if not fully funded) */}
       {!isBuilder && myMembership && !fullyFunded && (
@@ -14980,14 +15456,14 @@ function SavedSearchesPage({ user, setPage }) {
 function MinimalFooter({ setPage }) {
   return (
     <footer style={{ borderTop: "1px solid rgba(0,0,0,0.07)", marginTop: "auto", padding: "1.25rem 1.25rem", textAlign: "center" }}>
-      <div style={{ fontSize: 11, color: "rgba(0,0,0,0.35)", display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "0 0.5rem" }}>
+      <div style={{ fontSize: 11, color: "var(--text-muted,#9ca3af)", display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "0 0.5rem" }}>
         <span>© 2025 LenderBuild Ltd</span>
         <span>·</span>
-        <button onClick={() => setPage("privacy")} style={{ background: "none", border: "none", padding: 0, fontSize: 11, color: "rgba(0,0,0,0.35)", cursor: "pointer" }}>Privacy Policy</button>
+        <button onClick={() => setPage("privacy")} style={{ background: "none", border: "none", padding: 0, fontSize: 11, color: "var(--text-muted,#9ca3af)", cursor: "pointer" }}>Privacy Policy</button>
         <span>·</span>
-        <button onClick={() => setPage("terms")} style={{ background: "none", border: "none", padding: 0, fontSize: 11, color: "rgba(0,0,0,0.35)", cursor: "pointer" }}>Terms and Conditions</button>
+        <button onClick={() => setPage("terms")} style={{ background: "none", border: "none", padding: 0, fontSize: 11, color: "var(--text-muted,#9ca3af)", cursor: "pointer" }}>Terms and Conditions</button>
         <span>·</span>
-        <button onClick={() => setPage("risk-warning")} style={{ background: "none", border: "none", padding: 0, fontSize: 11, color: "rgba(0,0,0,0.35)", cursor: "pointer" }}>Risk Warning</button>
+        <button onClick={() => setPage("risk-warning")} style={{ background: "none", border: "none", padding: 0, fontSize: 11, color: "var(--text-muted,#9ca3af)", cursor: "pointer" }}>Risk Warning</button>
       </div>
     </footer>
   );
@@ -19155,8 +19631,13 @@ function OnboardingTour({ step, userRole, onNext, onBack, onSkip, onFinish, onRe
               </div>
               <div style={{ marginTop: 6, padding: "10px 14px", background: "#F8FAFC", borderRadius: 10, textAlign: "center" }}>
                 <span style={{ fontSize: 12, color: "#64748B", lineHeight: 1.5 }}>
-                  You can replay this tour anytime from{" "}
-                  <strong style={{ color: "#1E3A5F" }}>Settings → Help &amp; Support → Replay onboarding tour</strong>
+                  You can replay this tour anytime from Settings, or{" "}
+                  <button
+                    onClick={onRedo}
+                    style={{ background: "none", border: "none", color: "#3B82F6", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0, textDecoration: "underline" }}
+                  >
+                    tap here to replay now
+                  </button>
                 </span>
               </div>
             </>
@@ -20382,10 +20863,19 @@ export default function App() {
     return () => clearTimeout(t);
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Onboarding tour trigger — first account creation only ─────────────────
+  // ── Onboarding tour trigger — brand-new accounts only ────────────────────
+  // Only fires when:
+  //   1. onboarding_complete is not set (never completed), AND
+  //   2. tour_completed is not set (legacy flag for users pre-dating this flag), AND
+  //   3. The account was created within the last 5 minutes (true new signup,
+  //      not an existing user who simply lacks the flags).
   useEffect(() => {
     if (!user || tourShownRef.current) return;
-    if (!user.user_metadata?.onboarding_complete) {
+    const meta = user.user_metadata || {};
+    if (meta.onboarding_complete || meta.tour_completed) return;
+    const createdAt = user.created_at ? new Date(user.created_at).getTime() : 0;
+    const isNewAccount = createdAt > 0 && (Date.now() - createdAt) < 5 * 60 * 1000;
+    if (isNewAccount) {
       tourShownRef.current = true;
       const t = setTimeout(() => setTourStep(1), 900);
       return () => clearTimeout(t);
@@ -20472,6 +20962,26 @@ export default function App() {
       .select("id", { count: "exact", head: true })
       .gt("created_at", new Date(parseInt(lastVisit)).toISOString())
       .then(({ count }) => { setCommunityBadge((count || 0) > 0); });
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── After Stripe funding-room finder fee payment ─────────────────────────
+  useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    const roomId = params.get("room_id");
+    const feePaid = params.get("fee_paid");
+    if (!roomId || !feePaid) return;
+    window.history.replaceState(null, "", "/");
+    // Mark fee as paid on the server
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) return;
+      fetch("/api/project-listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ action: "funding-room-fee-confirm", room_id: roomId }),
+      }).catch(() => {});
+    });
+    navigateTo("funding-room", roomId);
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── After Stripe finder's-fee payment, redirect to that deal's room ─────────
