@@ -119,7 +119,21 @@ module.exports = async function handler(req, res) {
       user_metadata: { ...user.user_metadata, project_listings: updated },
     });
     if (updateErr) return res.status(500).json({ error: updateErr.message });
-    return res.status(200).json({ ok: true, listing: newListing });
+
+    // Auto-create a funding room when the listing is group funding
+    let fundingRoomId = null;
+    if (newListing.group_funding) {
+      const { data: room } = await supabase.from("funding_rooms").insert({
+        listing_id:      newListing.id,
+        builder_id:      user.id,
+        target_amount:   newListing.funding_needed || 0,
+        committed_amount: 0,
+        status:          "open",
+      }).select().single().catch(() => ({ data: null }));
+      fundingRoomId = room?.id || null;
+    }
+
+    return res.status(200).json({ ok: true, listing: newListing, funding_room_id: fundingRoomId });
   }
 
   // ── UPDATE ────────────────────────────────────────────────────────────────
@@ -334,5 +348,148 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({ commitments: commitments || [] });
   }
 
-  return res.status(400).json({ error: "action must be create, update, delete, commit-syndicate, get-syndicate, or builder-commitments" });
+  // ── FUNDING-ROOM-JOIN ─────────────────────────────────────────────────────
+  if (action === "funding-room-join") {
+    if (userRole !== "lender") return res.status(403).json({ error: "Lenders only" });
+    const { listing_id, builder_user_id, amount } = req.body;
+    if (!listing_id || !builder_user_id || !amount) return res.status(400).json({ error: "listing_id, builder_user_id, amount required" });
+    const joinAmount = Number(amount);
+    if (!Number.isFinite(joinAmount) || joinAmount <= 0) return res.status(400).json({ error: "Invalid amount" });
+
+    const { data: bd } = await supabase.auth.admin.getUserById(builder_user_id);
+    const builderListings = bd?.user?.user_metadata?.project_listings || [];
+    const listing = builderListings.find(l => l.id === listing_id);
+    if (!listing || !listing.group_funding) return res.status(404).json({ error: "Listing not found" });
+
+    // Find or create room
+    let { data: room } = await supabase.from("funding_rooms").select("*").eq("listing_id", listing_id).single().catch(() => ({ data: null }));
+    if (!room) {
+      const { data: newRoom, error: createErr } = await supabase.from("funding_rooms").insert({
+        listing_id, builder_id: builder_user_id,
+        target_amount: listing.funding_needed || 0, committed_amount: 0, status: "open",
+      }).select().single();
+      if (createErr) return res.status(500).json({ error: createErr.message });
+      room = newRoom;
+    }
+    if (room.status === "fully_funded") return res.status(400).json({ error: "Room is already fully funded" });
+
+    const lenderName = sanitizeStr(user.user_metadata?.name || user.email?.split("@")[0] || "Lender", 100);
+    const { error: memberErr } = await supabase.from("funding_room_members").upsert({
+      room_id: room.id, lender_id: user.id, lender_name: lenderName,
+      amount: joinAmount, joined_at: new Date().toISOString(),
+    }, { onConflict: "room_id,lender_id" });
+    if (memberErr) return res.status(500).json({ error: memberErr.message });
+
+    const { data: members } = await supabase.from("funding_room_members").select("amount").eq("room_id", room.id);
+    const totalCommitted = (members || []).reduce((s, m) => s + Number(m.amount), 0);
+    const newStatus = room.target_amount > 0 && totalCommitted >= room.target_amount ? "fully_funded" : "open";
+    const { data: updatedRoom } = await supabase.from("funding_rooms")
+      .update({ committed_amount: totalCommitted, status: newStatus }).eq("id", room.id).select().single().catch(() => ({ data: null }));
+
+    const fmtGbp = n => `£${Number(n).toLocaleString("en-GB")}`;
+    await supabase.from("funding_room_messages").insert({
+      room_id: room.id, sender_id: user.id, sender_name: "System",
+      message: `${lenderName} committed ${fmtGbp(joinAmount)} to the room.`, is_system: true,
+    }).catch(() => {});
+
+    try {
+      await supabase.from("notifications").insert({
+        user_id: builder_user_id, type: "funding_room_join",
+        message: `${lenderName} committed ${fmtGbp(joinAmount)} to "${listing.title || "your project"}"`,
+      });
+    } catch (_) {}
+
+    return res.status(200).json({ ok: true, room: updatedRoom || { ...room, committed_amount: totalCommitted, status: newStatus } });
+  }
+
+  // ── FUNDING-ROOM-LEAVE ────────────────────────────────────────────────────
+  if (action === "funding-room-leave") {
+    if (userRole !== "lender") return res.status(403).json({ error: "Lenders only" });
+    const { room_id } = req.body;
+    if (!room_id) return res.status(400).json({ error: "room_id required" });
+
+    const { data: room } = await supabase.from("funding_rooms").select("*").eq("id", room_id).single().catch(() => ({ data: null }));
+    if (!room) return res.status(404).json({ error: "Room not found" });
+    if (room.status === "fully_funded") return res.status(400).json({ error: "Cannot leave a fully funded room" });
+
+    const { error: deleteErr } = await supabase.from("funding_room_members").delete().eq("room_id", room_id).eq("lender_id", user.id);
+    if (deleteErr) return res.status(500).json({ error: deleteErr.message });
+
+    const { data: members } = await supabase.from("funding_room_members").select("amount").eq("room_id", room_id);
+    const totalCommitted = (members || []).reduce((s, m) => s + Number(m.amount), 0);
+    await supabase.from("funding_rooms").update({ committed_amount: totalCommitted }).eq("id", room_id).catch(() => {});
+
+    const lenderName = sanitizeStr(user.user_metadata?.name || user.email?.split("@")[0] || "Lender", 100);
+    await supabase.from("funding_room_messages").insert({
+      room_id, sender_id: user.id, sender_name: "System",
+      message: `${lenderName} has withdrawn their commitment and left the room.`, is_system: true,
+    }).catch(() => {});
+
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── FUNDING-ROOM-GET ──────────────────────────────────────────────────────
+  if (action === "funding-room-get") {
+    const { room_id } = req.body;
+    if (!room_id) return res.status(400).json({ error: "room_id required" });
+
+    const { data: room } = await supabase.from("funding_rooms").select("*").eq("id", room_id).single().catch(() => ({ data: null }));
+    if (!room) return res.status(404).json({ error: "Room not found" });
+
+    const isBuilder = room.builder_id === user.id;
+    const isMember = isBuilder ? true : !!(await supabase.from("funding_room_members").select("id").eq("room_id", room_id).eq("lender_id", user.id).single().catch(() => ({ data: null }))).data;
+    if (!isMember) return res.status(403).json({ error: "Not authorised" });
+
+    const [{ data: members }, { data: messages }, { data: bd }] = await Promise.all([
+      supabase.from("funding_room_members").select("*").eq("room_id", room_id).order("joined_at", { ascending: true }),
+      supabase.from("funding_room_messages").select("*").eq("room_id", room_id).order("created_at", { ascending: true }).limit(300),
+      supabase.auth.admin.getUserById(room.builder_id),
+    ]);
+
+    const builder = bd?.user;
+    const builderListings = builder?.user_metadata?.project_listings || [];
+    const listing = builderListings.find(l => l.id === room.listing_id);
+
+    return res.status(200).json({
+      room, members: members || [], messages: messages || [],
+      builder_name: builder?.user_metadata?.name || "Builder",
+      builder_avatar_url: builder?.user_metadata?.avatar_url || null,
+      listing,
+    });
+  }
+
+  // ── FUNDING-ROOM-LIST ─────────────────────────────────────────────────────
+  if (action === "funding-room-list") {
+    if (userRole === "lender") {
+      const { data: memberships } = await supabase.from("funding_room_members").select("room_id, amount").eq("lender_id", user.id);
+      const roomIds = (memberships || []).map(m => m.room_id);
+      if (!roomIds.length) return res.status(200).json({ rooms: [] });
+      const { data: rooms } = await supabase.from("funding_rooms").select("*").in("id", roomIds).order("created_at", { ascending: false });
+      const builderIds = [...new Set((rooms || []).map(r => r.builder_id))];
+      const builderMap = {};
+      for (const bid of builderIds) {
+        const { data: bdr } = await supabase.auth.admin.getUserById(bid).catch(() => ({ data: null }));
+        if (bdr?.user) builderMap[bid] = { name: bdr.user.user_metadata?.name || "Builder", listings: bdr.user.user_metadata?.project_listings || [] };
+      }
+      const amountMap = {};
+      for (const m of memberships || []) amountMap[m.room_id] = Number(m.amount);
+      const enriched = (rooms || []).map(r => {
+        const bm = builderMap[r.builder_id] || {};
+        const listing = (bm.listings || []).find(l => l.id === r.listing_id);
+        return { ...r, builder_name: bm.name || "Builder", listing_title: listing?.title || "Untitled project", my_amount: amountMap[r.id] || 0 };
+      });
+      return res.status(200).json({ rooms: enriched });
+    }
+    if (userRole === "builder") {
+      const { data: rooms } = await supabase.from("funding_rooms").select("*").eq("builder_id", user.id).order("created_at", { ascending: false });
+      const myListings = user.user_metadata?.project_listings || [];
+      const listingMap = {};
+      for (const l of myListings) listingMap[l.id] = l;
+      const enriched = (rooms || []).map(r => ({ ...r, listing_title: listingMap[r.listing_id]?.title || "Untitled project" }));
+      return res.status(200).json({ rooms: enriched });
+    }
+    return res.status(403).json({ error: "Not authorised" });
+  }
+
+  return res.status(400).json({ error: "Unknown action" });
 };

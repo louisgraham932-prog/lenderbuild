@@ -871,3 +871,129 @@ select:focus {
   background: #12151F !important;
   color: #CBD5E1 !important;
 }
+
+/* ── Dashboard & card dark mode fixes ────────────────────────────────────── */
+
+/* Calculator card blue-tinted borders */
+[data-theme="dark"] [style*="border: 0.5px solid #C3D9FF"],
+[data-theme="dark"] [style*="border: 0.5px solid rgb(195, 217, 255)"] {
+  border-color: rgba(59,130,246,0.25) !important;
+}
+
+/* Profile-incomplete badge: readable red in dark mode */
+[data-theme="dark"] [style*="border: 0.5px solid #FCA5A5"],
+[data-theme="dark"] [style*="border: 0.5px solid rgb(252, 165, 165)"] {
+  background: rgba(220,38,38,0.18) !important;
+  border-color: rgba(220,38,38,0.5) !important;
+  color: #FCA5A5 !important;
+}
+
+/* Lender/builder card left accent border: use accent colour at 40% opacity in dark mode */
+[data-theme="dark"] [style*="border-left: 3px solid #16A34A"],
+[data-theme="dark"] [style*="border-left: 3px solid rgb(22, 163, 74)"],
+[data-theme="dark"] [style*="border-left: 3px solid #1D9E75"],
+[data-theme="dark"] [style*="border-left: 3px solid rgb(29, 158, 117)"],
+[data-theme="dark"] [style*="border-left: 3px solid #2E5FA3"],
+[data-theme="dark"] [style*="border-left: 3px solid rgb(46, 95, 163)"],
+[data-theme="dark"] [style*="border-left: 3px solid #3B82F6"],
+[data-theme="dark"] [style*="border-left: 3px solid rgb(59, 130, 246)"] {
+  border-left-color: color-mix(in srgb, var(--accent) 40%, transparent) !important;
+}
+
+/* Dismissed-tools bar / subtle blue-gray border */
+[data-theme="dark"] [style*="border: 0.5px solid #E2E8F0"],
+[data-theme="dark"] [style*="border: 0.5px solid rgb(226, 232, 240)"] {
+  border-color: #2A2D3A !important;
+}
+
+/* Settings menu dividers (1px and 0.5px solid very light grays) */
+[data-theme="dark"] [style*="border: 1px solid #f5f5f5"],
+[data-theme="dark"] [style*="border: 1px solid rgb(245, 245, 245)"],
+[data-theme="dark"] [style*="border: 0.5px solid #e8e8e8"],
+[data-theme="dark"] [style*="border: 0.5px solid rgb(232, 232, 232)"] {
+  border-color: #2A2D3A !important;
+}
+
+/* Card inner separator borders (border-top / borderTop #eee, #f0f0f0) */
+[data-theme="dark"] [style*="borderTop: 0.5px solid #eee"],
+[data-theme="dark"] [style*="border-top: 0.5px solid #eee"],
+[data-theme="dark"] [style*="borderTop: 0.5px solid rgb(238, 238, 238)"],
+[data-theme="dark"] [style*="border-top: 0.5px solid rgb(238, 238, 238)"],
+[data-theme="dark"] [style*="border-bottom: 0.5px solid #f5f5f5"],
+[data-theme="dark"] [style*="border-bottom: 0.5px solid rgb(245, 245, 245)"],
+[data-theme="dark"] [style*="borderBottom: 0.5px solid #f5f5f5"],
+[data-theme="dark"] [style*="border-bottom: 0.5px solid #f5f5f3"],
+[data-theme="dark"] [style*="border-bottom: 0.5px solid rgb(245, 245, 243)"],
+[data-theme="dark"] [style*="borderBottom: 0.5px solid #f5f5f3"] {
+  border-color: #2A2D3A !important;
+}
+
+/* Progress bar track background (light gray → dark border color) */
+[data-theme="dark"] [style*="background: #e0e0e0"],
+[data-theme="dark"] [style*="background: rgb(224, 224, 224)"] {
+  background: #2A2D3A !important;
+}
+
+/* Project listing green tint cards */
+[data-theme="dark"] [style*="background: #F0FDF4"],
+[data-theme="dark"] [style*="background: rgb(240, 253, 244)"] {
+  background: rgba(22,163,74,0.08) !important;
+}
+[data-theme="dark"] [style*="border: 0.5px solid #A8DFC9"],
+[data-theme="dark"] [style*="border: 0.5px solid rgb(168, 223, 201)"] {
+  border-color: rgba(22,163,74,0.3) !important;
+}
+
+/* "To attract lenders" amber indicator dot and circle border */
+[data-theme="dark"] [style*="border: 1.5px solid #D97706"],
+[data-theme="dark"] [style*="border: 1.5px solid rgb(217, 119, 6)"] {
+  border-color: rgba(217,119,6,0.55) !important;
+}
+[data-theme="dark"] [style*="background: #FCD34D"],
+[data-theme="dark"] [style*="background: rgb(252, 211, 77)"] {
+  background: rgba(252,211,77,0.35) !important;
+}
+
+/* Section header text colors not yet mapped */
+[data-theme="dark"] [style*="color: #534AB7"],
+[data-theme="dark"] [style*="color: rgb(83, 74, 183)"] {
+  color: #C4B5FD !important;
+}
+[data-theme="dark"] [style*="color: #0F6E56"],
+[data-theme="dark"] [style*="color: rgb(15, 110, 86)"] {
+  color: #34D399 !important;
+}
+[data-theme="dark"] [style*="color: #B45309"],
+[data-theme="dark"] [style*="color: rgb(180, 83, 9)"] {
+  color: #FCD34D !important;
+}
+[data-theme="dark"] [style*="color: #D97706"],
+[data-theme="dark"] [style*="color: rgb(217, 119, 6)"] {
+  color: #FCD34D !important;
+}
+[data-theme="dark"] [style*="color: #1D9E75"],
+[data-theme="dark"] [style*="color: rgb(29, 158, 117)"] {
+  color: #34D399 !important;
+}
+
+/* Navy/blue button borders (nearly invisible on dark cards) */
+[data-theme="dark"] [style*="border: 1.5px solid #1E3A5F"],
+[data-theme="dark"] [style*="border: 1.5px solid rgb(30, 58, 95)"] {
+  border-color: var(--accent) !important;
+}
+[data-theme="dark"] [style*="border: 1.5px solid #2E5FA3"],
+[data-theme="dark"] [style*="border: 1.5px solid rgb(46, 95, 163)"] {
+  border-color: var(--accent) !important;
+}
+
+/* Warm gray text (unreadable on dark backgrounds) */
+[data-theme="dark"] [style*="color: #5F5E5A"],
+[data-theme="dark"] [style*="color: rgb(95, 94, 90)"] {
+  color: #94A3B8 !important;
+}
+
+/* Warm gray / off-white background badges → dark surface */
+[data-theme="dark"] [style*="background: #F1EFE8"],
+[data-theme="dark"] [style*="background: rgb(241, 239, 232)"] {
+  background: #1E2130 !important;
+}

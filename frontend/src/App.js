@@ -720,10 +720,12 @@ function MatchBadge({ score, breakdown }) {
   const badgeRef = useRef(null);
   const cardRef = useRef(null);
 
-  let label, bg, color;
-  if (score >= 80)      { label = "Great match";    bg = "#E1F5EE"; color = "#0F6E56"; }
-  else if (score >= 60) { label = "Good match";     bg = "#EBF2FF"; color = "#1E3A5F"; }
-  else                  { label = "Possible match"; bg = "#FEF2F2"; color = "#DC2626"; }
+  let label;
+  if (score >= 80)      label = "Great match";
+  else if (score >= 60) label = "Good match";
+  else                  label = "Possible match";
+  const bg = "var(--accent)";
+  const color = "#fff";
 
   useEffect(() => {
     if (!show) return;
@@ -3951,7 +3953,7 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
           </div>
           {/* Sticky save button */}
           <div style={{ position: "fixed", bottom: "calc(60px + env(safe-area-inset-bottom,0px))", left: 0, right: 0, padding: "12px 20px", background: "#fff", borderTop: "1px solid #f0f0f0", zIndex: 90 }}>
-            <button onClick={saveAppearance} style={{ width: "100%", height: 46, background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+            <button onClick={saveAppearance} style={{ width: "100%", height: 46, background: "var(--accent)", color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
               {appearanceSaved ? "✓ Saved!" : "Save preferences"}
             </button>
           </div>
@@ -4169,12 +4171,12 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
                 { label: "System status",          action: () => setPage("status"),       icon: "circle-green" },
               ].map(({ label, action, icon }, i, arr) => (
                 <button key={label} onClick={action}
-                  style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", padding: "0 0", fontSize: 15, background: "transparent", border: "none", borderBottom: i < arr.length - 1 ? "0.5px solid #f5f5f5" : "none", cursor: "pointer", minHeight: 52, color: "#1E3A5F", textAlign: "left", fontWeight: 500 }}
+                  style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", padding: "0 0", fontSize: 15, background: "transparent", border: "none", borderBottom: i < arr.length - 1 ? "0.5px solid #f5f5f5" : "none", cursor: "pointer", minHeight: 52, color: "var(--accent)", textAlign: "left", fontWeight: 500 }}
                   onTouchStart={e => e.currentTarget.style.background = "#f5f5f5"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}
                   onMouseEnter={e => e.currentTarget.style.background = "#f9f9f7"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <Icon name={icon} size={18} className="lb-icon" />
+                  <Icon name={icon} size={18} style={{ color: "var(--accent)" }} />
                   <span style={{ flex: 1 }}>{label}</span>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ stroke: "var(--accent)", opacity: 0.45 }} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
                 </button>
               ))}
             </div>
@@ -4185,7 +4187,7 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
       {/* ─── MAIN SETTINGS MENU ───────────────────────────── */}
       {!openSection && (
         <div style={{ padding: "1.5rem 1.25rem", maxWidth: 600, margin: "0 auto", paddingBottom: "calc(80px + env(safe-area-inset-bottom,0px))" }}>
-          <h2 style={{ fontSize: 22, fontWeight: 600, margin: "0 0 1.5rem", color: "#1E3A5F" }}>Settings</h2>
+          <h2 style={{ fontSize: 22, fontWeight: 600, margin: "0 0 1.5rem", color: "var(--accent)" }}>Settings</h2>
           <div style={{ background: "#fff", borderRadius: 12, overflow: "hidden", border: "0.5px solid #e8e8e8" }}>
             {[
               { id: "account",       icon: "user",        title: "Account" },
@@ -4199,12 +4201,12 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
               { id: "help",          icon: "circle-help", title: "Help & Support" },
             ].map((s, i, arr) => (
               <button key={s.id} onClick={() => { setOpenSection(s.id); window.scrollTo({ top: 0, behavior: "instant" }); }}
-                style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", padding: "0 20px", fontSize: 15, background: "transparent", border: "none", borderBottom: i < arr.length - 1 ? "1px solid #f5f5f5" : "none", cursor: "pointer", minHeight: 52, color: "#1E3A5F", textAlign: "left" }}
+                style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", padding: "0 20px", fontSize: 15, background: "transparent", border: "none", borderBottom: i < arr.length - 1 ? "1px solid #f5f5f5" : "none", cursor: "pointer", minHeight: 52, color: "var(--accent)", textAlign: "left" }}
                 onTouchStart={e => e.currentTarget.style.background = "#f5f5f5"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}
                 onMouseEnter={e => e.currentTarget.style.background = "#f9f9f7"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <Icon name={s.icon} size={20} className="lb-icon" />
+                <Icon name={s.icon} size={20} style={{ color: "var(--accent)" }} />
                 <span style={{ fontWeight: 500, flex: 1 }}>{s.title}</span>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ stroke: "var(--accent)", opacity: 0.45 }} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
               </button>
             ))}
           </div>
@@ -4513,25 +4515,6 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
   const recoForBuilder = recoLenderCards;
   const recoForLender  = recoBuilderCards;
 
-  // Skip onboarding during account switch (check both the window flag set by the inline script
-  // and the raw sessionStorage key as a fallback in case the inline script didn't run).
-  const isAccountSwitching = !!window.__lb_account_switching || !!sessionStorage.getItem("lb_switching");
-  if (isAccountSwitching) sessionStorage.removeItem("lb_switching");
-
-  // Show getting-started immediately when metadata shows no connections, without waiting for API loading.
-  const isNewUser = !isAccountSwitching && myConnections.length === 0 && (loading || conversations.length === 0) && page !== "home-dashboard";
-
-  if (isNewUser) {
-    return (
-      <GettingStartedPage
-        user={user}
-        setPage={setPage}
-        connections={myConnections.length}
-        conversations={conversations.length}
-      />
-    );
-  }
-
   if (loading) return <SkeletonDashboard />;
 
   return (
@@ -4660,19 +4643,19 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
             {/* "To attract lenders" checklist */}
             {missing.length > 0 && (
               <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#D97706", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>To attract lenders — complete these steps</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--accent)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>To attract lenders — complete these steps</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {missing.map(item => (
                     <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div style={{ width: 22, height: 22, borderRadius: "50%", border: "1.5px solid #D97706", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#FCD34D" }} />
+                      <div style={{ width: 22, height: 22, borderRadius: "50%", border: "1.5px solid var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent)" }} />
                       </div>
                       <span style={{ fontSize: 13, color: "#555" }}>{item.label}</span>
-                      <span style={{ marginLeft: "auto", fontSize: 11, color: "#D97706", fontWeight: 500 }}>+{item.weight}%</span>
+                      <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--accent)", fontWeight: 500 }}>+{item.weight}%</span>
                     </div>
                   ))}
                 </div>
-                <button onClick={() => setPage("profile-setup")} style={{ marginTop: 12, padding: "8px 16px", minHeight: 36, background: "#D97706", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                <button onClick={() => setPage("profile-setup")} style={{ marginTop: 12, padding: "8px 16px", minHeight: 36, background: "var(--accent)", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
                   Complete profile →
                 </button>
               </div>
@@ -5406,27 +5389,16 @@ function LenderCard({ lc, user, setPage, settings, onViewProfile, viewerProfile 
 
   const connectBg = notAccepting
     ? "#aaa"
-    : { idle: "#2E5FA3", loading: "#64748B", done: "#1E40AF", error: "#DC2626" }[connectStatus];
-  const connectTextColor = notAccepting ? "#fff"
-    : { idle: "#fff", loading: "#fff", done: "#fff", error: "#fff" }[connectStatus];
-
-  const matchScore = (() => {
-    if (!viewerProfile || user?.user_metadata?.role !== "builder") return null;
-    const m = computeMatch(viewerProfile, lc, "builder");
-    return m?.score || null;
-  })();
-  const isVerifiedUser = lc.user_role === "verified_pro" || lc.user_role === "founder";
-  const cardMatchBg = matchScore != null ? (matchScore >= 80 ? "rgba(22,163,74,0.05)" : matchScore >= 60 ? "rgba(59,130,246,0.05)" : "rgba(220,38,38,0.05)") : "#fff";
-  const leftBorderColor = matchScore != null ? (matchScore >= 80 ? "#16A34A" : matchScore >= 60 ? "#3B82F6" : "#DC2626") : (isVerifiedUser ? "#2E5FA3" : null);
+    : { idle: "var(--accent)", loading: "#64748B", done: "#94A3B8", error: "#DC2626" }[connectStatus];
+  const connectTextColor = "#fff";
 
   return (
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        background: cardMatchBg,
-        border: "0.5px solid #e0e0e0",
-        borderLeft: leftBorderColor ? `3px solid ${leftBorderColor}` : "0.5px solid #e0e0e0",
+        background: "var(--bg-card, #fff)",
+        border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
         borderRadius: 12, padding: "24px",
         boxShadow: hovered ? "0 8px 24px rgba(0,0,0,0.12)" : "0 2px 8px rgba(0,0,0,0.08)",
         transform: hovered ? "translateY(-3px)" : "translateY(0)",
@@ -5496,7 +5468,7 @@ function LenderCard({ lc, user, setPage, settings, onViewProfile, viewerProfile 
         }, "lender");
         if (cp.score >= 50) return null;
         return (
-          <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#991B1B", background: "#FEE2E2", border: "0.5px solid #FCA5A5", borderRadius: 8, padding: "5px 10px" }}>
+          <div style={{ marginTop: 8, fontSize: 10, color: "#DC2626", fontWeight: 500 }}>
             Profile incomplete
           </div>
         );
@@ -5517,16 +5489,11 @@ function LenderCard({ lc, user, setPage, settings, onViewProfile, viewerProfile 
           </button>
           <button
             onClick={() => onViewProfile && onViewProfile(lc)}
-            style={{ flex: 1, background: "transparent", color: "#1E3A5F", border: "1.5px solid #1E3A5F", padding: "9px 8px", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer", minHeight: 44 }}
+            style={{ flex: 1, background: "transparent", color: "var(--accent)", border: "1.5px solid var(--accent)", padding: "9px 8px", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer", minHeight: 44 }}
           >
             View profile
           </button>
         </div>
-        {connectStatus === "done" && (
-          <div style={{ fontSize: 12, color: "#16A34A", textAlign: "center", marginTop: 2 }}>
-            ✓ Request sent — they'll be notified and can accept or decline.
-          </div>
-        )}
         {connectStatus === "idle" && !notAccepting && (
           <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#64748B", justifyContent: "center" }}>
             <svg width="10" height="12" viewBox="0 0 10 12" fill="none"><rect x="1" y="5" width="8" height="6" rx="1" stroke="#64748B" strokeWidth="1.2"/><path d="M3 5V3.5a2 2 0 014 0V5" stroke="#64748B" strokeWidth="1.2" strokeLinecap="round"/></svg>
@@ -5951,27 +5918,21 @@ function BuilderCard({ builder, user, setPage, onMessage, onViewProfile, viewerP
   }
 
   const connectLabel = { idle: "Request introduction", loading: "Sending...", done: "Request sent!", error: "We couldn't send that — retry" }[connectStatus];
-  const connectBg    = { idle: "#16A34A", loading: "#64748B", done: "#15803D", error: "#DC2626" }[connectStatus];
-
-  const completionColor = builder.completion >= 95 ? "#16A34A" : builder.completion >= 80 ? "#2E5FA3" : "#D97706";
+  const connectBg    = { idle: "var(--accent)", loading: "#64748B", done: "#94A3B8", error: "#DC2626" }[connectStatus];
 
   const builderMatchScore = (() => {
     if (!viewerProfile || user?.user_metadata?.role !== "lender") return null;
     const m = computeMatch(viewerProfile, builder, "lender");
     return m?.score || null;
   })();
-  const builderIsVerified = builder.verified_documents?.length > 0;
-  const builderCardBg = builderMatchScore != null ? (builderMatchScore >= 80 ? "rgba(22,163,74,0.05)" : builderMatchScore >= 60 ? "rgba(59,130,246,0.05)" : "rgba(220,38,38,0.05)") : "#fff";
-  const builderLeftBorder = builderMatchScore != null ? (builderMatchScore >= 80 ? "#16A34A" : builderMatchScore >= 60 ? "#3B82F6" : "#DC2626") : (builderIsVerified ? "#2E5FA3" : null);
 
   return (
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        background: builderCardBg,
-        border: "0.5px solid #e0e0e0",
-        borderLeft: builderLeftBorder ? `3px solid ${builderLeftBorder}` : "0.5px solid #e0e0e0",
+        background: "var(--bg-card, #fff)",
+        border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
         borderRadius: 12, padding: "24px",
         boxShadow: hovered ? "0 8px 24px rgba(0,0,0,0.12)" : "0 2px 8px rgba(0,0,0,0.08)",
         transform: hovered ? "translateY(-3px)" : "translateY(0)",
@@ -6023,10 +5984,10 @@ function BuilderCard({ builder, user, setPage, onMessage, onViewProfile, viewerP
       <div style={{ marginTop: 10, marginBottom: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#666", marginBottom: 4 }}>
           <span>Completion rate</span>
-          <span style={{ fontWeight: 500, color: completionColor }}>{builder.completion}%</span>
+          <span style={{ fontWeight: 500, color: "var(--accent)" }}>{builder.completion}%</span>
         </div>
         <div style={{ height: 5, background: "#eee", borderRadius: 3 }}>
-          <div style={{ height: 5, borderRadius: 3, background: completionColor, width: `${builder.completion}%`, transition: "width 0.3s" }} />
+          <div style={{ height: 5, borderRadius: 3, background: "var(--accent)", width: `${builder.completion}%`, transition: "width 0.3s" }} />
         </div>
       </div>
       {(() => {
@@ -6037,7 +5998,7 @@ function BuilderCard({ builder, user, setPage, onMessage, onViewProfile, viewerP
         }, "builder");
         if (cp.score >= 50) return null;
         return (
-          <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#991B1B", background: "#FEE2E2", border: "0.5px solid #FCA5A5", borderRadius: 8, padding: "5px 10px" }}>
+          <div style={{ marginBottom: 8, fontSize: 10, color: "#DC2626", fontWeight: 500 }}>
             Profile incomplete
           </div>
         );
@@ -6048,8 +6009,8 @@ function BuilderCard({ builder, user, setPage, onMessage, onViewProfile, viewerP
             onClick={handleMessage}
             disabled={msgStatus === "loading"}
             style={{
-              flex: 1, background: "#fff", color: "#1E3A5F",
-              border: "1.5px solid #2E5FA3",
+              flex: 1, background: "transparent", color: "var(--accent)",
+              border: "1.5px solid var(--accent)",
               padding: 8, borderRadius: 8, fontSize: 13, fontWeight: 500, minHeight: 44,
               cursor: msgStatus === "loading" ? "default" : "pointer",
               transition: "background 0.2s",
@@ -6072,16 +6033,11 @@ function BuilderCard({ builder, user, setPage, onMessage, onViewProfile, viewerP
         </button>
         <button
           onClick={() => onViewProfile && onViewProfile(builder)}
-          style={{ flex: 1, background: "transparent", color: "#1E3A5F", border: "1.5px solid #1E3A5F", padding: 8, borderRadius: 8, fontSize: 13, cursor: "pointer", minHeight: 44 }}
+          style={{ flex: 1, background: "transparent", color: "var(--accent)", border: "1.5px solid var(--accent)", padding: 8, borderRadius: 8, fontSize: 13, cursor: "pointer", minHeight: 44 }}
         >
           View profile
         </button>
       </div>
-      {connectStatus === "done" && (
-        <div style={{ fontSize: 12, color: "#16A34A", textAlign: "center", marginTop: 8, paddingTop: 8, borderTop: "0.5px solid #f0f0f0" }}>
-          ✓ Request sent — they'll be notified and can accept or decline.
-        </div>
-      )}
     </div>
   );
 }
@@ -6579,6 +6535,7 @@ function LenderDashboard({ user, setPage }) {
   const [reportReasons, setReportReasons] = useState({});
   const [syndicateInvestments, setSyndicateInvestments] = useState([]);
   const [syndicateListings,    setSyndicateListings]    = useState([]);
+  const [fundingRooms, setFundingRooms] = useState([]);
 
   const [accepting,     setAccepting]     = useState(user?.user_metadata?.accepting_requests !== false);
   const [listingActive, setListingActive] = useState(user?.user_metadata?.listing_active     !== false);
@@ -6587,7 +6544,22 @@ function LenderDashboard({ user, setPage }) {
   useEffect(() => {
     fetchRequests();
     fetchSyndicateInvestments();
+    fetchFundingRooms();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function fetchFundingRooms() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const res = await fetch("/api/project-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "funding-room-list" }),
+    });
+    if (res.ok) {
+      const d = await res.json();
+      setFundingRooms(d.rooms || []);
+    }
+  }
 
   async function fetchSyndicateInvestments() {
     const { data: cmts } = await supabase
@@ -7047,6 +7019,65 @@ function LenderDashboard({ user, setPage }) {
                     style={{ marginTop: 10, background: "transparent", border: "0.5px solid #BFDBFE", color: "#1D4ED8", padding: "5px 12px", borderRadius: 8, fontSize: 12, cursor: "pointer" }}
                   >
                     View project →
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── My Funding Rooms ──────────────────────────────────── */}
+      {fundingRooms.length > 0 && (
+        <div style={{ marginTop: "2rem" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#7C3AED", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Group Funding</div>
+          <h3 style={{ fontSize: 18, fontWeight: 500, margin: "0 0 1rem" }}>My Funding Rooms</h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {fundingRooms.map(room => {
+              const pct = room.target_amount > 0 ? Math.min(100, Math.round((room.committed_amount / room.target_amount) * 100)) : 0;
+              const fullyFunded = room.status === "fully_funded";
+              return (
+                <div key={room.id} style={{ background: "var(--bg-card, #fff)", border: "1px solid color-mix(in srgb, #7C3AED 20%, transparent)", borderRadius: 12, padding: "1rem 1.25rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 500 }}>{room.listing_title || "Group Funding Project"}</div>
+                      {room.builder_name && <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>{room.builder_name}</div>}
+                    </div>
+                    <span style={{ background: fullyFunded ? "#DCFCE7" : "#F3F0FF", color: fullyFunded ? "#166534" : "#7C3AED", fontSize: 11, padding: "3px 9px", borderRadius: 20, fontWeight: 600, flexShrink: 0 }}>
+                      {fullyFunded ? "Fully Funded" : `${pct}% funded`}
+                    </span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "6px 16px", marginBottom: 10 }}>
+                    {room.my_amount > 0 && (
+                      <div style={{ fontSize: 13 }}>
+                        <span style={{ color: "#64748B" }}>My commitment: </span>
+                        <span style={{ fontWeight: 600, color: "#7C3AED" }}>{fmt(room.my_amount)}</span>
+                      </div>
+                    )}
+                    {room.target_amount > 0 && (
+                      <div style={{ fontSize: 13 }}>
+                        <span style={{ color: "#64748B" }}>Target: </span>
+                        <span style={{ fontWeight: 500 }}>{fmt(room.target_amount)}</span>
+                      </div>
+                    )}
+                    <div style={{ fontSize: 13 }}>
+                      <span style={{ color: "#64748B" }}>Committed: </span>
+                      <span style={{ fontWeight: 500 }}>{fmt(room.committed_amount)}</span>
+                    </div>
+                  </div>
+                  {room.target_amount > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ height: 5, background: "color-mix(in srgb, #7C3AED 12%, transparent)", borderRadius: 3, overflow: "hidden" }}>
+                        <div style={{ height: "100%", borderRadius: 3, background: fullyFunded ? "#16A34A" : "#7C3AED", width: `${pct}%`, transition: "width 0.4s ease" }} />
+                      </div>
+                      <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 3 }}>{fmt(room.committed_amount)} of {fmt(room.target_amount)} committed</div>
+                    </div>
+                  )}
+                  <button
+                    onClick={() => setPage("funding-room", room.id)}
+                    style={{ background: "#7C3AED", color: "#fff", border: "none", padding: "7px 16px", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}
+                  >
+                    Enter Room →
                   </button>
                 </div>
               );
@@ -9684,7 +9715,7 @@ function BuilderProfilePage({ builder, user, setPage, onBack, onMessage, viewerR
   }
 
   const connectLabel = { idle: "Connect", loading: "Sending...", done: "Requested!", error: "Error — retry" }[connectStatus];
-  const connectBg    = { idle: "#1D9E75", loading: "#64748B", done: "#5aaf90", error: "#D85A30" }[connectStatus];
+  const connectBg    = { idle: "var(--accent)", loading: "#64748B", done: "var(--accent)", error: "#DC2626" }[connectStatus];
   const completionColor = builder.completion >= 95 ? "#1D9E75" : builder.completion >= 80 ? "#2E5FA3" : "#D85A30";
 
   return (
@@ -12473,9 +12504,10 @@ function BrowseProjectsPage({ user, setPage }) {
   const [listings,        setListings]        = useState([]);
   const [loading,         setLoading]         = useState(true);
   const [interestStatus,  setInterestStatus]  = useState({});
-  const [commitments,     setCommitments]     = useState([]); // group_project_commitments
+  const [commitments,     setCommitments]     = useState([]); // group_project_commitments (legacy)
   const [syndicateTotals, setSyndicateTotals] = useState({}); // { [listing_id]: { total, count } }
-  const [myCommitments,   setMyCommitments]   = useState({}); // { [listing_id]: amount }
+  const [myCommitments,   setMyCommitments]   = useState({}); // { [listing_id]: amount } for syndicate
+  const [myRoomsMap,      setMyRoomsMap]      = useState({}); // { [listing_id]: room } for group funding
   const role = user?.user_metadata?.role;
 
   useEffect(() => { loadAll(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -12491,13 +12523,21 @@ function BrowseProjectsPage({ user, setPage }) {
     setCommitments(cmts || []);
 
     if (user) {
-      const { data: mine } = await supabase
-        .from("syndicate_commitments")
-        .select("listing_id, amount")
-        .eq("lender_user_id", user.id);
+      const { data: { session } } = await supabase.auth.getSession();
+      const [synRes, roomRes] = await Promise.all([
+        supabase.from("syndicate_commitments").select("listing_id, amount").eq("lender_user_id", user.id),
+        session ? fetch("/api/project-listings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ action: "funding-room-list" }),
+        }).then(r => r.ok ? r.json() : { rooms: [] }).catch(() => ({ rooms: [] })) : Promise.resolve({ rooms: [] }),
+      ]);
       const mineMap = {};
-      for (const c of mine || []) mineMap[c.listing_id] = Number(c.amount);
+      for (const c of synRes.data || []) mineMap[c.listing_id] = Number(c.amount);
       setMyCommitments(mineMap);
+      const roomMap = {};
+      for (const r of roomRes.rooms || []) roomMap[r.listing_id] = r;
+      setMyRoomsMap(roomMap);
     }
     setLoading(false);
   }
@@ -12528,16 +12568,17 @@ function BrowseProjectsPage({ user, setPage }) {
 
   async function handleCommit(listing, amount) {
     if (!user) { setPage("auth"); return; }
-    const name = user.user_metadata?.name || user.email?.split("@")[0] || "Lender";
-    const { error } = await supabase.from("group_project_commitments").upsert({
-      listing_id:  listing.id,
-      lender_id:   user.id,
-      lender_name: name,
-      amount:      Number(amount),
-    }, { onConflict: "listing_id,lender_id" });
-    if (!error) {
-      const { data: cmts } = await supabase.from("group_project_commitments").select("*");
-      setCommitments(cmts || []);
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/project-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "funding-room-join", listing_id: listing.id, builder_user_id: listing.user_id, amount: Number(amount) }),
+    });
+    if (res.ok) {
+      const d = await res.json();
+      const room = d.room;
+      setMyRoomsMap(prev => ({ ...prev, [listing.id]: { ...room, my_amount: Number(amount), listing_title: listing.title } }));
+      setPage("funding-room", room.id);
     }
   }
 
@@ -12606,6 +12647,7 @@ function BrowseProjectsPage({ user, setPage }) {
                 syndicateCount={syndicateTotals[l.id]?.count || 0}
                 myCommitmentAmount={myCommitments[l.id] || 0}
                 onSyndicateCommit={handleSyndicateCommit}
+                myRoom={myRoomsMap[l.id]} onEnterRoom={roomId => setPage("funding-room", roomId)}
               />
             ))}
           </div>
@@ -12662,6 +12704,7 @@ function BrowseProjectsPage({ user, setPage }) {
                     interestStatus={interestStatus[l.id]} onExpressInterest={handleExpressInterest}
                     listingCommitments={cmtsFor(l.id)} onCommit={handleCommit}
                     syndicateTotal={0} syndicateCount={0} myCommitmentAmount={0} onSyndicateCommit={handleSyndicateCommit}
+                    myRoom={myRoomsMap[l.id]} onEnterRoom={roomId => setPage("funding-room", roomId)}
                   />
                 ))}
               </div>
@@ -12697,7 +12740,7 @@ function BrowseProjectsPage({ user, setPage }) {
 }
 
 function ProjectListingCard({ listing, user, isOwn, interestStatus, onExpressInterest, listingCommitments = [], onCommit,
-  syndicateTotal = 0, syndicateCount = 0, myCommitmentAmount = 0, onSyndicateCommit }) {
+  syndicateTotal = 0, syndicateCount = 0, myCommitmentAmount = 0, onSyndicateCommit, myRoom, onEnterRoom }) {
   const [photoIdx,    setPhotoIdx]    = useState(0);
   const [commitInput, setCommitInput] = useState("");
   const [commitOpen,  setCommitOpen]  = useState(false);
@@ -12718,12 +12761,13 @@ function ProjectListingCard({ listing, user, isOwn, interestStatus, onExpressInt
   const btnLabel = isDone ? "Interest sent!" : st === "loading" ? "Sending…" : st === "error" ? "Error — retry" : "Express Interest";
   const btnBg    = isDone ? "#5aaf90" : st === "error" ? "#D85A30" : "#1D9E75";
 
-  // Group funding progress
+  // Group funding progress — prefer live room data if available
   const isGroup        = !!listing.group_funding;
   const totalNeeded    = listing.funding_needed || 0;
-  const totalCommitted = listingCommitments.reduce((s, c) => s + Number(c.amount), 0);
+  const roomCommitted  = myRoom ? Number(myRoom.committed_amount) : null;
+  const totalCommitted = roomCommitted !== null ? roomCommitted : listingCommitments.reduce((s, c) => s + Number(c.amount), 0);
   const pct            = totalNeeded > 0 ? Math.min(100, Math.round((totalCommitted / totalNeeded) * 100)) : 0;
-  const fullyFunded    = pct >= 100;
+  const fullyFunded    = myRoom ? myRoom.status === "fully_funded" : pct >= 100;
   const myCommitment   = listingCommitments.find(c => c.lender_id === user?.id);
 
   // Syndicated lending
@@ -13019,52 +13063,63 @@ function ProjectListingCard({ listing, user, isOwn, interestStatus, onExpressInt
           >
             Log in to commit funds
           </button>
+        ) : isGroup && !isSyndicate && isOwn && myRoom ? (
+          <button
+            onClick={() => onEnterRoom && onEnterRoom(myRoom.id)}
+            style={{ width: "100%", background: "#7C3AED", color: "#fff", border: "none", padding: "8px 0", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, marginTop: "auto", cursor: "pointer" }}
+          >
+            View Funding Room →
+          </button>
         ) : isGroup && !isSyndicate && role === "lender" ? (
           <>
-            {!fullyFunded && !commitOpen && (
+            {myRoom ? (
               <button
-                onClick={() => setCommitOpen(true)}
-                style={{
-                  width: "100%", background: myCommitment ? "#EDE9FE" : "#7C3AED",
-                  color: myCommitment ? "#7C3AED" : "#fff",
-                  border: myCommitment ? "0.5px solid #DDD6FE" : "none",
-                  padding: "8px 0", minHeight: 44, borderRadius: 8,
-                  fontSize: 13, fontWeight: 500, marginTop: "auto", cursor: "pointer",
-                  transition: "background 0.2s",
-                }}
+                onClick={() => onEnterRoom && onEnterRoom(myRoom.id)}
+                style={{ width: "100%", background: "#7C3AED", color: "#fff", border: "none", padding: "8px 0", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, marginTop: "auto", cursor: "pointer" }}
               >
-                {myCommitment ? `Update commitment · ${fmt(myCommitment.amount)}` : "Commit funding"}
+                {fullyFunded ? "View Room — Fully Funded ✓" : `Enter Room · ${fmt(myRoom.my_amount || 0)} committed`}
               </button>
-            )}
-            {fullyFunded && (
-              <div style={{ fontSize: 12, color: "#059669", fontWeight: 600, padding: "8px 0", textAlign: "center" }}>
-                Fully funded ✓
-              </div>
-            )}
-            {commitOpen && (
-              <form onSubmit={handleCommitSubmit} style={{ display: "flex", gap: 6, marginTop: "auto" }}>
-                <div style={{ flex: 1, position: "relative" }}>
-                  <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#555" }}>£</span>
-                  <input
-                    type="number"
-                    min="1"
-                    step="1000"
-                    value={commitInput}
-                    onChange={e => setCommitInput(e.target.value)}
-                    placeholder="Amount"
-                    style={{ width: "100%", height: 40, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px 0 22px", fontSize: 14, boxSizing: "border-box" }}
-                    autoFocus
-                  />
-                </div>
-                <button type="submit" disabled={committing}
-                  style={{ padding: "0 14px", height: 40, background: "#7C3AED", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: committing ? "default" : "pointer", flexShrink: 0 }}>
-                  {committing ? "…" : "Confirm"}
-                </button>
-                <button type="button" onClick={() => { setCommitOpen(false); setCommitInput(""); }}
-                  style={{ padding: "0 10px", height: 40, background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, fontSize: 13, color: "#555", cursor: "pointer", flexShrink: 0 }}>
-                  ✕
-                </button>
-              </form>
+            ) : (
+              <>
+                {!fullyFunded && !commitOpen && (
+                  <button
+                    onClick={() => setCommitOpen(true)}
+                    style={{ width: "100%", background: "#7C3AED", color: "#fff", border: "none", padding: "8px 0", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 500, marginTop: "auto", cursor: "pointer", transition: "background 0.2s" }}
+                  >
+                    Commit funding — Join Room
+                  </button>
+                )}
+                {fullyFunded && (
+                  <div style={{ fontSize: 12, color: "#059669", fontWeight: 600, padding: "8px 0", textAlign: "center" }}>
+                    Fully funded ✓
+                  </div>
+                )}
+                {commitOpen && (
+                  <form onSubmit={handleCommitSubmit} style={{ display: "flex", gap: 6, marginTop: "auto" }}>
+                    <div style={{ flex: 1, position: "relative" }}>
+                      <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#555" }}>£</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1000"
+                        value={commitInput}
+                        onChange={e => setCommitInput(e.target.value)}
+                        placeholder="Amount"
+                        style={{ width: "100%", height: 40, border: "0.5px solid #ccc", borderRadius: 8, padding: "0 10px 0 22px", fontSize: 14, boxSizing: "border-box" }}
+                        autoFocus
+                      />
+                    </div>
+                    <button type="submit" disabled={committing}
+                      style={{ padding: "0 14px", height: 40, background: "#7C3AED", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: committing ? "default" : "pointer", flexShrink: 0 }}>
+                      {committing ? "…" : "Confirm"}
+                    </button>
+                    <button type="button" onClick={() => { setCommitOpen(false); setCommitInput(""); }}
+                      style={{ padding: "0 10px", height: 40, background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, fontSize: 13, color: "#555", cursor: "pointer", flexShrink: 0 }}>
+                      ✕
+                    </button>
+                  </form>
+                )}
+              </>
             )}
           </>
         ) : !isSyndicate && !isGroup && role === "lender" ? (
@@ -13519,6 +13574,303 @@ function AboutPage({ setPage }) {
         <p style={{ fontSize: 13, color: "#64748B", margin: "0 0 16px" }}>Have a question or want to get involved? Fill in the form and we'll get back to you.</p>
         <ContactForm submitBtnColor="#3B82F6" />
       </div>
+    </div>
+  );
+}
+
+// ─── FUNDING ROOM PAGE ────────────────────────────────────────────────────────
+
+function FundingRoomPage({ user, setPage, roomId }) {
+  const [room,        setRoom]        = useState(null);
+  const [members,     setMembers]     = useState([]);
+  const [messages,    setMessages]    = useState([]);
+  const [listing,     setListing]     = useState(null);
+  const [builderName, setBuilderName] = useState("");
+  const [builderAvatar, setBuilderAvatar] = useState(null);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState("");
+  const [chatInput,   setChatInput]   = useState("");
+  const [sending,     setSending]     = useState(false);
+  const [leaving,     setLeaving]     = useState(false);
+  const [leaveConfirm, setLeaveConfirm] = useState(false);
+  const chatEndRef    = useRef(null);
+  const realtimeChanRef = useRef(null);
+
+  const role     = user?.user_metadata?.role;
+  const isBuilder = room?.builder_id === user?.id;
+  const myMembership = members.find(m => m.lender_id === user?.id);
+
+  async function loadRoom() {
+    setLoading(true);
+    setError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { setError("Please log in"); setLoading(false); return; }
+    const res = await fetch("/api/project-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "funding-room-get", room_id: roomId }),
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); setError(d.error || "Failed to load room"); setLoading(false); return; }
+    const d = await res.json();
+    setRoom(d.room);
+    setMembers(d.members || []);
+    setMessages(d.messages || []);
+    setListing(d.listing || null);
+    setBuilderName(d.builder_name || "Builder");
+    setBuilderAvatar(d.builder_avatar_url || null);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadRoom();
+  }, [roomId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Realtime: messages + members + room status
+  useEffect(() => {
+    if (!roomId) return;
+    if (realtimeChanRef.current) supabase.removeChannel(realtimeChanRef.current);
+    realtimeChanRef.current = supabase.channel(`fr-${roomId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "funding_room_messages", filter: `room_id=eq.${roomId}` },
+        payload => setMessages(prev => prev.some(m => m.id === payload.new.id) ? prev : [...prev, payload.new]))
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "funding_room_members", filter: `room_id=eq.${roomId}` },
+        payload => setMembers(prev => prev.some(m => m.id === payload.new.id) ? prev : [...prev, payload.new]))
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "funding_room_members", filter: `room_id=eq.${roomId}` },
+        payload => setMembers(prev => prev.filter(m => m.id !== payload.old.id)))
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "funding_room_members", filter: `room_id=eq.${roomId}` },
+        payload => setMembers(prev => prev.map(m => m.id === payload.new.id ? payload.new : m)))
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "funding_rooms", filter: `id=eq.${roomId}` },
+        payload => setRoom(payload.new))
+      .subscribe();
+    return () => { if (realtimeChanRef.current) supabase.removeChannel(realtimeChanRef.current); };
+  }, [roomId]);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  async function handleSendMessage(e) {
+    e.preventDefault();
+    const text = chatInput.trim();
+    if (!text) return;
+    setSending(true);
+    const name = user?.user_metadata?.name || user?.email?.split("@")[0] || "Member";
+    await supabase.from("funding_room_messages").insert({
+      room_id: roomId, sender_id: user.id, sender_name: name, message: text, is_system: false,
+    });
+    setChatInput("");
+    setSending(false);
+  }
+
+  async function handleLeaveRoom() {
+    setLeaving(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/project-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "funding-room-leave", room_id: roomId }),
+    });
+    setLeaving(false);
+    if (res.ok) setPage("browse-projects");
+  }
+
+  const targetAmount    = room?.target_amount || 0;
+  const committedAmount = room?.committed_amount || 0;
+  const pct             = targetAmount > 0 ? Math.min(100, Math.round((committedAmount / targetAmount) * 100)) : 0;
+  const fullyFunded     = room?.status === "fully_funded";
+
+  if (loading) return (
+    <div style={{ padding: "3rem", textAlign: "center", color: "#64748B" }}>
+      <div style={{ fontSize: 14 }}>Loading funding room…</div>
+    </div>
+  );
+
+  if (error) return (
+    <div style={{ padding: "2rem 1.25rem" }}>
+      <button onClick={() => setPage("browse-projects")} style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 13, marginBottom: 16, display: "flex", alignItems: "center", gap: 5 }}>
+        ← Back to projects
+      </button>
+      <div style={{ color: "#DC2626", fontSize: 14 }}>{error}</div>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: "1.25rem", maxWidth: 720, margin: "0 auto" }}>
+      {/* Back + header */}
+      <button onClick={() => setPage("browse-projects")} style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 13, marginBottom: 16, display: "flex", alignItems: "center", gap: 5, padding: 0 }}>
+        ← Back to projects
+      </button>
+
+      <div style={{ background: "var(--bg-card)", border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)", borderRadius: 12, padding: "1.25rem", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#F3F0FF", color: "#7C3AED" }}>Group Funding Room</span>
+              {fullyFunded && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#DCFCE7", color: "#166534" }}>Fully Funded ✓</span>}
+            </div>
+            <h2 style={{ fontSize: 19, fontWeight: 600, margin: "0 0 4px", lineHeight: 1.3 }}>{listing?.title || "Group Funding Project"}</h2>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <Avatar initials={nameInitials(builderName)} color={pickColor(room?.builder_id || "")} size={22} url={builderAvatar} />
+              <span style={{ fontSize: 13, color: "#64748B" }}>{builderName}</span>
+              {listing?.location && <span style={{ fontSize: 12, color: "#94A3B8" }}>· {listing.location}</span>}
+            </div>
+          </div>
+          {myMembership && (
+            <div style={{ textAlign: "right", flexShrink: 0 }}>
+              <div style={{ fontSize: 11, color: "#64748B", marginBottom: 2 }}>Your commitment</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "var(--accent)" }}>{fmt(myMembership.amount)}</div>
+            </div>
+          )}
+        </div>
+
+        {/* Fully funded banner */}
+        {fullyFunded && (
+          <div style={{ background: "#DCFCE7", border: "1px solid #86EFAC", borderRadius: 8, padding: "12px 16px", marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "#166534" }}>Fully funded — deal confirmation in progress</span>
+          </div>
+        )}
+
+        {/* Progress bar */}
+        {targetAmount > 0 && (
+          <div style={{ marginBottom: 6 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: fullyFunded ? "#166534" : "var(--accent)" }}>
+                {fullyFunded ? "Target reached!" : `${pct}% committed`}
+              </span>
+              <span style={{ fontSize: 13, color: "#64748B" }}>
+                {fmt(committedAmount)} of {fmt(targetAmount)}
+              </span>
+            </div>
+            <div style={{ height: 10, background: "var(--bg-page, #f1f5f9)", borderRadius: 5, overflow: "hidden" }}>
+              <div style={{
+                height: "100%", borderRadius: 5,
+                background: fullyFunded ? "#16A34A" : "var(--accent)",
+                width: `${pct}%`, transition: "width 0.5s ease",
+              }} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 5, fontSize: 11, color: "#94A3B8" }}>
+              <span>{members.length} lender{members.length !== 1 ? "s" : ""} committed</span>
+              <span>{fmt(Math.max(0, targetAmount - committedAmount))} remaining</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Members list */}
+      <div style={{ background: "var(--bg-card)", border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: "var(--text-primary, #1E3A5F)" }}>
+          Committed lenders · {members.length}
+        </div>
+        {members.length === 0 ? (
+          <div style={{ fontSize: 13, color: "#94A3B8", padding: "8px 0" }}>No lenders have committed yet.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {members.map((m, i) => {
+              const sharePct = targetAmount > 0 ? ((Number(m.amount) / targetAmount) * 100).toFixed(1) : null;
+              const isMe = m.lender_id === user?.id;
+              return (
+                <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, background: isMe ? "color-mix(in srgb, var(--accent) 8%, transparent)" : "transparent" }}>
+                  <Avatar initials={nameInitials(m.lender_name)} color={pickColor(m.lender_id)} size={32} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{m.lender_name}{isMe ? " (you)" : ""}</div>
+                    <div style={{ fontSize: 11, color: "#94A3B8" }}>Joined {new Date(m.joined_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "var(--accent)" }}>{fmt(m.amount)}</div>
+                    {sharePct && <div style={{ fontSize: 11, color: "#94A3B8" }}>{sharePct}% share</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Chat */}
+      <div style={{ background: "var(--bg-card)", border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)", borderRadius: 12, overflow: "hidden", marginBottom: 16 }}>
+        <div style={{ padding: "10px 16px", borderBottom: "1px solid color-mix(in srgb, var(--accent) 10%, transparent)", fontSize: 13, fontWeight: 600, color: "var(--text-primary, #1E3A5F)" }}>
+          Room chat
+        </div>
+        <div style={{ height: 320, overflowY: "auto", padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
+          {messages.length === 0 && (
+            <div style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, marginTop: 40 }}>No messages yet. Start the conversation!</div>
+          )}
+          {messages.map((msg) => {
+            const isMe = msg.sender_id === user?.id;
+            if (msg.is_system) {
+              return (
+                <div key={msg.id} style={{ textAlign: "center", fontSize: 11, color: "#94A3B8", padding: "2px 0" }}>
+                  {msg.message}
+                </div>
+              );
+            }
+            return (
+              <div key={msg.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 8, alignItems: "flex-end" }}>
+                {!isMe && <Avatar initials={nameInitials(msg.sender_name)} color={pickColor(msg.sender_id)} size={26} />}
+                <div style={{ maxWidth: "75%" }}>
+                  {!isMe && <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 2, paddingLeft: 4 }}>{msg.sender_name}</div>}
+                  <div style={{
+                    background: isMe ? "var(--accent)" : "var(--bg-page, #f1f5f9)",
+                    color: isMe ? "#fff" : "var(--text-primary, #1E3A5F)",
+                    borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
+                    padding: "8px 12px", fontSize: 13, lineHeight: 1.5,
+                    wordBreak: "break-word",
+                  }}>
+                    {msg.message}
+                  </div>
+                  <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 2, textAlign: isMe ? "right" : "left", paddingRight: isMe ? 4 : 0, paddingLeft: isMe ? 0 : 4 }}>
+                    {new Date(msg.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          <div ref={chatEndRef} />
+        </div>
+        <form onSubmit={handleSendMessage} style={{ padding: "10px 12px", borderTop: "1px solid color-mix(in srgb, var(--accent) 10%, transparent)", display: "flex", gap: 8 }}>
+          <input
+            value={chatInput}
+            onChange={e => setChatInput(e.target.value)}
+            placeholder="Type a message…"
+            disabled={sending}
+            style={{ flex: 1, height: 40, border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)", borderRadius: 8, padding: "0 12px", fontSize: 13, background: "var(--bg-page, #f8fafc)", color: "var(--text-primary, #1E3A5F)", outline: "none" }}
+          />
+          <button type="submit" disabled={sending || !chatInput.trim()} style={{ height: 40, padding: "0 16px", background: "var(--accent)", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: sending || !chatInput.trim() ? "default" : "pointer", opacity: !chatInput.trim() ? 0.5 : 1 }}>
+            Send
+          </button>
+        </form>
+      </div>
+
+      {/* Leave room (lenders only, only if not fully funded) */}
+      {!isBuilder && myMembership && !fullyFunded && (
+        <div style={{ background: "var(--bg-card)", border: "1px solid #FCA5A5", borderRadius: 12, padding: "1rem 1.25rem" }}>
+          {!leaveConfirm ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#DC2626" }}>Withdraw commitment</div>
+                <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>Remove your commitment of {fmt(myMembership.amount)} from this room.</div>
+              </div>
+              <button onClick={() => setLeaveConfirm(true)} style={{ padding: "8px 16px", background: "transparent", color: "#DC2626", border: "1.5px solid #FCA5A5", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer", minHeight: 40 }}>
+                Leave Room
+              </button>
+            </div>
+          ) : (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#DC2626", marginBottom: 6 }}>Are you sure you want to leave?</div>
+              <div style={{ fontSize: 12, color: "#64748B", marginBottom: 12 }}>Your commitment of {fmt(myMembership.amount)} will be withdrawn. This cannot be undone.</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={handleLeaveRoom} disabled={leaving} style={{ padding: "8px 16px", background: "#DC2626", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: leaving ? "default" : "pointer", minHeight: 40 }}>
+                  {leaving ? "Leaving…" : "Confirm — Leave Room"}
+                </button>
+                <button onClick={() => setLeaveConfirm(false)} style={{ padding: "8px 16px", background: "transparent", color: "#64748B", border: "1px solid #e0e0e0", borderRadius: 8, fontSize: 13, cursor: "pointer", minHeight: 40 }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -18297,17 +18649,13 @@ const TRUST_ITEMS = [
   },
 ];
 
-// ─── LOGIN LOADER ─────────────────────────────────────────────────────────────
+// ─── LOGIN LOADER (removed — login now goes straight to dashboard) ────────────
 
 function LoginLoader({ onDone }) {
+  useEffect(() => { onDone(); }, []); // eslint-disable-line
+  return null;
   const [fading, setFading] = useState(false);
   const heroImage = useMemo(() => PROPERTY_IMAGES[Math.floor(Math.random() * PROPERTY_IMAGES.length)], []);
-
-  useEffect(() => {
-    const t1 = setTimeout(() => setFading(true),  2500);
-    const t2 = setTimeout(() => onDone(),          3000);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, []); // eslint-disable-line
 
   return (
     <div style={{
@@ -18410,43 +18758,43 @@ function LoginLoader({ onDone }) {
 
 const TOUR_STEPS = [
   {
-    targetId: "tour-dashboard-heading",
-    title: "Welcome to LenderBuild!",
-    text: "This is your personal dashboard. Everything you need to manage your property investments is right here.",
-  },
-  {
-    targetId: null, // resolved dynamically based on role
+    targetId: null, // resolved dynamically to tour-find-lender or tour-find-builder
     title: "Find your perfect match",
-    text: "Browse verified lenders and builders filtered by budget, location, and project type. Your compatibility score shows how well matched you are.",
-  },
-  {
-    targetId: "tour-browse-projects",
-    title: "Discover live projects",
-    text: "Builders post their projects here with full details. Lenders can express interest with one click.",
+    text: "Browse verified lenders and builders filtered by budget, location, and project type. Your compatibility score shows how well you're matched — the higher the score, the better the fit.",
   },
   {
     targetId: "tour-inbox-btn",
-    title: "Your inbox",
-    text: "All your messages and connection requests live here. You'll get a notification badge when something needs your attention.",
-  },
-  {
-    targetId: "tour-project-tracker",
-    title: "Track your deals",
-    text: "Once matched, manage milestone payments and repayment schedules here. Funds are only released when both parties approve each stage.",
-  },
-  {
-    targetId: "tour-profile-pill",
-    title: "Complete your profile",
-    text: "A complete profile gets 3× more matches. Add your photo, bio, and verification documents to unlock your full compatibility score.",
+    title: "Connect and send requests",
+    text: "Express interest in a profile and send a connection request. Once accepted, your inbox unlocks a direct conversation — everything in one place, no chasing emails.",
   },
   {
     targetId: null,
-    title: "You're all set!",
-    text: "Start by browsing matches or posting your first project. Your first connection is just a click away.",
+    title: "Confirm a deal amount",
+    text: "When you're ready to move forward, both parties confirm the loan amount, interest rate, and timeline inside the platform. Nothing moves until both sides have agreed.",
+  },
+  {
+    targetId: null,
+    title: "Finder's fee",
+    text: "A small platform fee is charged once a deal is confirmed. Payment is handled securely through Stripe — you'll see the exact amount before you're charged, with no surprises.",
+  },
+  {
+    targetId: "tour-project-tracker",
+    title: "Project Tracker & milestones",
+    text: "Every deal is managed through the Project Tracker. Funds are released milestone by milestone — both sides must approve each stage before the next one unlocks. Full accountability, no disputes.",
+  },
+  {
+    targetId: "tour-browse-projects",
+    title: "Group funding rooms",
+    text: "Multiple lenders can co-fund a single project. Join a funding room, commit your share, and track the total commitment in real time. Chat directly with the builder and fellow investors inside the room.",
+  },
+  {
+    targetId: null,
+    title: "Community posts & groups",
+    text: "Share market insights, ask questions, and join groups in the LenderBuild community. Build your reputation through upvotes and a verified profile badge that boosts your credibility with matches.",
   },
 ];
 
-const TOUR_TOTAL = TOUR_STEPS.length; // 7 spotlight steps
+const TOUR_TOTAL = TOUR_STEPS.length; // 7 steps
 const SPOTLIGHT_PAD = 10;
 
 function TourConfetti() {
@@ -18789,23 +19137,27 @@ function OnboardingTour({ step, userRole, onNext, onBack, onSkip, onFinish, onRe
 
           {isFinal && (
             <>
-              <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", justifyContent: "center" }}>
+              <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", justifyContent: "center" }}>
                 <button onClick={() => { onFinish(); setPage(userRole === "lender" ? "find-builder" : "search"); }}
                   style={{ flex: 1, minWidth: 130, padding: "13px 16px", background: "#2E5FA3", color: "#fff", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
                   Find a match
                 </button>
                 <button onClick={() => { onFinish(); setPage("browse-projects"); }}
                   style={{ flex: 1, minWidth: 130, padding: "13px 16px", background: "#1D9E75", color: "#fff", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
-                  Post a project
+                  Browse projects
                 </button>
               </div>
-              <div style={{ textAlign: "center", marginBottom: 8 }}>
-                <button onClick={onRedo}
-                  style={{ background: "transparent", border: "1.5px solid #CBD5E1", borderRadius: 10, padding: "10px 28px", fontSize: 13, color: "#64748B", cursor: "pointer", fontWeight: 500, letterSpacing: "-0.01em" }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = "#94A3B8"; e.currentTarget.style.color = "#475569"; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = "#CBD5E1"; e.currentTarget.style.color = "#64748B"; }}>
-                  ← Redo tour
+              <div style={{ textAlign: "center", marginBottom: 6 }}>
+                <button onClick={onFinish}
+                  style={{ background: "transparent", border: "none", fontSize: 13, color: "#94A3B8", cursor: "pointer", padding: "4px 8px" }}>
+                  Done
                 </button>
+              </div>
+              <div style={{ marginTop: 6, padding: "10px 14px", background: "#F8FAFC", borderRadius: 10, textAlign: "center" }}>
+                <span style={{ fontSize: 12, color: "#64748B", lineHeight: 1.5 }}>
+                  You can replay this tour anytime from{" "}
+                  <strong style={{ color: "#1E3A5F" }}>Settings → Help &amp; Support → Replay onboarding tour</strong>
+                </span>
               </div>
             </>
           )}
@@ -19201,12 +19553,11 @@ function WhatsNewButton({ onReplayTour }) {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
   const features = [
+    { label: "Group Funding Rooms",   desc: "Co-fund projects with multiple lenders in real time" },
     { label: "Builder Passport",      desc: "Verified builder profiles with credibility score" },
     { label: "Market Intelligence",   desc: "Live deal flow, rate trends and regional data" },
-    { label: "Analytics Dashboard",   desc: "Your activity, views and match stats at a glance" },
     { label: "Command Palette",       desc: "Press Ctrl+K to jump anywhere instantly" },
     { label: "Saved Searches",        desc: "Save filter combos and get notified on new matches" },
-    { label: "Onboarding Tour",       desc: "Step-by-step guide for new users" },
   ];
   return (
     <div ref={ref} style={{ position: "relative" }}>
@@ -19923,6 +20274,7 @@ export default function App() {
   const [openConversationId, setOpenConversationId] = useState(null);
   const [selectedBuilder,   setSelectedBuilder]     = useState(null);
   const [selectedDeal,           setSelectedDeal]           = useState(null);
+  const [selectedFundingRoom,    setSelectedFundingRoom]    = useState(null);
   const [selectedBuilderPassportId, setSelectedBuilderPassportId] = useState(null);
   const [unreadCount,       setUnreadCount]         = useState(0);
   const [communityBadge,    setCommunityBadge]      = useState(false);
@@ -20030,15 +20382,15 @@ export default function App() {
     return () => clearTimeout(t);
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Onboarding tour trigger ────────────────────────────────────────────────
+  // ── Onboarding tour trigger — first account creation only ─────────────────
   useEffect(() => {
     if (!user || tourShownRef.current) return;
-    if (user.user_metadata?.profile_complete && !user.user_metadata?.tour_completed) {
+    if (!user.user_metadata?.onboarding_complete) {
       tourShownRef.current = true;
       const t = setTimeout(() => setTourStep(1), 900);
       return () => clearTimeout(t);
     }
-  }, [user?.id, user?.user_metadata?.profile_complete]); // eslint-disable-line
+  }, [user?.id]); // eslint-disable-line
 
   // Open profile dropdown for step 5 so the element exists in DOM
   useEffect(() => {
@@ -20247,12 +20599,12 @@ export default function App() {
 
   async function handleTourFinish() {
     setTourStep(0);
-    await supabase.auth.updateUser({ data: { tour_completed: true } });
+    await supabase.auth.updateUser({ data: { onboarding_complete: true } });
   }
 
   async function handleTourSkip() {
     setTourStep(0);
-    await supabase.auth.updateUser({ data: { tour_completed: true } });
+    await supabase.auth.updateUser({ data: { onboarding_complete: true } });
   }
 
   function handleReplayTour() {
@@ -20265,7 +20617,6 @@ export default function App() {
     // SIGNED_IN events (token-refresh, session-init) cannot clobber the page state.
     isSwitchingAccountRef.current = true;
     setIsLoggedIn(true);
-    setLoginLoading(true);
     if (freshUser) {
       setUser(freshUser);
       const meta = freshUser.user_metadata || {};
@@ -20275,18 +20626,16 @@ export default function App() {
       if (meta.appearance_density)                    setDensity(meta.appearance_density);
     }
     navigateTo("home");
-    // Release the gate after Supabase's trailing events settle (token-refresh fires async)
-    setTimeout(() => { isSwitchingAccountRef.current = false; }, 1000);
-  }
-
-  function handleLoginDone() {
-    setLoginLoading(false);
     try {
       if (!localStorage.getItem("lb_device_preference")) {
         setTimeout(() => setShowDeviceModal(true), 600);
       }
     } catch (_) {}
+    // Release the gate after Supabase's trailing events settle (token-refresh fires async)
+    setTimeout(() => { isSwitchingAccountRef.current = false; }, 1000);
   }
+
+  function handleLoginDone() { setLoginLoading(false); }
 
   function handleDeviceChoice(pref) {
     try { localStorage.setItem("lb_device_preference", pref); } catch (_) {}
@@ -20314,6 +20663,11 @@ export default function App() {
     } else {
       setSelectedDeal(null);
     }
+    if (p === "funding-room") {
+      setSelectedFundingRoom(data || null);
+    } else {
+      setSelectedFundingRoom(null);
+    }
     if (p === "builder-passport") {
       setSelectedBuilderPassportId(data || null);
     } else {
@@ -20324,7 +20678,7 @@ export default function App() {
     if (p !== "lender-profile") setSelectedLender(null);
     if (p !== "builder-profile") setSelectedBuilder(null);
     // Pages that rely on separately-held state and can't be deep-linked
-    const DATA_PAGES = new Set(["lender-profile", "builder-profile", "deal-detail", "deal-room", "post-detail", "edit-post", "builder-passport"]);
+    const DATA_PAGES = new Set(["lender-profile", "builder-profile", "deal-detail", "deal-room", "post-detail", "edit-post", "builder-passport", "funding-room"]);
     const urlPath = (p === "home" || p === "home-dashboard" || DATA_PAGES.has(p)) ? "/" : `/${p}`;
     window.history.pushState(null, "", urlPath);
     setPage(p);
@@ -20407,6 +20761,7 @@ export default function App() {
           {page === "deal-detail"             && user && (selectedDeal ? <DealDetailPage user={user} setPage={navigateTo} deal={selectedDeal} setCelebration={setCelebration} /> : <DealsPage user={user} setPage={navigateTo} setCelebration={setCelebration} />)}
           {page === "disputes"                && user && <DisputesPage user={user} setPage={navigateTo} />}
           {page === "browse-projects"         && <BrowseProjectsPage user={user} setPage={navigateTo} />}
+          {page === "funding-room"            && user && (selectedFundingRoom ? <FundingRoomPage user={user} setPage={navigateTo} roomId={selectedFundingRoom} /> : <BrowseProjectsPage user={user} setPage={navigateTo} />)}
           {page === "create-project-listing"  && user && <CreateProjectListingPage user={user} setPage={navigateTo} />}
           {page === "analytics"               && user && user.user_metadata?.role === "admin" && <AnalyticsPage user={user} />}
           {page === "privacy"       && <PrivacyPolicyPage  setPage={navigateTo} />}
@@ -20445,7 +20800,6 @@ export default function App() {
         />
       )}
       {loginLoading && <LoginLoader onDone={handleLoginDone} />}
-<OnboardingChecklist user={user} setPage={navigateTo} />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} setPage={navigateTo} user={user} onOpenDevPanel={() => setDevPanelOpen(true)} onViewProfile={handleViewProfile} onViewBuilderProfile={handleViewBuilderProfile} />
       {devPanelOpen && user && <DevPanel user={user} onClose={() => setDevPanelOpen(false)} devRoleOverride={devRoleOverride} setDevRoleOverride={setDevRoleOverride} setPage={navigateTo} />}
       {user && windowWidth <= 768 && (
