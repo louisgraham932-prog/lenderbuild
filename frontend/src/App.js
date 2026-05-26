@@ -8488,7 +8488,7 @@ function PostCard({ post, isOwn, onView, onEdit, onDelete, user, onConnect, onMe
           )}
           {!user && post.category === "group-funding" && (
             <button
-              onClick={e => { e.stopPropagation(); setPage && setPage("auth"); }}
+              onClick={e => { e.stopPropagation(); onConnect && onConnect(post); }}
               style={{ marginLeft: "auto", padding: "6px 16px", minHeight: 36, borderRadius: 8, border: "none", background: "#7E22CE", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
             >
               Fund this project
