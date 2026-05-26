@@ -222,7 +222,7 @@ function useAccentColor() {
     document.documentElement.style.setProperty("--nav-bg", preset.nav || "#1E3A5F");
     let el = document.getElementById("lb-accent-style");
     if (!el) { el = document.createElement("style"); el.id = "lb-accent-style"; document.head.appendChild(el); }
-    const p = preset.value, bg = preset.bg;
+    const p = preset.value, bg = preset.bg, nav = preset.nav || "#1E3A5F";
     // Include both hex and rgb() selectors: Chrome normalises hex colours to
     // rgb() when styles are set via JavaScript, so both forms are needed.
     el.textContent = `
@@ -234,26 +234,47 @@ function useAccentColor() {
       /* Accent background tints */
       [style*="background: #EBF2FF"] { background: ${bg} !important; }
       [style*="background: rgb(235, 242, 255)"] { background: ${bg} !important; }
-      /* Text and border colours */
+      /* Text colours */
       [style*="color: #3B82F6"] { color: ${p} !important; }
       [style*="color: rgb(59, 130, 246)"] { color: ${p} !important; }
+      [style*="color: #2E5FA3"] { color: ${p} !important; }
+      [style*="color: rgb(46, 95, 163)"] { color: ${p} !important; }
+      /* Border colours — shorthand and longhand */
       [style*="borderColor: #3B82F6"], [style*="border-color: #3B82F6"] { border-color: ${p} !important; }
       [style*="border-color: rgb(59, 130, 246)"] { border-color: ${p} !important; }
+      [style*="border: 2px solid #3B82F6"] { border-color: ${p} !important; }
+      [style*="border: 1.5px solid #3B82F6"] { border-color: ${p} !important; }
+      [style*="border: 0.5px solid #3B82F6"] { border-color: ${p} !important; }
+      [style*="border: 1px solid #3B82F6"] { border-color: ${p} !important; }
+      /* Accent-tinted borders */
+      [style*="border: 0.5px solid #BFDBFE"] { border-color: ${p}55 !important; }
+      [style*="border: 0.5px solid #A8DFC9"] { border-color: ${p}55 !important; }
       /* Shadows and outlines */
       [style*="boxShadow"][style*="#3B82F6"] { box-shadow: 0 0 0 3px ${p}55 !important; }
       [style*="box-shadow"][style*="59, 130, 246"] { box-shadow: 0 0 0 3px ${p}55 !important; }
       [style*="outline"][style*="#3B82F6"] { outline-color: ${p} !important; }
       [style*="outline"][style*="rgb(59, 130, 246)"] { outline-color: ${p} !important; }
-      /* SVG attribute overrides (nav icons, chart bars, decorative) */
+      /* SVG attribute overrides */
       [stroke="#3B82F6"] { stroke: ${p} !important; }
       [stroke="#2E5FA3"] { stroke: ${p} !important; }
       [fill="#3B82F6"] { fill: ${p} !important; }
       [fill="#EBF2FF"] { fill: ${bg} !important; }
-      /* Progress bars in recharts */
+      /* Progress bars and charts */
       .recharts-bar-rectangle path { fill: ${p} !important; }
       .recharts-line path { stroke: ${p} !important; }
+      .recharts-active-dot circle { fill: ${p} !important; }
+      /* Checkbox/radio accent */
+      input[type="checkbox"], input[type="radio"] { accent-color: ${p} !important; }
+      [style*="accentColor: \\"#3B82F6\\""] { accent-color: ${p} !important; }
       /* Input focus ring */
-      input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 3px ${p}44 !important; }
+      input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 3px ${p}44 !important; border-color: ${p} !important; }
+      /* Badge / pill active states */
+      [style*="background: #1E3A5F"][style*="color: #fff"]:not(nav):not(nav *) { background: ${nav} !important; }
+      /* Tour glow pulse animation */
+      @keyframes tourGlowPulse {
+        0%, 100% { box-shadow: 0 0 0 2.5px ${p}, 0 0 14px 3px ${p}59; }
+        50%       { box-shadow: 0 0 0 2.5px ${p}99, 0 0 30px 9px ${p}9E; }
+      }
     `;
     try { localStorage.setItem("lb_accent_colour", accent); } catch {}
   }, [accent]);
@@ -668,12 +689,12 @@ function MetricCard({ label, value }) {
 function RoleBadge({ userRole, authRole }) {
   if (userRole === "founder") return (
     <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#FEF9C3", color: "#92400E", flexShrink: 0, whiteSpace: "nowrap" }}>
-      👑 Founder
+      <Icon name="crown" size={10} style={{marginRight:3,verticalAlign:"middle"}} /> Founder
     </span>
   );
   if (userRole === "verified_pro") return (
     <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#FEF3C7", color: "#B45309", flexShrink: 0, whiteSpace: "nowrap" }}>
-      ✦ Verified Pro
+      <Icon name="sparkles" size={10} style={{marginRight:3,verticalAlign:"middle"}} /> Verified Pro
     </span>
   );
   if (authRole === "lender") return (
@@ -1032,6 +1053,15 @@ function Icon({ name, size = 18, style, className }) {
     case "crown":        return <svg {...s}><path d="M12 2l3.5 7h5L16 13l2 7-6-4-6 4 2-7-4.5-4H8.5L12 2z"/></svg>;
     case "inbox":        return <svg {...s}><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>;
     case "clock":        return <svg {...s}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
+    case "trash":        return <svg {...s}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>;
+    case "id-card":      return <svg {...s}><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M16 11h2M16 14h2M7 11h4a1 1 0 011 1v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-1a1 1 0 011-1z"/><circle cx="9" cy="8" r="2"/></svg>;
+    case "flag":         return <svg {...s}><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>;
+    case "map-pin":      return <svg {...s}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>;
+    case "thumbs-up":    return <svg {...s}><path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3z"/><path d="M7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3"/></svg>;
+    case "sparkles":     return <svg {...s}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>;
+    case "wrench":       return <svg {...s}><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>;
+    case "party":        return <svg {...s}><path d="M5.8 11.3L2 22l10.7-3.79"/><path d="M4 3h.01"/><path d="M22 8h.01"/><path d="M15 2h.01"/><path d="M22 20h.01"/><path d="M22 2l-2.24 2.24"/><path d="M16.78 10.78l-4.56 4.56"/><path d="M11.78 5.78l-4.56 4.56"/><path d="M10.22 17.22L12 22"/></svg>;
+    case "globe":        return <svg {...s}><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>;
     default:             return <svg {...s}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16" strokeWidth="2"/></svg>;
   }
 }
@@ -1193,7 +1223,7 @@ function CelebrationOverlay({ message, subtitle, onClose, fullScreen = false }) 
         boxShadow: "0 20px 60px rgba(0,0,0,0.2)", maxWidth: 360, pointerEvents: "auto",
         animation: "slideUp 0.4s ease",
       }}>
-        <div style={{ fontSize: 40, marginBottom: 8 }}>🎉</div>
+        <div style={{ marginBottom: 8, color: "var(--accent)" }}><Icon name="party" size={40} /></div>
         <div style={{ fontSize: 18, fontWeight: 700, color: "#1E3A5F", marginBottom: 6 }}>{message}</div>
         {subtitle && <div style={{ fontSize: 13, color: "#64748B", marginBottom: 16, lineHeight: 1.5 }}>{subtitle}</div>}
         <button onClick={onClose} style={{ padding: "8px 24px", background: "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
@@ -1228,11 +1258,11 @@ function DeviceDetectionModal({ onChoose }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <button onClick={() => onChoose("mobile")}
             style={{ padding: "14px 20px", minHeight: 52, width: "100%", borderRadius: 12, border: "2px solid #3B82F6", background: "#EBF2FF", color: "#1E3A5F", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-            📱 Mobile / Tablet
+            <Icon name="smartphone" size={20} /> Mobile / Tablet
           </button>
           <button onClick={() => onChoose("desktop")}
             style={{ padding: "14px 20px", minHeight: 52, width: "100%", borderRadius: 12, border: "2px solid #e0e0e0", background: "#fff", color: "#1E3A5F", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-            💻 Desktop / Laptop
+            <Icon name="monitor" size={20} /> Desktop / Laptop
           </button>
         </div>
       </div>
@@ -1981,7 +2011,7 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
                 <div style={{ borderTop: "0.5px solid #f0f0f0", margin: "4px 0" }} />
                 { /* Saved searches */ }
                 <button onClick={() => go("saved-searches")} style={ddItemStyle(page === "saved-searches")}>
-                  <span style={{ fontSize: 15 }}>🔍</span>Saved searches
+                  <Icon name="search" size={14} className="lb-icon" />Saved searches
                 </button>
                 {navAccounts.length < 3 && !navAddingAcct && (
                   <button onClick={() => setNavAddingAcct(true)} style={{ ...ddItemStyle(false), color: "#3B82F6" }}>
@@ -2217,7 +2247,7 @@ function AuthPage({ setPage, onLoginSuccess, initialTab = "login" }) {
         {tab === "login" && loginStep === "mfa" ? (
           <form onSubmit={handleMfaVerify} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
             <div style={{ textAlign: "center", padding: "1rem 0 0.5rem" }}>
-              <div style={{ fontSize: 32, marginBottom: 8 }}>🔐</div>
+              <div style={{ marginBottom: 8, color: "var(--accent)" }}><Icon name="lock" size={32} /></div>
               <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>Two-factor authentication</div>
               <div style={{ fontSize: 13, color: "#64748B" }}>Enter the 6-digit code from your authenticator app.</div>
             </div>
@@ -2399,7 +2429,7 @@ function ForgotPasswordPage({ setPage }) {
     <div style={{ minHeight: "80vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 1.25rem" }}>
       <div style={{ width: "100%", maxWidth: 400 }}>
         <div style={{ textAlign: "center", marginBottom: "2rem" }}>
-          <div style={{ fontSize: 36, marginBottom: "0.75rem" }}>🔑</div>
+          <div style={{ marginBottom: "0.75rem", color: "var(--accent)" }}><Icon name="key" size={36} /></div>
           <h1 style={{ fontSize: 24, fontWeight: 500, margin: "0 0 8px", fontFamily: "'Georgia', serif" }}>Reset your password</h1>
           <p style={{ fontSize: 14, color: "#64748B", margin: 0 }}>
             {sent ? "Check your inbox for the reset link." : "Enter your email and we'll send you a reset link."}
@@ -2481,7 +2511,7 @@ function ResetPasswordPage({ setPage }) {
     <div style={{ minHeight: "80vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 1.25rem" }}>
       <div style={{ width: "100%", maxWidth: 400 }}>
         <div style={{ textAlign: "center", marginBottom: "2rem" }}>
-          <div style={{ fontSize: 36, marginBottom: "0.75rem" }}>🔒</div>
+          <div style={{ marginBottom: "0.75rem", color: "var(--accent)" }}><Icon name="lock" size={36} /></div>
           <h1 style={{ fontSize: 24, fontWeight: 500, margin: "0 0 8px", fontFamily: "'Georgia', serif" }}>
             {done ? "Password updated" : "Choose a new password"}
           </h1>
@@ -2498,7 +2528,7 @@ function ResetPasswordPage({ setPage }) {
 
         {done ? (
           <div style={{ textAlign: "center" }}>
-            <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, margin: "0 auto 1.5rem" }}>✓</div>
+            <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.5rem", color: "#0F6E56" }}><Icon name="check-circle" size={28} /></div>
             <button
               onClick={() => setPage("auth")}
               style={{ background: "#3B82F6", color: "#FFFFFF", border: "none", padding: "10px 24px", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer" }}
@@ -2951,7 +2981,7 @@ function ProfileSetupPage({ user, setPage, setCelebration }) {
             </p>
             {companyVerified && companyName && (
               <div style={{ background: "#DCFCE7", border: "0.5px solid #86EFAC", borderRadius: 8, padding: "8px 12px", marginBottom: 10 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#166534" }}>🏢 {companyName}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#166534" }}style={{display:"flex",alignItems:"center",gap:4}}><Icon name="building" size={13} /> {companyName}</div>
                 {companyIncorp && <div style={{ fontSize: 12, color: "#166534" }}>Incorporated {companyIncorp} · No. {companyNumber}</div>}
               </div>
             )}
@@ -3022,7 +3052,7 @@ function ProfileSetupPage({ user, setPage, setCelebration }) {
                 </select>
                 {companyDirectorMatch === false && !companySelectedDirector && (
                   <div style={{ background: "#FEF3C7", border: "0.5px solid #FDE68A", borderRadius: 6, padding: "8px 10px", marginTop: 8, fontSize: 12, color: "#92400E" }}>
-                    ⚠ Your profile name does not closely match any registered director — please select your name above or verify manually if you are a director
+                    Your profile name does not closely match any registered director — please select your name above or verify manually if you are a director
                   </div>
                 )}
                 {companySelectedDirector && (
@@ -3065,7 +3095,7 @@ function ProfileSetupPage({ user, setPage, setCelebration }) {
             {/* Verified result card */}
             {companyVerified && companyName && (
               <div style={{ background: "#DCFCE7", border: "0.5px solid #86EFAC", borderRadius: 8, padding: "10px 14px", marginBottom: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#166534" }}>🏢 {companyName}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#166534" }}style={{display:"flex",alignItems:"center",gap:4}}><Icon name="building" size={13} /> {companyName}</div>
                 <div style={{ fontSize: 12, color: "#166534", marginTop: 2 }}>
                   Status: <strong>Active</strong>
                   {companyIncorp && <span> · Incorporated {companyIncorp}</span>}
@@ -3160,7 +3190,7 @@ function ProfileSetupPage({ user, setPage, setCelebration }) {
                 </select>
                 {companyDirectorMatch === false && !companySelectedDirector && (
                   <div style={{ background: "#FEF3C7", border: "0.5px solid #FDE68A", borderRadius: 6, padding: "8px 10px", marginTop: 8, fontSize: 12, color: "#92400E" }}>
-                    ⚠ Your profile name does not closely match any registered director — please select your name above or verify manually if you are a director
+                    Your profile name does not closely match any registered director — please select your name above or verify manually if you are a director
                   </div>
                 )}
                 {companySelectedDirector && (
@@ -3556,7 +3586,7 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
   // Reusable sub-page nav header
   function SubNav({ title }) {
     return (
-      <div style={{ background: "#1E3A5F", position: "sticky", top: 60, zIndex: 99, height: 52, display: "flex", alignItems: "center", flexShrink: 0 }}>
+      <div style={{ background: "var(--nav-bg,#1E3A5F)", position: "sticky", top: 60, zIndex: 99, height: 52, display: "flex", alignItems: "center", flexShrink: 0 }}>
         <button onClick={() => { setOpenSection(null); window.scrollTo({ top: 0, behavior: "instant" }); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#fff", display: "flex", alignItems: "center", padding: "8px 14px", lineHeight: 0 }}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
         </button>
@@ -3565,8 +3595,8 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
     );
   }
 
-  const subPageWrap = { minHeight: "100vh", background: "#f5f5f5", paddingBottom: "calc(80px + env(safe-area-inset-bottom,0px))" };
-  const card = { background: "#fff", borderRadius: 14, padding: "20px", marginBottom: 12 };
+  const subPageWrap = { minHeight: "100vh", background: "var(--bg-page,#F4F5F7)", paddingBottom: "calc(80px + env(safe-area-inset-bottom,0px))" };
+  const card = { background: "var(--bg-card,#fff)", borderRadius: 14, padding: "20px", marginBottom: 12 };
 
   return (
     <div>
@@ -3649,7 +3679,7 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
 
             {chVerified && chName && (
               <div style={{ background: "#DCFCE7", border: "0.5px solid #86EFAC", borderRadius: 8, padding: "10px 14px", marginBottom: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#166534" }}>🏢 {chName}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#166534", display: "flex", alignItems: "center", gap: 4 }}><Icon name="building" size={13} /> {chName}</div>
                 <div style={{ fontSize: 12, color: "#166534", marginTop: 2 }}>
                   Status: <strong>Active</strong>{chIncorp && ` · Incorporated ${chIncorp}`}{chNumber && ` · No. ${chNumber}`}
                 </div>
@@ -3727,7 +3757,7 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
                 </select>
                 {chDirectorMatch === false && !chSelectedDirector && (
                   <div style={{ background: "#FEF3C7", border: "0.5px solid #FDE68A", borderRadius: 6, padding: "8px 10px", marginTop: 8, fontSize: 12, color: "#92400E" }}>
-                    ⚠ Your profile name does not closely match any registered director — please select your name above or verify manually if you are a director
+                    Your profile name does not closely match any registered director — please select your name above or verify manually if you are a director
                   </div>
                 )}
                 {chSelectedDirector && (
@@ -3979,12 +4009,12 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
             </div>
             <div style={{ ...card, marginTop: 0 }}>
               <button onClick={() => setPage("privacy")} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "4px 0", background: "transparent", border: "none", cursor: "pointer", fontSize: 15, color: "#1E3A5F", fontWeight: 500 }}>
-                <span>📄</span><span style={{ flex: 1 }}>Privacy Policy</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                <Icon name="file" size={15} className="lb-icon" /><span style={{ flex: 1 }}>Privacy Policy</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
               </button>
               <div style={{ height: 1, background: "#f5f5f5", margin: "12px 0" }} />
               <button onClick={() => { if (window.confirm("Are you sure you want to request account deletion? This cannot be undone.")) { setPage("help"); } }}
                 style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "4px 0", background: "transparent", border: "none", cursor: "pointer", fontSize: 15, color: "#DC2626", fontWeight: 500 }}>
-                <span>🗑️</span>Request account deletion
+                <Icon name="trash" size={15} className="lb-icon" />Request account deletion
               </button>
             </div>
           </div>
@@ -4001,7 +4031,7 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
             <div style={{ ...card, marginBottom: 12 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#1E3A5F", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
                 Identity verification
-                {idVerified && <span style={{ fontSize: 11, background: "#D97706", color: "#fff", padding: "2px 8px", borderRadius: 20, fontWeight: 600 }}>🪪 ID Verified</span>}
+                {idVerified && <span style={{ fontSize: 11, background: "#D97706", color: "#fff", padding: "2px 8px", borderRadius: 20, fontWeight: 600, display:"inline-flex", alignItems:"center", gap:3 }}><Icon name="id-card" size={11} /> ID Verified</span>}
               </div>
               {idVerified ? (
                 <p style={{ fontSize: 13, color: "#666", lineHeight: 1.6, margin: 0 }}>Your identity is verified. A gold ID Verified badge appears on your profile.</p>
@@ -4572,7 +4602,7 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
             {/* Quick tools row — Build Calculator + Market */}
             {dismissBuilderTools ? (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 14px", background: "#F8FAFC", border: "0.5px solid #E2E8F0", borderRadius: 8, marginBottom: "1.5rem" }}>
-              <span style={{ fontSize: 12, color: "#64748B" }}>🧮 Build Calculator & Market Intelligence</span>
+              <span style={{ fontSize: 12, color: "#64748B", display:"inline-flex", alignItems:"center", gap:4 }}><Icon name="calculator" size={12} /> Build Calculator & Market Intelligence</span>
               <button onClick={() => show(`lb_dismiss_btools_${uid}`, setDismissBuilderTools)} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 3, padding: "2px 6px", fontWeight: 500, flexShrink: 0 }}>
                 Show <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
               </button>
@@ -4586,11 +4616,11 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
               </div>
               <div style={{ display: "flex", gap: 10 }}>
                 <button onClick={() => setPage("build-calculator")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2 }}>🧮 Build Calculator</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2, display:"flex", alignItems:"center", gap:4 }}><Icon name="calculator" size={12} /> Build Calculator</div>
                   <div style={{ fontSize: 11, color: "#2E5FA3" }}>Not sure how much to ask for?</div>
                 </button>
                 <button onClick={() => setPage("market")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2 }}>📈 Market Intelligence</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2, display:"flex", alignItems:"center", gap:4 }}><Icon name="trending-up" size={12} /> Market Intelligence</div>
                   <div style={{ fontSize: 11, color: "#2E5FA3" }}>See UK market data →</div>
                 </button>
               </div>
@@ -4613,7 +4643,7 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
               return (
                 <div style={{ background: isOverdue ? "#FEF2F2" : "#FEF3C7", border: `0.5px solid ${isOverdue ? "#FECACA" : "#FCD34D"}`, borderRadius: 12, padding: "14px 18px", marginBottom: "1.5rem" }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: isOverdue ? "#DC2626" : "#B45309", marginBottom: 6 }}>
-                    {isOverdue ? "⚠️ Overdue repayment" : "⏰ Repayment due soon"}
+                    {isOverdue ? <><Icon name="warning" size={13} style={{marginRight:4}} />Overdue repayment</> : <><Icon name="clock" size={13} style={{marginRight:4}} />Repayment due soon</>}
                   </div>
                   {urgentReps.slice(0, 2).map((r, i) => (
                     <div key={i} style={{ fontSize: 13, color: isOverdue ? "#991B1B" : "#92400E", marginBottom: 2 }}>
@@ -4763,7 +4793,7 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
             {/* Quick tools row — Returns Calculator + Market */}
             {dismissLenderTools ? (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 14px", background: "#F8FAFC", border: "0.5px solid #E2E8F0", borderRadius: 8, marginBottom: "1.5rem" }}>
-              <span style={{ fontSize: 12, color: "#64748B" }}>🧮 Returns Calculator & Market Intelligence</span>
+              <span style={{ fontSize: 12, color: "#64748B", display:"inline-flex", alignItems:"center", gap:4 }}><Icon name="calculator" size={12} /> Returns Calculator & Market Intelligence</span>
               <button onClick={() => show(`lb_dismiss_ltools_${uid}`, setDismissLenderTools)} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 3, padding: "2px 6px", fontWeight: 500, flexShrink: 0 }}>
                 Show <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
               </button>
@@ -4777,11 +4807,11 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
               </div>
               <div style={{ display: "flex", gap: 10 }}>
                 <button onClick={() => setPage("build-calculator")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2 }}>🧮 Returns Calculator</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2, display:"flex", alignItems:"center", gap:4 }}><Icon name="calculator" size={12} /> Returns Calculator</div>
                   <div style={{ fontSize: 11, color: "#2E5FA3" }}>Calculate your potential returns</div>
                 </button>
                 <button onClick={() => setPage("market")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2 }}>📈 Market Intelligence</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2, display:"flex", alignItems:"center", gap:4 }}><Icon name="trending-up" size={12} /> Market Intelligence</div>
                   <div style={{ fontSize: 11, color: "#2E5FA3" }}>See UK market data →</div>
                 </button>
               </div>
@@ -4902,7 +4932,7 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
             {/* Smart matches from matches_cache */}
             {smartMatches.length > 0 && (
               <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#1D9E75", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>⚡ Smart matches for you</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#1D9E75", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12, display:"flex", alignItems:"center", gap:4 }}><Icon name="zap" size={11} />Smart matches for you</div>
                 {smartMatches.map(m => (
                   <div key={m.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "0.5px solid #f5f5f3" }}>
                     <div style={{ fontSize: 13, color: "#1E3A5F" }}>Match found</div>
@@ -4952,7 +4982,7 @@ function TrustBadges({ style = {} }) {
       </div>
       {/* UK registered */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, opacity: 0.7 }}>
-        <span style={{ fontSize: 13 }}>🇬🇧</span>
+        <Icon name="globe" size={13} className="lb-icon" />
         <span style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.65)" }}>UK registered business</span>
       </div>
     </div>
@@ -5059,7 +5089,7 @@ function HomePage({ setPage, user, onViewProfile }) {
       {acceptedConnections.length > 0 && (
         <div style={{ background: "#EBF2FF", borderBottom: "1px solid #E0C87A", padding: "12px 1.25rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 16 }}>🎉</span>
+            <Icon name="party" size={16} />
             <div style={{ fontSize: 13, color: "#1E3A5F" }}>
               <strong>
                 {acceptedConnections.length === 1
@@ -5429,7 +5459,7 @@ function LenderCard({ lc, user, setPage, settings, onViewProfile, viewerProfile 
           </div>
           <div style={{ fontSize: 12, color: "#64748B" }}>{lc.type}</div>
           {lc.location && (
-            <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>📍 {lc.location}</div>
+            <div style={{ fontSize: 12, color: "#64748B", marginTop: 2, display:"flex", alignItems:"center", gap:3 }}><Icon name="map-pin" size={12} style={{flexShrink:0}} />{lc.location}</div>
           )}
         </div>
         <HeartButton userId={user?.id} targetUserId={lc.user_id} profileSnap={{ user_id: lc.user_id, role: "lender", name: lc.name, type: lc.type, avatar_url: lc.avatar_url, location: lc.location }} />
@@ -5467,7 +5497,7 @@ function LenderCard({ lc, user, setPage, settings, onViewProfile, viewerProfile 
         if (cp.score >= 50) return null;
         return (
           <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#991B1B", background: "#FEE2E2", border: "0.5px solid #FCA5A5", borderRadius: 8, padding: "5px 10px" }}>
-            ⚠ Profile incomplete
+            Profile incomplete
           </div>
         );
       })()}
@@ -5682,7 +5712,7 @@ function SearchPage({ user, setPage, onViewProfile, viewerRoleProfile }) {
       {/* Build Calculator nudge */}
       {dismissCalcNudge ? (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 14px", background: "#F8FAFC", border: "0.5px solid #E2E8F0", borderRadius: 8, marginBottom: "1rem" }}>
-        <span style={{ fontSize: 12, color: "#64748B" }}>🧮 Build Calculator</span>
+        <span style={{ fontSize: 12, color: "#64748B", display:"inline-flex", alignItems:"center", gap:4 }}><Icon name="calculator" size={12} /> Build Calculator</span>
         <button onClick={() => { setDismissCalcNudge(false); try { localStorage.removeItem("lb_dismiss_calc_nudge"); } catch {} }} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 3, padding: "2px 6px", fontWeight: 500 }}>
           Show <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
         </button>
@@ -5695,7 +5725,7 @@ function SearchPage({ user, setPage, onViewProfile, viewerRoleProfile }) {
           </button>
         </div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 13, color: "#1E3A5F" }}>🧮 Not sure how much to ask for? Use our build calculator</span>
+          <span style={{ fontSize: 13, color: "#1E3A5F" }}>Not sure how much to ask for? Use our build calculator</span>
           <button onClick={() => setPage("build-calculator")} style={{ padding: "7px 16px", background: "var(--accent,#3B82F6)", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>Build Calculator</button>
         </div>
       </div>
@@ -5816,7 +5846,7 @@ function SearchPage({ user, setPage, onViewProfile, viewerRoleProfile }) {
           </div>
           {user && allCards.length > 0 && (
             <button onClick={() => setSaveSearchModal(true)} style={{ padding: "6px 12px", background: "#EBF2FF", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 500, color: "#1E3A5F", cursor: "pointer" }}>
-              🔍 Save this search
+              Save this search
             </button>
           )}
           {saveSearchMsg && <span style={{ fontSize: 12, color: "#16A34A" }}>{saveSearchMsg}</span>}
@@ -5826,14 +5856,14 @@ function SearchPage({ user, setPage, onViewProfile, viewerRoleProfile }) {
 
       {!loadingReal && allCards.length === 0 && realCards.length === 0 ? (
         <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
-          <div style={{ fontSize: 32, marginBottom: 16 }}>💼</div>
+          <div style={{ marginBottom: 16, color: "var(--accent)" }}><Icon name="briefcase" size={32} /></div>
           <div style={{ fontSize: 16, fontWeight: 600, color: "#1E3A5F", marginBottom: 8 }}>No lenders in your area yet</div>
           <div style={{ fontSize: 14 }}>Be the first lender in your area — set up your profile</div>
           {user && <button onClick={() => setPage("profile-setup")} style={{ marginTop: 20, background: "#2E5FA3", color: "#fff", border: "none", padding: "10px 22px", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Set up your lender profile</button>}
         </div>
       ) : !loadingReal && allCards.length === 0 ? (
         <div style={{ textAlign: "center", padding: "3rem 2rem", color: "#64748B" }}>
-          <div style={{ fontSize: 24, marginBottom: 12 }}>🔍</div>
+          <div style={{ marginBottom: 12, color: "var(--text-muted,#64748B)" }}><Icon name="search" size={24} /></div>
           <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>No lenders match these filters</div>
           <div style={{ fontSize: 13 }}>Try adjusting your filters above.</div>
         </div>
@@ -5976,7 +6006,7 @@ function BuilderCard({ builder, user, setPage, onMessage, onViewProfile, viewerP
         <HeartButton userId={user?.id} targetUserId={builder.user_id} profileSnap={{ user_id: builder.user_id, role: "builder", name: builder.name, type: builder.type, avatar_url: builder.avatar_url, location: builder.location }} />
       </div>
       {builder.location && (
-        <div style={{ fontSize: 12, color: "#666", marginBottom: 10 }}>📍 {builder.location}</div>
+        <div style={{ fontSize: 12, color: "#666", marginBottom: 10 }}><Icon name="map-pin" size={12} style={{marginRight:3,flexShrink:0}} />{builder.location}</div>
       )}
       <div style={{ fontSize: 13 }}>
         {[
@@ -6008,7 +6038,7 @@ function BuilderCard({ builder, user, setPage, onMessage, onViewProfile, viewerP
         if (cp.score >= 50) return null;
         return (
           <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#991B1B", background: "#FEE2E2", border: "0.5px solid #FCA5A5", borderRadius: 8, padding: "5px 10px" }}>
-            ⚠ Profile incomplete
+            Profile incomplete
           </div>
         );
       })()}
@@ -6180,7 +6210,7 @@ function FindBuilderPage({ user, setPage, onMessage, onViewProfile, viewerRolePr
       {/* Returns Calculator nudge */}
       {dismissReturnsNudge ? (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 14px", background: "#F8FAFC", border: "0.5px solid #E2E8F0", borderRadius: 8, marginBottom: "1rem" }}>
-        <span style={{ fontSize: 12, color: "#64748B" }}>🧮 Returns Calculator</span>
+        <span style={{ fontSize: 12, color: "#64748B", display:"inline-flex", alignItems:"center", gap:4 }}><Icon name="calculator" size={12} /> Returns Calculator</span>
         <button onClick={() => { setDismissReturnsNudge(false); try { localStorage.removeItem("lb_dismiss_returns_nudge"); } catch {} }} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 3, padding: "2px 6px", fontWeight: 500 }}>
           Show <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
         </button>
@@ -6193,7 +6223,7 @@ function FindBuilderPage({ user, setPage, onMessage, onViewProfile, viewerRolePr
           </button>
         </div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 13, color: "#1E3A5F" }}>🧮 Calculate your potential returns before you invest</span>
+          <span style={{ fontSize: 13, color: "#1E3A5F" }}>Calculate your potential returns before you invest</span>
           <button onClick={() => setPage("build-calculator")} style={{ padding: "7px 16px", background: "var(--accent,#3B82F6)", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>Returns Calculator</button>
         </div>
       </div>
@@ -6314,14 +6344,14 @@ function FindBuilderPage({ user, setPage, onMessage, onViewProfile, viewerRolePr
 
       {!loadingReal && realCards.length === 0 ? (
         <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
-          <div style={{ fontSize: 32, marginBottom: 16 }}>🔨</div>
+          <div style={{ marginBottom: 16, color: "var(--accent)" }}><Icon name="hammer" size={32} /></div>
           <div style={{ fontSize: 16, fontWeight: 600, color: "#1E3A5F", marginBottom: 8 }}>No builders here yet</div>
           <div style={{ fontSize: 14 }}>Post your project and get matched today</div>
           {user && <button onClick={() => setPage("profile-setup")} style={{ marginTop: 20, background: "#3B82F6", color: "#fff", border: "none", padding: "10px 22px", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Set up your builder profile</button>}
         </div>
       ) : !loadingReal && allFiltered.length === 0 ? (
         <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
-          <div style={{ fontSize: 24, marginBottom: 12 }}>🔍</div>
+          <div style={{ marginBottom: 12, color: "var(--text-muted,#64748B)" }}><Icon name="search" size={24} /></div>
           <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>No builders match these filters</div>
           <div style={{ fontSize: 13 }}>Try adjusting your filters above.</div>
         </div>
@@ -6423,7 +6453,7 @@ function LeaderboardPage({ onViewProfile, onViewBuilderProfile }) {
           </div>
           {sortedLenders.length === 0 ? (
             <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
-              <div style={{ fontSize: 32, marginBottom: 16 }}>🏆</div>
+              <div style={{ marginBottom: 16, color: "var(--accent)" }}><Icon name="trophy" size={32} /></div>
               <div style={{ fontSize: 16, fontWeight: 600, color: "#1E3A5F", marginBottom: 8 }}>Leaderboard will populate as deals complete</div>
               <div style={{ fontSize: 14 }}>Be the first lender to complete a deal and claim the top spot.</div>
             </div>
@@ -6473,7 +6503,7 @@ function LeaderboardPage({ onViewProfile, onViewBuilderProfile }) {
           </div>
           {sortedBuilders.length === 0 ? (
             <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
-              <div style={{ fontSize: 32, marginBottom: 16 }}>🏆</div>
+              <div style={{ marginBottom: 16, color: "var(--accent)" }}><Icon name="trophy" size={32} /></div>
               <div style={{ fontSize: 16, fontWeight: 600, color: "#1E3A5F", marginBottom: 8 }}>Leaderboard will populate as deals complete</div>
               <div style={{ fontSize: 14 }}>Be the first builder to complete a project and claim the top spot.</div>
             </div>
@@ -6926,7 +6956,7 @@ function LenderDashboard({ user, setPage }) {
         <>
           {pending.length === 0 && actioned.length === 0 && (
             <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
-              <div style={{ fontSize: 32, marginBottom: 12 }}>📬</div>
+              <div style={{ marginBottom: 12, color: "var(--accent)" }}><Icon name="inbox" size={32} /></div>
               <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>No requests yet</div>
               <div style={{ fontSize: 13 }}>When builders send you a connection request it will appear here.</div>
             </div>
@@ -7079,7 +7109,7 @@ function SearchById({ setPage, onViewProfile, onViewBuilderProfile }) {
               <RoleBadge userRole={result.user_role} authRole={result.role} />
               <span style={{ fontSize: 11, color: "#aaa" }}>{fmtId(result.sequential_id)}</span>
             </div>
-            {result.location && <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>📍 {result.location}</div>}
+            {result.location && <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}><Icon name="map-pin" size={12} style={{marginRight:3,flexShrink:0}} />{result.location}</div>}
           </div>
           <button
             onClick={() => {
@@ -7510,7 +7540,7 @@ function AdminPage({ user }) {
                   onClick={() => handleSetRole(u.id, "verified_pro")}
                   style={{ fontSize: 12, padding: "5px 12px", borderRadius: 8, border: "0.5px solid #B45309", background: "#FEF3C7", color: "#B45309", cursor: "pointer", minHeight: 36 }}
                 >
-                  ✦ Grant Verified Pro
+                  Grant Verified Pro
                 </button>
               )}
             </div>
@@ -8049,7 +8079,7 @@ function AdminPage({ user }) {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 500 }}>
-                      {k.result === "flagged_sanctions" ? "⚠️ Sanctions match" : k.result === "warn_disposable" ? "⚠️ Disposable email" : "✓ Pass"}
+                      {k.result === "flagged_sanctions" ? "Sanctions match" : k.result === "warn_disposable" ? "Disposable email" : "✓ Pass"}
                     </div>
                     <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>
                       User: {k.user_id?.slice(0, 8)}…
@@ -8648,7 +8678,7 @@ function PostDetailPage({ post: initialPost, user, setPage, onMessage, onBack, o
           onClick={handleLike}
           style={{ ...btnBase, background: liked ? "#FEF2F2" : "#F8FAFC", color: liked ? "#DC2626" : "#64748B", border: liked ? "0.5px solid #FECACA" : "0.5px solid #e0e0e0", fontWeight: liked ? 600 : 500 }}
         >
-          {liked ? "♥" : "♡"} {likeCount > 0 ? likeCount : "Like"}
+          {liked ? <><Icon name="heart-fill" size={14} style={{color:"#DC2626",marginRight:3}} /></> : <><Icon name="heart" size={14} style={{marginRight:3}} /></>}{likeCount > 0 ? likeCount : "Like"}
         </button>
 
         {/* Share */}
@@ -9029,7 +9059,7 @@ function PostsFeedPage({ user, setPage }) {
 
       {!loading && !error && sorted.length === 0 && (
         <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>📝</div>
+          <div style={{ marginBottom: 12, color: "var(--accent)" }}><Icon name="edit" size={32} /></div>
           <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 8 }}>
             {hasActiveFilters ? "No posts match your filters" : "No posts yet"}
           </div>
@@ -9334,7 +9364,7 @@ function MyPostsPage({ user, setPage }) {
 
       {!loading && !error && posts.length === 0 && (
         <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>📝</div>
+          <div style={{ marginBottom: 12, color: "var(--accent)" }}><Icon name="edit" size={32} /></div>
           <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>No posts yet</div>
           <div style={{ fontSize: 13, marginBottom: "1.5rem" }}>Share what you're looking for with the community.</div>
           <button
@@ -9472,16 +9502,16 @@ function LenderProfilePage({ lc, user, setPage, settings, onBack, onMessage, vie
                 </span>
               )}
               {lc.identity_verified && (
-                <span title="Identity verified via Stripe Identity" style={{ fontSize: 11, fontWeight: 600, padding: "2px 9px", borderRadius: 20, background: "#D97706", color: "#fff", flexShrink: 0 }}>
-                  🪪 ID Verified
+                <span title="Identity verified via Stripe Identity" style={{ fontSize: 11, fontWeight: 600, padding: "2px 9px", borderRadius: 20, background: "#D97706", color: "#fff", flexShrink: 0, display:"inline-flex", alignItems:"center", gap:3 }}>
+                  <Icon name="id-card" size={11} /> ID Verified
                 </span>
               )}
             </div>
             {lc.sequential_id && <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>{fmtId(lc.sequential_id)}</div>}
             <div style={{ fontSize: 14, color: "#64748B", marginTop: 3 }}>{lc.type}</div>
             {lc.location && (
-              <div style={{ fontSize: 13, color: "#666", marginTop: 5 }}>
-                📍 {lc.location}
+              <div style={{ fontSize: 13, color: "#666", marginTop: 5, display:"flex", alignItems:"center", gap:3 }}>
+                <Icon name="map-pin" size={12} style={{flexShrink:0}} />{lc.location}
               </div>
             )}
             {(() => {
@@ -9693,22 +9723,22 @@ function BuilderProfilePage({ builder, user, setPage, onBack, onMessage, viewerR
               )}
               {builder.company_verified && (
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-                  <span title={builder.company_name ? `Registered business: ${builder.company_name}` : "Verified with Companies House"} style={{ fontSize: 11, fontWeight: 600, padding: "2px 9px", borderRadius: 20, background: "#1E3A5F", color: "#fff", flexShrink: 0, cursor: "help" }}>
-                    🏢 Companies House Verified
+                  <span title={builder.company_name ? `Registered business: ${builder.company_name}` : "Verified with Companies House"} style={{ fontSize: 11, fontWeight: 600, padding: "2px 9px", borderRadius: 20, background: "#1E3A5F", color: "#fff", flexShrink: 0, cursor: "help", display:"inline-flex", alignItems:"center", gap:3 }}>
+                    <Icon name="building" size={11} /> Companies House Verified
                   </span>
                   <HelpTooltip text="This builder's company has been confirmed as active on the UK Companies House register." />
                 </span>
               )}
               {builder.identity_verified && (
-                <span title="Identity verified via Stripe Identity" style={{ fontSize: 11, fontWeight: 600, padding: "2px 9px", borderRadius: 20, background: "#D97706", color: "#fff", flexShrink: 0 }}>
-                  🪪 ID Verified
+                <span title="Identity verified via Stripe Identity" style={{ fontSize: 11, fontWeight: 600, padding: "2px 9px", borderRadius: 20, background: "#D97706", color: "#fff", flexShrink: 0, display:"inline-flex", alignItems:"center", gap:3 }}>
+                  <Icon name="id-card" size={11} /> ID Verified
                 </span>
               )}
             </div>
             {builder.sequential_id && <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>{fmtId(builder.sequential_id)}</div>}
             <div style={{ fontSize: 14, color: "#64748B", marginTop: 3 }}>{builder.type}</div>
             {builder.location && (
-              <div style={{ fontSize: 13, color: "#666", marginTop: 5 }}>📍 {builder.location}</div>
+              <div style={{ fontSize: 13, color: "#666", marginTop: 5 }}><Icon name="map-pin" size={12} style={{marginRight:3,flexShrink:0}} />{builder.location}</div>
             )}
             {(() => {
               if (!viewerRoleProfile || user?.user_metadata?.role !== "lender") return null;
@@ -10201,7 +10231,7 @@ function MessagesPage({ user, initialConversationId, setPage, onViewProfile, onV
               <div>{[0,1,2,3].map(i => <SkeletonConversationRow key={i} />)}</div>
             ) : conversations.length === 0 ? (
               <div style={{ padding: "2.5rem 1.5rem", textAlign: "center" }}>
-                <div style={{ fontSize: 36, marginBottom: 10 }}>💬</div>
+                <div style={{ marginBottom: 10, color: "var(--accent)" }}><Icon name="message" size={36} /></div>
                 <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>No conversations yet</div>
                 <div style={{ fontSize: 13, color: "#64748B", lineHeight: 1.55, marginBottom: 16 }}>
                   Find someone to connect with and start a conversation.
@@ -10252,7 +10282,7 @@ function MessagesPage({ user, initialConversationId, setPage, onViewProfile, onV
           <div style={{ flex: 1, background: "#fff", border: isMobile ? "none" : "0.5px solid #e0e0e0", borderRadius: isMobile ? 0 : 12, overflow: "hidden", display: "flex", flexDirection: "column" }}>
             {!selectedConvo ? (
               <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: "#bbb" }}>
-                <div style={{ fontSize: 38 }}>💬</div>
+                <div style={{ color: "var(--accent)" }}><Icon name="message" size={38} /></div>
                 <div style={{ fontSize: 14 }}>Select a conversation</div>
               </div>
             ) : (
@@ -10293,7 +10323,7 @@ function MessagesPage({ user, initialConversationId, setPage, onViewProfile, onV
                 <div style={{ flex: 1, overflowY: "auto", padding: "1rem", display: "flex", flexDirection: "column", gap: 8 }}>
                   {selectedConvo && !dismissedNotices.includes(selectedConvo.id) && (
                     <div style={{ background: "#EFF6FF", border: "0.5px solid #BFDBFE", borderRadius: 10, padding: "10px 14px", fontSize: 13, color: "#1E40AF", lineHeight: 1.55, display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 4 }}>
-                      <span style={{ flexShrink: 0 }}>🔒</span>
+                      <Icon name="lock" size={13} className="lb-icon" style={{opacity:0.6}} />
                       <span style={{ flex: 1 }}>You are now connected. You can share contact details privately but we recommend keeping deal agreements and payments on the platform for your protection.</span>
                       <button onClick={() => { const next = [...dismissedNotices, selectedConvo.id]; localStorage.setItem("lb_pm_dismissed_notices", JSON.stringify(next)); setDismissedNotices(next); }}
                         style={{ background: "none", border: "none", cursor: "pointer", color: "#93C5FD", fontSize: 16, lineHeight: 1, padding: 0, flexShrink: 0 }}>✕</button>
@@ -10313,7 +10343,7 @@ function MessagesPage({ user, initialConversationId, setPage, onViewProfile, onV
                             {/* Scheduled badge */}
                             {isScheduled && (
                               <div style={{ fontSize: 10, color: "#92400E", background: "#FEF3C7", border: "0.5px solid #FCD34D", borderRadius: 6, padding: "2px 7px", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>
-                                🕐 Scheduled for {fmtScheduled(msg.scheduled_at)}
+                                <Icon name="clock" size={12} style={{marginRight:3,verticalAlign:"middle"}} />Scheduled for {fmtScheduled(msg.scheduled_at)}
                                 <button onClick={() => handleCancelScheduled(msg.id)}
                                   style={{ background: "none", border: "none", cursor: "pointer", color: "#92400E", fontSize: 10, padding: "0 2px", marginLeft: 4 }}>✕ Cancel</button>
                               </div>
@@ -10385,7 +10415,7 @@ function MessagesPage({ user, initialConversationId, setPage, onViewProfile, onV
                 {/* Schedule picker */}
                 {schedulePickerOpen && (
                   <div style={{ padding: "8px 14px", borderTop: "0.5px solid #f0f0f0", background: "#FEFCE8", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 12, color: "#92400E", fontWeight: 500 }}>🕐 Schedule for:</span>
+                    <span style={{ fontSize: 12, color: "#92400E", fontWeight: 500 }}><Icon name="clock" size={12} style={{marginRight:3,verticalAlign:"middle"}} />Schedule for:</span>
                     <input type="datetime-local" min={minDateTime} value={scheduledAt}
                       onChange={e => setScheduledAt(e.target.value)}
                       style={{ flex: 1, minWidth: 180, height: 34, border: "0.5px solid #FCD34D", borderRadius: 7, padding: "0 8px", fontSize: 12, background: "#fff" }} />
@@ -10524,7 +10554,7 @@ function MessageBubble({ msg, myId, onReport, reported }) {
                 <div style={{ position: "absolute", right: 0, top: "calc(100% + 2px)", background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.10)", zIndex: 200, minWidth: 180, overflow: "hidden" }}>
                   {!subOpen ? (
                     <button onClick={() => setSubOpen(true)} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", fontSize: 13, color: "#D85A30", background: "none", border: "none", cursor: "pointer" }}>
-                      🚩 Report message
+                      Report message
                     </button>
                   ) : (
                     <>
@@ -10559,7 +10589,7 @@ function ScamWarningModal({ onClose }) {
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
       <div style={{ background: "#fff", borderRadius: 16, maxWidth: 440, width: "100%", padding: "1.75rem", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "1rem" }}>
-          <span style={{ fontSize: 28 }}>🛡️</span>
+          <Icon name="shield" size={28} className="lb-icon" />
           <h2 style={{ fontSize: 18, fontWeight: 600, margin: 0, color: "#1E3A5F" }}>Stay safe in community chat</h2>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: "1.5rem" }}>
@@ -10688,7 +10718,7 @@ function CommunityPostCard({ post, user, onView, onLike, isOwn, onEdit, onDelete
             onMouseLeave={e => e.currentTarget.style.background = "none"}
           >
             <span style={{ fontSize: 17, display: "inline-block", transform: animating ? "scale(1.5)" : "scale(1)", transition: "transform 0.35s cubic-bezier(0.34,1.56,0.64,1)" }}>
-              {liked ? "❤️" : "🤍"}
+              {liked ? <Icon name="heart-fill" size={14} style={{color:"#DC2626"}} /> : <Icon name="heart" size={14} />}
             </span>
             <span style={{ fontSize: 13, fontWeight: 600 }}>{likeCount}</span>
           </button>
@@ -10882,7 +10912,7 @@ function PostsSection({ user, setPage, onMessage }) {
 
       {!loading && !error && sorted.length === 0 && (
         <div style={{ textAlign: "center", padding: "3rem 2rem", color: "#64748B" }}>
-          <div style={{ fontSize: 36, marginBottom: 12 }}>📝</div>
+          <div style={{ marginBottom: 12, color: "var(--accent)" }}><Icon name="edit" size={36} /></div>
           <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 8 }}>
             {showMine ? "You haven't posted yet" : catFilter !== "all" ? "No posts in this category yet" : "No posts yet"}
           </div>
@@ -10981,14 +11011,14 @@ function CommunityPage({ user, setPage, onMessage }) {
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {[
-            { page: "community-groups", emoji: "👥", title: "Groups", desc: "Join local area groups and connect with others" },
-            { page: "community-chat", emoji: "💬", title: "Chat", desc: "Live chat with builders and lenders" },
+            { page: "community-groups", icon: "users", title: "Groups", desc: "Join local area groups and connect with others" },
+            { page: "community-chat", icon: "message", title: "Chat", desc: "Live chat with builders and lenders" },
           ].map(item => (
             <button key={item.page} onClick={() => setPage(item.page)}
               style={{ display: "flex", alignItems: "center", gap: 16, background: "#fff", border: "0.5px solid #e5e7eb", borderRadius: 14, padding: "18px 20px", cursor: "pointer", textAlign: "left", boxShadow: "0 2px 8px rgba(0,0,0,0.05)", transition: "box-shadow 0.15s" }}
               onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.1)"}
               onMouseLeave={e => e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.05)"}>
-              <div style={{ width: 50, height: 50, borderRadius: 14, background: "#EBF2FF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 }}>{item.emoji}</div>
+              <div style={{ width: 50, height: 50, borderRadius: 14, background: "var(--accent-bg,#EBF2FF)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "var(--accent,#3B82F6)" }}><Icon name={item.icon} size={24} /></div>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: "#1E3A5F", marginBottom: 3 }}>{item.title}</div>
                 <div style={{ fontSize: 13, color: "#64748B" }}>{item.desc}</div>
@@ -11164,7 +11194,7 @@ function CommunityChatSection({ user, setPage }) {
       {!dismissSafety && (
         <div style={{ background: "#EBF5FF", border: "0.5px solid #BFDBFE", borderRadius: 10, padding: "10px 14px", margin: "12px 16px 0", display: "flex", gap: 10, alignItems: "flex-start", position: "relative" }}>
           <button onClick={() => { setDismissSafety(true); try { localStorage.setItem("lb_dismiss_community_safety", "1"); } catch {} }} aria-label="Dismiss" style={{ position: "absolute", top: 6, right: 6, width: 20, height: 20, borderRadius: "50%", background: "#E5E7EB", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#374151", lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
-          <span style={{ fontSize: 16, flexShrink: 0 }}>🛡️</span>
+          <Icon name="shield" size={16} className="lb-icon" />
           <p style={{ margin: 0, fontSize: 13, color: "#1E3A5F", lineHeight: 1.55, paddingRight: 20 }}>
             <strong>For your protection:</strong> never share personal financial details in public chat. Always verify identities before connecting.
           </p>
@@ -11205,7 +11235,7 @@ function CommunityChatSection({ user, setPage }) {
             <div style={{ textAlign: "center", color: "#aaa", padding: "2rem", fontSize: 14 }}>Loading…</div>
           ) : messages.length === 0 ? (
             <div style={{ textAlign: "center", padding: "3rem" }}>
-              <div style={{ fontSize: 32, marginBottom: 8 }}>💬</div>
+              <div style={{ marginBottom: 8, color: "var(--accent)" }}><Icon name="message" size={32} /></div>
               <div style={{ fontSize: 14, color: "#64748B" }}>No messages yet — start the conversation!</div>
             </div>
           ) : (
@@ -11481,7 +11511,7 @@ function GroupsTab({ user, setPage }) {
               <input type="checkbox" checked={createForm.is_private}
                 onChange={e => setCreateForm(f => ({ ...f, is_private: e.target.checked }))}
                 style={{ width: 16, height: 16, cursor: "pointer", accentColor: "#3B82F6" }} />
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F" }}>🔒 Private group</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F", display:"inline-flex", alignItems:"center", gap:4 }}><Icon name="lock" size={13} /> Private group</span>
             </label>
             {createForm.is_private && (
               <p style={{ fontSize: 12, color: "#64748B", margin: "6px 0 0 26px" }}>
@@ -11587,7 +11617,7 @@ function GroupsTab({ user, setPage }) {
           {user && suggestions.length > 0 && (
             <div style={{ marginBottom: "1.5rem" }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#6D28D9", letterSpacing: "0.05em", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                <span>✨</span> YOU MIGHT LIKE THESE GROUPS
+                YOU MIGHT LIKE THESE GROUPS
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {suggestions.map(g => (
@@ -11613,7 +11643,7 @@ function GroupsTab({ user, setPage }) {
             </div>
           ) : (
             <div style={{ textAlign: "center", padding: "3rem 1rem", background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12 }}>
-              <div style={{ fontSize: 36, marginBottom: 8 }}>👥</div>
+              <div style={{ marginBottom: 8, color: "var(--accent)" }}><Icon name="users" size={36} /></div>
               <div style={{ fontSize: 15, fontWeight: 500, color: "#1E3A5F", marginBottom: 6 }}>
                 {regionFilter === "All UK" ? "No groups yet" : `No groups in ${regionFilter} yet`}
               </div>
@@ -11661,8 +11691,8 @@ function GroupCard({ group, isMember, isOwner, onOpen, onJoin, onLeave }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
           <span style={{ fontSize: 15, fontWeight: 700, color: "#1E3A5F" }}>{group.name}</span>
-          {group.is_private && <span title="Private — invite only" style={{ fontSize: 11 }}>🔒</span>}
-          {isOwner && <span title="You created this" style={{ fontSize: 12 }}>👑</span>}
+          {group.is_private && <Icon name="lock" size={11} style={{color:"#64748B"}} />}
+          {isOwner && <Icon name="crown" size={12} style={{color:"#D97706"}} />}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, flexWrap: "wrap" }}>
           <span style={{ fontSize: 11, background: rc.bg, color: rc.text, padding: "2px 8px", borderRadius: 20, fontWeight: 600 }}>{group.region}</span>
@@ -11994,7 +12024,7 @@ function GroupChatRoom({ group: initialGroup, user, setPage, myMemberships, onBa
                 <div key={m.user_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "0.5px solid #f0f0f0" }}>
                   <Avatar initials={nameInitials(m.name)} color={pickColor(m.user_id)} size={36} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F" }}>{m.name} {isOwnerMember ? "👑" : ""} {m.is_moderator ? <span style={{ fontSize: 11, background: "#DBEAFE", color: "#1D4ED8", padding: "1px 6px", borderRadius: 20 }}>Mod</span> : ""}</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#1E3A5F" }}>{m.name} {isOwnerMember ? <Icon name="crown" size={12} style={{color:"#D97706",marginLeft:3}} /> : null} {m.is_moderator ? <span style={{ fontSize: 11, background: "#DBEAFE", color: "#1D4ED8", padding: "1px 6px", borderRadius: 20 }}>Mod</span> : ""}</div>
                     <div style={{ fontSize: 12, color: "#64748B" }}>{m.role || "member"}{m.muted ? " · Muted" : ""}{m.removed ? " · Removed" : ""}</div>
                   </div>
                   {isCreator && !isOwn && !isOwnerMember && (
@@ -12091,13 +12121,13 @@ function GroupChatRoom({ group: initialGroup, user, setPage, myMemberships, onBa
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 2 }}>
             <h3 style={{ fontSize: 18, fontWeight: 600, margin: 0, color: "#1E3A5F" }}>{group.name}</h3>
-            {group.is_private && <span title="Private group" style={{ fontSize: 15 }}>🔒</span>}
-            {isCreator && <span title="You created this group" style={{ fontSize: 16 }}>👑</span>}
+            {group.is_private && <Icon name="lock" size={14} style={{color:"#64748B"}} />}
+            {isCreator && <Icon name="crown" size={14} style={{color:"#D97706"}} />}
           </div>
           {group.description && <p style={{ fontSize: 13, color: "#64748B", margin: "0 0 4px" }}>{group.description}</p>}
           <div style={{ fontSize: 12, color: "#94A3B8", display: "flex", flexWrap: "wrap", gap: "3px 10px", alignItems: "center" }}>
-            <span>📍 {group.region}</span>
-            <span>👥 {group.member_count || 0} {group.member_count === 1 ? "member" : "members"}</span>
+            <span><Icon name="map-pin" size={12} style={{marginRight:3,flexShrink:0}} />{group.region}</span>
+            <span>{group.member_count || 0} {group.member_count === 1 ? "member" : "members"}</span>
             <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22C55E", display: "inline-block", flexShrink: 0 }} />
               <span style={{ color: "#22C55E", fontWeight: 600 }}>{onlineCount} online</span>
@@ -12108,7 +12138,7 @@ function GroupChatRoom({ group: initialGroup, user, setPage, myMemberships, onBa
           {(isCreator || isModerator) && isMember && (
             <button onClick={() => { setShowSettings(true); setSettingsTab("members"); loadMembers(); }}
               style={{ padding: "7px 12px", borderRadius: 8, border: "0.5px solid #e0e0e0", fontSize: 13, fontWeight: 500, background: "#fff", color: "#64748B", cursor: "pointer" }}>
-              ⚙️ Settings
+              Settings
             </button>
           )}
           {user && !isCreator && (
@@ -12167,7 +12197,7 @@ function GroupChatRoom({ group: initialGroup, user, setPage, myMemberships, onBa
       {/* Pinned message banner */}
       {group.pinned_message_content && (
         <div style={{ background: "#EFF6FF", border: "0.5px solid #BFDBFE", borderRadius: 10, padding: "10px 14px", marginBottom: "0.75rem", display: "flex", alignItems: "flex-start", gap: 8 }}>
-          <span style={{ fontSize: 14, flexShrink: 0 }}>📌</span>
+          <Icon name="map-pin" size={14} style={{color:"#1D4ED8"}} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 11, color: "#64748B", marginBottom: 2 }}>Pinned by {group.pinned_message_author || "moderator"}</div>
             <div style={{ fontSize: 13, color: "#1E3A5F", lineHeight: 1.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{group.pinned_message_content}</div>
@@ -12235,7 +12265,7 @@ function GroupChatRoom({ group: initialGroup, user, setPage, myMemberships, onBa
             <div style={{ textAlign: "center", color: "#aaa", padding: "2rem", fontSize: 14 }}>Loading…</div>
           ) : messages.length === 0 ? (
             <div style={{ textAlign: "center", padding: "3rem" }}>
-              <div style={{ fontSize: 32, marginBottom: 8 }}>💬</div>
+              <div style={{ marginBottom: 8, color: "var(--accent)" }}><Icon name="message" size={32} /></div>
               <div style={{ fontSize: 14, color: "#64748B" }}>No messages yet — start the conversation!</div>
             </div>
           ) : (
@@ -12302,7 +12332,7 @@ function InviteCodePanel({ inviteCode, groupName }) {
 
   return (
     <div style={{ background: "#EFF6FF", border: "0.5px solid #BFDBFE", borderRadius: 10, padding: "12px 16px", marginBottom: "0.75rem" }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: "#1D4ED8", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>🔒 Private group — invite code</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#1D4ED8", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em", display:"flex", alignItems:"center", gap:4 }}><Icon name="lock" size={12} />Private group — invite code</div>
       <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, letterSpacing: "0.15em", color: "#1E3A5F", background: "#fff", border: "0.5px solid #BFDBFE", borderRadius: 8, padding: "8px 14px", textAlign: "center", marginBottom: 10 }}>
         {inviteCode}
       </div>
@@ -12376,10 +12406,10 @@ function GroupMessageBubble({ msg, myId, groupCreatorId, onReport, reported, isO
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 3 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: isOwn ? "#2E5FA3" : "#1E3A5F" }}>{msg.user_name || "User"}</span>
-          {isMsgCreator && <span title="Group creator" style={{ fontSize: 12 }}>👑</span>}
+          {isMsgCreator && <Icon name="crown" size={12} style={{color:"#D97706"}} />}
           <RoleBadge authRole={msg.user_role} />
           {msg.sequential_id && <span style={{ fontSize: 11, color: "#94A3B8", fontFamily: "monospace" }}>{fmtId(msg.sequential_id)}</span>}
-          {msg.pinned && <span style={{ fontSize: 11, color: "#1D4ED8", background: "#DBEAFE", padding: "1px 6px", borderRadius: 10 }}>📌 pinned</span>}
+          {msg.pinned && <span style={{ fontSize: 11, color: "#1D4ED8", background: "#DBEAFE", padding: "1px 6px", borderRadius: 10, display:"inline-flex", alignItems:"center", gap:3 }}><Icon name="map-pin" size={10} />pinned</span>}
           <span style={{ fontSize: 11, color: "#aaa", marginLeft: "auto", flexShrink: 0 }}>{fmtTimeAgo(msg.created_at)}</span>
           {showDots && (
             <div ref={menuRef} style={{ position: "relative", flexShrink: 0 }}>
@@ -12395,17 +12425,17 @@ function GroupMessageBubble({ msg, myId, groupCreatorId, onReport, reported, isO
                         <>
                           <button onClick={() => { setMenuOpen(false); onDelete && onDelete(msg.id); }}
                             style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", fontSize: 13, color: "#DC2626", background: "none", border: "none", cursor: "pointer", borderBottom: "0.5px solid #f0f0f0" }}>
-                            🗑 Delete message
+                            Delete message
                           </button>
                           <button onClick={() => { setMenuOpen(false); onPin && onPin(msg); }}
                             style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", fontSize: 13, color: "#1D4ED8", background: "none", border: "none", cursor: "pointer", borderBottom: "0.5px solid #f0f0f0" }}>
-                            📌 Pin message
+                            Pin message
                           </button>
                         </>
                       )}
                       {!isOwn && (
                         <button onClick={() => setSubOpen(true)} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", fontSize: 13, color: "#D85A30", background: "none", border: "none", cursor: "pointer" }}>
-                          🚩 Report message
+                          Report message
                         </button>
                       )}
                     </>
@@ -12586,7 +12616,7 @@ function BrowseProjectsPage({ user, setPage }) {
         <div style={{ textAlign: "center", color: "#aaa", padding: "3rem", fontSize: 14 }}>Loading projects…</div>
       ) : otherListings.length === 0 ? (
         <div style={{ textAlign: "center", padding: "3rem" }}>
-          <div style={{ fontSize: 36, marginBottom: 10 }}>🏗️</div>
+          <div style={{ marginBottom: 10, color: "var(--accent)" }}><Icon name="hard-hat" size={36} /></div>
           <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>No projects yet</div>
           <div style={{ fontSize: 13, color: "#64748B" }}>
             {role === "builder"
@@ -12769,8 +12799,8 @@ function ProjectListingCard({ listing, user, isOwn, interestStatus, onExpressInt
           )}
         </div>
       ) : (
-        <div style={{ height: 90, background: cardHeaderBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, flexShrink: 0, position: "relative" }}>
-          🏗️
+        <div style={{ height: 90, background: cardHeaderBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, position: "relative" }}>
+          <Icon name="hard-hat" size={32} style={{color:"rgba(255,255,255,0.5)"}} />
           <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 4 }}>
             {isSyndicate && (
               <span style={{ background: "#1D4ED8", color: "#fff", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20 }}>
@@ -12807,7 +12837,7 @@ function ProjectListingCard({ listing, user, isOwn, interestStatus, onExpressInt
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
           <Avatar initials={nameInitials(listing.builder_name)} color={pickColor(listing.user_id || "")} size={22} url={listing.builder_avatar_url} />
           <span style={{ fontSize: 12, color: "#64748B" }}>{listing.builder_name}</span>
-          {listing.location && <span style={{ fontSize: 12, color: "#aaa" }}>· 📍 {listing.location}</span>}
+          {listing.location && <span style={{ fontSize: 12, color: "#aaa" }}>· <Icon name="map-pin" size={12} style={{marginRight:3,flexShrink:0}} />{listing.location}</span>}
         </div>
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
@@ -13158,7 +13188,7 @@ function CreateProjectListingPage({ user, setPage }) {
     return (
       <div style={{ padding: "2rem 1.25rem", maxWidth: 560, margin: "0 auto" }}>
         <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 16, padding: "1.75rem", textAlign: "center" }}>
-          <div style={{ fontSize: 36, marginBottom: 12 }}>✅</div>
+          <div style={{ marginBottom: 12, color: "#16A34A" }}><Icon name="check-circle" size={36} /></div>
           <h2 style={{ fontSize: 20, fontWeight: 600, color: "#1E3A5F", marginBottom: 6 }}>Project listed!</h2>
           <p style={{ fontSize: 13, color: "#64748B", marginBottom: 20 }}>Here's your AI risk preview:</p>
           <div style={{ background: aiPreview.riskBg, border: `1px solid ${aiPreview.riskColor}30`, borderRadius: 12, padding: "1rem", marginBottom: 16, textAlign: "left" }}>
@@ -13641,7 +13671,7 @@ function DealRoomPage({ user, setPage, deal }) {
                 const { data: { publicUrl } } = supabase.storage.from("builder-documents").getPublicUrl(doc.file_path || "");
                 return (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "0.5px solid #f0f0f0" }}>
-                    <span style={{ fontSize: 16 }}>📄</span>
+                    <Icon name="file" size={16} className="lb-icon" />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 13, fontWeight: 500 }}>{doc.doc_type?.replace(/_/g, " ")}</div>
                       <span style={{ fontSize: 11, padding: "1px 7px", borderRadius: 20, background: doc.status === "approved" ? "#DCFCE7" : "#F1F5F9", color: doc.status === "approved" ? "#16A34A" : "#64748B" }}>{doc.status}</span>
@@ -13751,7 +13781,7 @@ function DealRoomPage({ user, setPage, deal }) {
       {/* ── Messages ── */}
       {activeTab === "messages" && (
         <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.5rem", textAlign: "center" }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>💬</div>
+          <div style={{ marginBottom: 12, color: "var(--accent)" }}><Icon name="message" size={32} /></div>
           <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 8 }}>Direct messages</div>
           <div style={{ fontSize: 13, color: "#64748B", marginBottom: 16 }}>Continue the conversation in the full messages thread.</div>
           <button onClick={() => setPage("messages")} style={{ padding: "10px 24px", background: "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
@@ -14005,7 +14035,7 @@ function BuildCostCalculatorPage({ setPage }) {
           </>
         ) : (
           <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "3rem", textAlign: "center", color: "#94A3B8" }}>
-            <div style={{ fontSize: 36, marginBottom: 12 }}>🏗️</div>
+            <div style={{ marginBottom: 12, color: "var(--accent)" }}><Icon name="hard-hat" size={36} /></div>
             <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6, color: "#374151" }}>Enter your project details above</div>
             <div style={{ fontSize: 13 }}>Fill in the project type, region, and floor area to see cost estimates, funding recommendations, and milestone breakdown.</div>
           </div>
@@ -14178,7 +14208,7 @@ function MarketPage({ setPage }) {
 
   const EmptyChartMsg = ({ msg }) => (
     <div style={{ height: 180, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#CBD5E1" }}>
-      <div style={{ fontSize: 28, marginBottom: 8 }}>📊</div>
+      <div style={{ marginBottom: 8, color: "var(--accent)" }}><Icon name="bar-chart" size={28} /></div>
       <div style={{ fontSize: 12 }}>{msg}</div>
     </div>
   );
@@ -14424,7 +14454,7 @@ function BuilderPassportPage({ sequential_id, user, setPage }) {
   const totalFunded = deals.length; // simplified
 
   if (loading) return <div style={{ textAlign: "center", padding: "4rem", color: "#aaa" }}>Loading builder passport…</div>;
-  if (!profile) return <div style={{ textAlign: "center", padding: "4rem" }}><div style={{ fontSize: 36, marginBottom: 12 }}>🔍</div><div style={{ fontSize: 15 }}>Builder not found</div></div>;
+  if (!profile) return <div style={{ textAlign: "center", padding: "4rem", color: "var(--text-muted,#64748B)" }}><div style={{ marginBottom: 12 }}><Icon name="search" size={36} /></div><div style={{ fontSize: 15 }}>Builder not found</div></div>;
 
   const credScore = computeCredibilityScore({ verified_documents: builderData?.verified_documents || [], props: builderData?.projects_completed || 0, reviews });
 
@@ -14435,7 +14465,7 @@ function BuilderPassportPage({ sequential_id, user, setPage }) {
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={() => { navigator.clipboard?.writeText(shareUrl); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
             style={{ padding: "7px 14px", background: "#f0f0f0", border: "none", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>
-            {copied ? "Copied!" : "📋 Share"}
+            {copied ? "Copied!" : "Share"}
           </button>
         </div>
       </div>
@@ -14450,7 +14480,7 @@ function BuilderPassportPage({ sequential_id, user, setPage }) {
           </CredibilityRing>
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 4px", color: "#1E3A5F" }}>{profile.full_name}</h1>
-            {profile.location && <div style={{ fontSize: 13, color: "#64748B", marginBottom: 6 }}>📍 {profile.location}</div>}
+            {profile.location && <div style={{ fontSize: 13, color: "#64748B", marginBottom: 6 }}><Icon name="map-pin" size={12} style={{marginRight:3,flexShrink:0}} />{profile.location}</div>}
             {builderData?.specialization && <div style={{ fontSize: 12, padding: "2px 8px", borderRadius: 20, background: "#EBF2FF", color: "#1E3A5F", display: "inline-block", marginBottom: 6 }}>{builderData.specialization}</div>}
             {profile.bio && <p style={{ fontSize: 13, color: "#64748B", lineHeight: 1.6, margin: 0 }}>{profile.bio}</p>}
           </div>
@@ -14563,7 +14593,7 @@ function SavedSearchesPage({ user, setPage }) {
         : searches.length === 0
           ? (
             <div style={{ textAlign: "center", padding: "3rem" }}>
-              <div style={{ fontSize: 36, marginBottom: 10 }}>🔍</div>
+              <div style={{ marginBottom: 10, color: "var(--text-muted,#64748B)" }}><Icon name="search" size={36} /></div>
               <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>No saved searches yet</div>
               <div style={{ fontSize: 13, color: "#64748B" }}>When you search for lenders or builders, save your filters to get alerts.</div>
             </div>
@@ -15047,7 +15077,7 @@ function DealsPage({ user, setPage, setCelebration }) {
       ) : deals.length === 0 ? (
         <div style={{ padding: "1.5rem 0" }}>
           <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
+            <div style={{ marginBottom: 12, color: "var(--accent)" }}><Icon name="clipboard" size={40} /></div>
             <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>No projects yet</div>
             <div style={{ fontSize: 13, color: "#64748B", lineHeight: 1.6 }}>
               {role === "lender"
@@ -15167,7 +15197,7 @@ function DealsPage({ user, setPage, setCelebration }) {
                   </div>
                   {nextRepayment && (
                     <div style={{ fontSize: 11, color: hasMissedRepayment ? "#B45309" : "#64748B", marginTop: 6 }}>
-                      {hasMissedRepayment ? "⚠ Missed repayment — " : "Next repayment: "}
+                      {hasMissedRepayment ? "Missed repayment — " : "Next repayment: "}
                       {fmt(nextRepayment.amount)} due {nextRepayment.due_date}
                     </div>
                   )}
@@ -15399,7 +15429,7 @@ function LegalResourcesPage({ setPage, user }) {
   const sections = [
     {
       title: "How to register a legal charge",
-      icon: "🏛️",
+      icon: "bank",
       content: [
         "1. Instruct a solicitor who specialises in property finance to prepare the legal charge document.",
         "2. Your solicitor drafts a deed of legal charge, which you and the builder must both sign.",
@@ -15412,7 +15442,7 @@ function LegalResourcesPage({ setPage, user }) {
     },
     {
       title: "Template letter of instruction to solicitors",
-      icon: "📄",
+      icon: "file",
       content: [],
       template: `Dear [Solicitor name],
 
@@ -15433,7 +15463,7 @@ Yours sincerely,
     },
     {
       title: "Find a property solicitor",
-      icon: "🔍",
+      icon: "search",
       content: [
         "The Law Society of England and Wales maintains a directory of regulated solicitors. Use their 'Find a solicitor' tool to search for specialists in property, conveyancing, and secured lending.",
       ],
@@ -15441,7 +15471,7 @@ Yours sincerely,
     },
     {
       title: "What happens if a builder defaults?",
-      icon: "⚠️",
+      icon: "warning",
       content: [
         "If the builder fails to repay and you hold a registered legal charge, you have legal rights over the property:",
         "1. Issue formal written notice demanding repayment, referencing your legal charge.",
@@ -15453,7 +15483,7 @@ Yours sincerely,
     },
     {
       title: "Raising a dispute",
-      icon: "🤝",
+      icon: "handshake",
       content: [
         "If you cannot resolve a payment issue directly with the builder, you can raise a formal dispute on LenderBuild. This freezes the deal and notifies both parties and our admin team.",
         "For unresolved disputes, consider contacting the Property Ombudsman, which provides an independent dispute resolution service for property transactions.",
@@ -15472,12 +15502,12 @@ Yours sincerely,
         Guidance on protecting your investment through legal charges, solicitor instructions, and what to do if something goes wrong.
       </p>
       <div style={{ background: "#FEF3C7", border: "0.5px solid #FDE68A", borderRadius: 10, padding: "14px 18px", marginBottom: "2rem", fontSize: 13, color: "#92400E", lineHeight: 1.6 }}>
-        ⚠️ This page is for general guidance only. LenderBuild is not authorised to provide legal or financial advice. Always consult a qualified solicitor before committing funds.
+        This page is for general guidance only. LenderBuild is not authorised to provide legal or financial advice. Always consult a qualified solicitor before committing funds.
       </div>
 
       {sections.map((s, i) => (
         <div key={i} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.5rem", marginBottom: 14 }}>
-          <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 12 }}>{s.icon} {s.title}</div>
+          <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 12, display:"flex", alignItems:"center", gap: 8 }}><Icon name={s.icon} size={18} className="lb-icon" />{s.title}</div>
           {s.content.length > 0 && (
             <div style={{ fontSize: 14, color: "#374151", lineHeight: 1.75, marginBottom: s.link || s.template ? 14 : 0 }}>
               {s.content.map((line, j) => <p key={j} style={{ margin: "0 0 6px" }}>{line}</p>)}
@@ -15844,7 +15874,7 @@ ${initialDeal.agreement_signed_lender_at ? `Signed electronically ${new Date(ini
 <strong>Builder: ${initialDeal.builder_name}</strong><br>
 ${initialDeal.agreement_signed_builder_at ? `Signed electronically ${new Date(initialDeal.agreement_signed_builder_at).toLocaleDateString("en-GB")}` : "Signature / Date"}</div>
 </div>
-<p class="warn">⚠️ This document is a record of terms agreed on LenderBuild. It is not a substitute for professional legal advice. Both parties are advised to have this reviewed by a solicitor before committing funds.</p>
+<p class="warn">This document is a record of terms agreed on LenderBuild. It is not a substitute for professional legal advice. Both parties are advised to have this reviewed by a solicitor before committing funds.</p>
 </body></html>`);
     win.document.close();
     setTimeout(() => win.print(), 400);
@@ -16040,7 +16070,7 @@ ${initialDeal.agreement_signed_builder_at ? `Signed electronically ${new Date(in
         </div>
         {!bothSigned && (
           <div style={{ marginTop: 12, background: "#FEF3C7", border: "0.5px solid #FCD34D", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#92400E" }}>
-            ⚠️ Both parties must sign this agreement before any milestone payment can be released.
+            Both parties must sign this agreement before any milestone payment can be released.
           </div>
         )}
       </div>
@@ -16049,7 +16079,7 @@ ${initialDeal.agreement_signed_builder_at ? `Signed electronically ${new Date(in
       {role === "lender" && (
         finderFeePaid ? (
           <div style={{ background: "#E1F5EE", border: "0.5px solid #A8DFC9", borderRadius: 10, padding: "12px 16px", marginBottom: "1.25rem", display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 16, flexShrink: 0 }}>✓</span>
+            <Icon name="check-circle" size={16} style={{color:"#0F6E56",flexShrink:0}} />
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#0F6E56" }}>Finder's fee paid</div>
               <div style={{ fontSize: 12, color: "#0F6E56", opacity: 0.8 }}>You can now release milestone payments.</div>
@@ -16089,7 +16119,7 @@ ${initialDeal.agreement_signed_builder_at ? `Signed electronically ${new Date(in
       {/* Legal warning — lenders only */}
       {role === "lender" && (
         <div style={{ background: "#FFFBEB", border: "1px solid #F59E0B", borderRadius: 10, padding: "14px 16px", marginBottom: "1.25rem", display: "flex", gap: 12, alignItems: "flex-start" }}>
-          <span style={{ fontSize: 18, flexShrink: 0, lineHeight: 1.4 }}>⚠️</span>
+          <Icon name="warning" size={18} className="lb-icon" />
           <p style={{ margin: 0, fontSize: 13, color: "#78350F", lineHeight: 1.6 }}>
             <strong>Important:</strong> Before releasing any funds, we strongly recommend instructing a solicitor to register a legal charge against the property. This protects your investment if the builder defaults. LenderBuild is an introduction platform only and does not provide financial advice.
           </p>
@@ -17058,9 +17088,9 @@ function HowItWorksPage({ setPage }) {
   ];
 
   const returns = [
-    { icon: "📈", label: "Fixed interest", ex: "Example: £200,000 lent at 8% p.a. over 18 months = £24,000 return. Simple, predictable income regardless of how the project performs." },
-    { icon: "🏠", label: "Rental income split", ex: "Example: 40% of net rental income on a £350,000 buy-to-let conversion. The lender shares in ongoing income once the project is tenanted." },
-    { icon: "💼", label: "Equity stake", ex: "Example: 20% equity in a £500,000 development. The lender participates in the profit when the property is sold or refinanced." },
+    { icon: "trending-up", label: "Fixed interest", ex: "Example: £200,000 lent at 8% p.a. over 18 months = £24,000 return. Simple, predictable income regardless of how the project performs." },
+    { icon: "home", label: "Rental income split", ex: "Example: 40% of net rental income on a £350,000 buy-to-let conversion. The lender shares in ongoing income once the project is tenanted." },
+    { icon: "briefcase", label: "Equity stake", ex: "Example: 20% equity in a £500,000 development. The lender participates in the profit when the property is sold or refinanced." },
   ];
 
   const faqs = [
@@ -17787,7 +17817,7 @@ function NotificationsPage({ user }) {
 
       {!loading && filtered.length === 0 && (
         <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>🔔</div>
+          <div style={{ marginBottom: 12, color: "var(--accent)" }}><Icon name="bell" size={40} /></div>
           <div style={{ fontSize: 16, fontWeight: 500 }}>No notifications yet</div>
           <div style={{ fontSize: 13, marginTop: 6 }}>We'll let you know when something important happens.</div>
         </div>
@@ -17858,7 +17888,7 @@ function SavedProfilesPage({ user, setPage, onViewProfile, onViewBuilderProfile 
   if (!profiles.length) {
     return (
       <div style={{ maxWidth: 600, margin: "0 auto", padding: "1.5rem 1.25rem", textAlign: "center" }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>🤍</div>
+        <div style={{ marginBottom: 16, color: "#CBD5E1" }}><Icon name="heart" size={48} /></div>
         <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 24, color: "#1E3A5F", margin: "0 0 12px" }}>No saved profiles yet</h2>
         <p style={{ fontSize: 14, color: "#64748B" }}>Click the heart icon on any lender or builder card to save them here.</p>
         <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 20 }}>
@@ -17891,7 +17921,7 @@ function SavedProfilesPage({ user, setPage, onViewProfile, onViewBuilderProfile 
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
                 </button>
               </div>
-              {p.location && <div style={{ fontSize: 12, color: "#64748B", marginBottom: 8 }}>📍 {p.location}</div>}
+              {p.location && <div style={{ fontSize: 12, color: "#64748B", marginBottom: 8 }}><Icon name="map-pin" size={12} style={{marginRight:3,flexShrink:0}} />{p.location}</div>}
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
                 <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: p.role === "lender" ? "#EBF2FF" : "#DCFCE7", color: p.role === "lender" ? "#1E3A5F" : "#166534", fontWeight: 500, textTransform: "capitalize" }}>{p.role}</span>
                 {isActive ? (
@@ -18198,7 +18228,7 @@ function AnalyticsPage({ user }) {
 
       {dealsByMonth.length === 0 && signupsByWeek.length === 0 && (
         <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>📈</div>
+          <div style={{ marginBottom: 12, color: "var(--accent)" }}><Icon name="trending-up" size={32} /></div>
           <div style={{ fontSize: 15, fontWeight: 500 }}>No data yet</div>
           <div style={{ fontSize: 13, marginTop: 6 }}>Analytics will populate as deals are created and users sign up.</div>
         </div>
@@ -18895,7 +18925,7 @@ function DevPanel({ user, onClose, devRoleOverride, setDevRoleOverride }) {
   if (role !== "admin" && role !== "founder") return null;
 
   async function simulateNotification() {
-    await supabase.from("notifications").insert({ user_id: user.id, type: "test", message: "Test notification from developer panel 🛠" });
+    await supabase.from("notifications").insert({ user_id: user.id, type: "test", message: "Test notification from developer panel" });
     setSimStatus("Notification sent!"); setTimeout(() => setSimStatus(""), 3000);
   }
 
@@ -18922,7 +18952,7 @@ function DevPanel({ user, onClose, devRoleOverride, setDevRoleOverride }) {
       <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "min(480px, 94vw)", background: "#0f172a", color: "#e2e8f0", borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.55)", zIndex: 9991, overflow: "hidden", maxHeight: "90vh", overflowY: "auto" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "0.5px solid #1e293b", background: "#020617", position: "sticky", top: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 18 }}>🛠</span>
+            <Icon name="wrench" size={18} className="lb-icon" />
             <span style={{ fontSize: 15, fontWeight: 700, fontFamily: "monospace", color: "#7dd3fc" }}>Developer Panel</span>
             <span style={{ fontSize: 10, background: "#1e3a5f", color: "#7dd3fc", padding: "1px 7px", borderRadius: 4, fontWeight: 700 }}>{(role || "").toUpperCase()}</span>
           </div>
@@ -18967,11 +18997,11 @@ function DevPanel({ user, onClose, devRoleOverride, setDevRoleOverride }) {
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
               <button onClick={simulateNotification}
                 style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "#334155", color: "#e2e8f0", fontSize: 12, cursor: "pointer" }}>
-                🔔 Simulate notification
+                Simulate notification
               </button>
               <button onClick={clearMyData}
                 style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "#7f1d1d", color: "#fca5a5", fontSize: 12, cursor: "pointer" }}>
-                🗑 {clearStatus || "Clear my data"}
+                {clearStatus || "Clear my data"}
               </button>
               {simStatus && <span style={{ fontSize: 12, color: "#4ade80" }}>{simStatus}</span>}
             </div>
@@ -19181,13 +19211,13 @@ function WhatsNewButton({ onReplayTour }) {
   return (
     <div ref={ref} style={{ position: "relative" }}>
       <button onClick={() => setOpen(o => !o)} title="What's new"
-        style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, border: "none", background: open ? "rgba(255,255,255,0.1)" : "transparent", color: "rgba(255,255,255,0.75)", cursor: "pointer", fontSize: 16 }}>
-        ✨
+        style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, border: "none", background: open ? "rgba(255,255,255,0.1)" : "transparent", color: "rgba(255,255,255,0.75)", cursor: "pointer" }}>
+        <Icon name="sparkles" size={16} />
       </button>
       {open && (
         <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", width: 300, background: "#fff", border: "0.5px solid #e8e8e8", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", zIndex: 500, overflow: "hidden" }}>
           <div style={{ padding: "12px 16px 10px", borderBottom: "0.5px solid #f0f0f0" }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#1E3A5F" }}>What's new ✨</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#1E3A5F" }}>What's new</div>
             <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>Recent features on LenderBuild</div>
           </div>
           <div style={{ padding: "8px 0" }}>
@@ -19204,7 +19234,7 @@ function WhatsNewButton({ onReplayTour }) {
           <div style={{ borderTop: "0.5px solid #f0f0f0", padding: "10px 16px" }}>
             <button onClick={() => { setOpen(false); onReplayTour && onReplayTour(); }}
               style={{ width: "100%", padding: "9px", borderRadius: 8, border: "1px solid #e0e0e0", background: "transparent", fontSize: 13, fontWeight: 500, color: "#1E3A5F", cursor: "pointer" }}>
-              🎬 Replay tour
+              Replay tour
             </button>
           </div>
         </div>
@@ -19731,7 +19761,7 @@ function HelpCentrePage({ setPage }) {
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span style={{ fontSize: 12, color: "#94A3B8" }}>Was this helpful?</span>
                         {helpful[helpKey] === "yes" ? (
-                          <span style={{ fontSize: 12, color: "#16A34A", fontWeight: 500 }}>👍 Thanks for the feedback!</span>
+                          <span style={{ fontSize: 12, color: "#16A34A", fontWeight: 500, display:"inline-flex", alignItems:"center", gap:4 }}><Icon name="thumbs-up" size={12} /> Thanks for the feedback!</span>
                         ) : helpful[helpKey] === "no" ? (
                           <span style={{ fontSize: 12, color: "#64748B", fontWeight: 500 }}>We'll work on improving this.</span>
                         ) : (
@@ -19800,7 +19830,7 @@ function HelpCentrePage({ setPage }) {
                         <div style={{ borderTop: "0.5px solid #f0f0f0", padding: "12px 18px", display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ fontSize: 12, color: "#94A3B8" }}>Was this helpful?</span>
                           {helpful[helpKey] === "yes" ? (
-                            <span style={{ fontSize: 12, color: "#16A34A", fontWeight: 500 }}>👍 Thanks!</span>
+                            <span style={{ fontSize: 12, color: "#16A34A", fontWeight: 500, display:"inline-flex", alignItems:"center", gap:4 }}><Icon name="thumbs-up" size={12} /> Thanks!</span>
                           ) : helpful[helpKey] === "no" ? (
                             <span style={{ fontSize: 12, color: "#64748B", fontWeight: 500 }}>We'll improve this.</span>
                           ) : (
@@ -19818,7 +19848,7 @@ function HelpCentrePage({ setPage }) {
             </div>
           ) : (
             <div style={{ textAlign: "center", padding: "3rem 0", color: "#94A3B8" }}>
-              <div style={{ fontSize: 36, marginBottom: 10 }}>🔍</div>
+              <div style={{ marginBottom: 10, color: "var(--text-muted,#64748B)" }}><Icon name="search" size={36} /></div>
               <div style={{ fontSize: 15, fontWeight: 500, color: "#374151", marginBottom: 4 }}>No results found</div>
               <div style={{ fontSize: 13 }}>Try different keywords or browse the categories below</div>
               <button onClick={() => setSearch("")} style={{ marginTop: 16, padding: "8px 20px", borderRadius: 8, border: "0.5px solid #d0d0d0", background: "#fff", color: "#1E3A5F", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>Clear search</button>

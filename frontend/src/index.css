@@ -220,18 +220,18 @@ button {
   transition: transform 0.12s ease, box-shadow 0.15s ease;
 }
 button:not(:disabled):hover {
-  box-shadow: 0 0 0 3px rgba(46, 95, 163, 0.22);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #3B82F6) 22%, transparent);
 }
 button:not(:disabled):active {
   transform: scale(0.97);
 }
 
-/* ── Input gold focus glow ────────────────────────────────────────────────── */
+/* ── Input focus glow — uses accent CSS variable ──────────────────────────── */
 input:focus,
 textarea:focus,
 select:focus {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(46, 95, 163, 0.28);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #3B82F6) 28%, transparent);
 }
 
 /* ── Page fade-in on navigation ───────────────────────────────────────────── */
@@ -731,4 +731,143 @@ select:focus {
 [data-theme="dark"] nav.lb-bottom-nav {
   background: #0A0D14 !important;
   border-top-color: rgba(255,255,255,0.06) !important;
+}
+
+/* ── Additional dark mode coverage ──────────────────────────────────────────── */
+
+/* Extra gray backgrounds → dark surface */
+[data-theme="dark"] [style*="background: #F3F4F6"],
+[data-theme="dark"] [style*="background: rgb(243, 244, 246)"],
+[data-theme="dark"] [style*="background: #E5E7EB"],
+[data-theme="dark"] [style*="background: rgb(229, 231, 235)"],
+[data-theme="dark"] [style*="background: #f5f5f5"],
+[data-theme="dark"] [style*="background: rgb(245, 245, 245)"],
+[data-theme="dark"] [style*="background: #f5f5f3"],
+[data-theme="dark"] [style*="background: rgb(245, 245, 243)"] {
+  background: #1E2130 !important;
+}
+
+/* Light accent tints → dark accent tints */
+[data-theme="dark"] [style*="background: #EBF2FF"],
+[data-theme="dark"] [style*="background: rgb(235, 242, 255)"],
+[data-theme="dark"] [style*="background: #EFF6FF"],
+[data-theme="dark"] [style*="background: rgb(239, 246, 255)"] {
+  background: rgba(59,130,246,0.12) !important;
+  color: #93C5FD !important;
+}
+[data-theme="dark"] [style*="background: #DCFCE7"],
+[data-theme="dark"] [style*="background: rgb(220, 252, 231)"],
+[data-theme="dark"] [style*="background: #E1F5EE"],
+[data-theme="dark"] [style*="background: rgb(225, 245, 238)"] {
+  background: rgba(22,163,74,0.12) !important;
+}
+[data-theme="dark"] [style*="background: #FEF3C7"],
+[data-theme="dark"] [style*="background: rgb(254, 243, 199)"],
+[data-theme="dark"] [style*="background: #FEF9C3"],
+[data-theme="dark"] [style*="background: rgb(254, 249, 195)"] {
+  background: rgba(217,119,6,0.12) !important;
+}
+[data-theme="dark"] [style*="background: #FEE2E2"],
+[data-theme="dark"] [style*="background: rgb(254, 226, 226)"],
+[data-theme="dark"] [style*="background: #FAECE7"],
+[data-theme="dark"] [style*="background: rgb(250, 236, 231)"] {
+  background: rgba(220,38,38,0.12) !important;
+}
+[data-theme="dark"] [style*="background: #DBEAFE"],
+[data-theme="dark"] [style*="background: rgb(219, 234, 254)"] {
+  background: rgba(59,130,246,0.12) !important;
+}
+
+/* Dark text on light accent backgrounds */
+[data-theme="dark"] [style*="color: #166534"],
+[data-theme="dark"] [style*="color: rgb(22, 101, 52)"] {
+  color: #4ADE80 !important;
+}
+[data-theme="dark"] [style*="color: #92400E"],
+[data-theme="dark"] [style*="color: rgb(146, 64, 14)"] {
+  color: #FCD34D !important;
+}
+[data-theme="dark"] [style*="color: #991B1B"],
+[data-theme="dark"] [style*="color: rgb(153, 27, 27)"] {
+  color: #FCA5A5 !important;
+}
+[data-theme="dark"] [style*="color: #333"],
+[data-theme="dark"] [style*="color: rgb(51, 51, 51)"],
+[data-theme="dark"] [style*="color: #555"],
+[data-theme="dark"] [style*="color: rgb(85, 85, 85)"],
+[data-theme="dark"] [style*="color: #666"],
+[data-theme="dark"] [style*="color: rgb(102, 102, 102)"],
+[data-theme="dark"] [style*="color: #4B5563"],
+[data-theme="dark"] [style*="color: rgb(75, 85, 99)"],
+[data-theme="dark"] [style*="color: #374151"],
+[data-theme="dark"] [style*="color: rgb(55, 65, 81)"] {
+  color: #CBD5E1 !important;
+}
+[data-theme="dark"] [style*="color: #aaa"],
+[data-theme="dark"] [style*="color: rgb(170, 170, 170)"],
+[data-theme="dark"] [style*="color: #9CA3AF"],
+[data-theme="dark"] [style*="color: rgb(156, 163, 175)"] {
+  color: #64748B !important;
+}
+
+/* White text on dark backgrounds: preserve */
+[data-theme="dark"] [style*="color: #fff"],
+[data-theme="dark"] [style*="color: rgb(255, 255, 255)"],
+[data-theme="dark"] [style*="color: white"] {
+  color: #fff !important;
+}
+
+/* Borders */
+[data-theme="dark"] [style*="border: 1px solid #e0e0e0"],
+[data-theme="dark"] [style*="border: 1px solid rgb(224, 224, 224)"],
+[data-theme="dark"] [style*="border: 0.5px solid #e5e7eb"],
+[data-theme="dark"] [style*="border: 0.5px solid rgb(229, 231, 235)"] {
+  border-color: #2A2D3A !important;
+}
+[data-theme="dark"] [style*="borderBottom: 1px solid"],
+[data-theme="dark"] [style*="border-bottom: 1px solid #e0e0e0"],
+[data-theme="dark"] [style*="border-bottom: 1px solid rgb(224, 224, 224)"] {
+  border-bottom-color: #2A2D3A !important;
+}
+
+/* Linear gradient heroes — keep but darken */
+[data-theme="dark"] [style*="background: linear-gradient"][style*="1E3A5F"] {
+  background: linear-gradient(135deg, #090D14 0%, #0F1B35 100%) !important;
+}
+
+/* Skeleton shimmer */
+[data-theme="dark"] .lb-skel {
+  background: linear-gradient(90deg, #1E2130 25%, #252838 50%, #1E2130 75%) !important;
+}
+
+/* Notification bell dropdown */
+[data-theme="dark"] [style*="background: #EBF5FF"],
+[data-theme="dark"] [style*="background: rgb(235, 245, 255)"] {
+  background: rgba(59,130,246,0.1) !important;
+}
+
+/* Modals and overlays */
+[data-theme="dark"] [style*="background: rgba(0,0,0,0"] {
+  /* keep semi-transparent overlays as-is */
+}
+
+/* Fixed-position dropdown menus that escaped nav override */
+[data-theme="dark"] [style*="position: absolute"][style*="background: #fff"],
+[data-theme="dark"] [style*="position: fixed"][style*="background: #fff"] {
+  background: #1A1D27 !important;
+  border-color: #2A2D3A !important;
+  color: #E8EAF0 !important;
+}
+
+/* Deal agreement / legal doc background */
+[data-theme="dark"] [style*="background: #FEF3C7"][style*="border"] {
+  background: rgba(217,119,6,0.1) !important;
+  border-color: rgba(217,119,6,0.3) !important;
+}
+
+/* Monospace code blocks */
+[data-theme="dark"] [style*="fontFamily: \"monospace\""],
+[data-theme="dark"] [style*="font-family: monospace"] {
+  background: #12151F !important;
+  color: #CBD5E1 !important;
 }
