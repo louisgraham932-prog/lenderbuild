@@ -8651,16 +8651,23 @@ function PostDetailPage({ post: initialPost, user, setPage, onMessage, onBack, o
     if (!amount || amount <= 0) { setFundError("Please enter a valid amount"); return; }
     setFundLoading(true);
     setFundError("");
-    const { data: { session } } = await supabase.auth.getSession();
-    const res = await fetch("/api/project-listings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ action: "funding-room-join-post", post_id: post.id, post_author_id: post.author_id, amount }),
-    });
-    const json = await res.json();
-    setFundLoading(false);
-    if (!res.ok) { setFundError(json.error || "Failed to join funding room"); return; }
-    if (json.room_id) setPage("funding-room", json.room_id);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const session = sessionData?.session;
+      if (!session) { setFundError("Please log in to continue"); return; }
+      const res = await fetch("/api/project-listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ action: "funding-room-join-post", post_id: post.id, post_author_id: post.author_id, amount }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { setFundError(json.error || "Failed to join. Please try again."); return; }
+      if (json.room_id) setPage("funding-room", json.room_id);
+    } catch (err) {
+      setFundError("Something went wrong. Please try again.");
+    } finally {
+      setFundLoading(false);
+    }
   }
 
   const connectLabel = alreadySent || connectStatus === "done" ? "Request sent"
@@ -9083,24 +9090,31 @@ function PostsFeedPage({ user, setPage }) {
     if (!amount || amount <= 0) { setFundError("Please enter a valid amount"); return; }
     setFundLoading(true);
     setFundError("");
-    const { data: { session } } = await supabase.auth.getSession();
-    const res = await fetch("/api/project-listings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({
-        action: "funding-room-join-post",
-        post_id: fundModal.id,
-        post_author_id: fundModal.author_id,
-        amount,
-      }),
-    });
-    const json = await res.json();
-    setFundLoading(false);
-    if (!res.ok) { setFundError(json.error || "Failed to join funding room"); return; }
-    setFundModal(null);
-    setToast("You've committed to this project!");
-    setTimeout(() => setToast(""), 4000);
-    if (json.room_id) setPage("funding-room", json.room_id);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const session = sessionData?.session;
+      if (!session) { setFundError("Please log in to continue"); return; }
+      const res = await fetch("/api/project-listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          action: "funding-room-join-post",
+          post_id: fundModal.id,
+          post_author_id: fundModal.author_id,
+          amount,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { setFundError(json.error || "Failed to join. Please try again."); return; }
+      setFundModal(null);
+      setToast("You've committed to this project!");
+      setTimeout(() => setToast(""), 4000);
+      if (json.room_id) setPage("funding-room", json.room_id);
+    } catch (err) {
+      setFundError("Something went wrong. Please try again.");
+    } finally {
+      setFundLoading(false);
+    }
   }
 
   const myReg = ukRegion(myLocation);
@@ -13936,6 +13950,15 @@ function FundingRoomPage({ user, setPage, roomId }) {
   const [termsError,    setTermsError]    = useState("");
   // Finder fee
   const [feeLoading,    setFeeLoading]    = useState(false);
+  // Remove member
+  const [removingMember, setRemovingMember] = useState(null);
+  const [removeError,    setRemoveError]    = useState("");
+  // Schedule meeting
+  const [showMeetingForm,  setShowMeetingForm]  = useState(false);
+  const [meetingAt,        setMeetingAt]        = useState("");
+  const [meetingNotes,     setMeetingNotes]     = useState("");
+  const [schedulingMeeting,setSchedulingMeeting]= useState(false);
+  const [meetingError,     setMeetingError]     = useState("");
   const chatEndRef    = useRef(null);
   const realtimeChanRef = useRef(null);
 
@@ -14063,6 +14086,38 @@ function FundingRoomPage({ user, setPage, roomId }) {
     }
   }
 
+  async function handleRemoveMember(lenderId) {
+    setRemovingMember(lenderId);
+    setRemoveError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/project-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "funding-room-remove-member", room_id: roomId, lender_id: lenderId }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setRemovingMember(null);
+    if (!res.ok) setRemoveError(json.error || "Could not remove member");
+  }
+
+  async function handleScheduleMeeting(e) {
+    e.preventDefault();
+    if (!meetingAt) { setMeetingError("Please select a date and time"); return; }
+    setSchedulingMeeting(true);
+    setMeetingError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/project-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "funding-room-schedule-meeting", room_id: roomId, meeting_at: meetingAt, meeting_notes: meetingNotes }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setSchedulingMeeting(false);
+    if (!res.ok) { setMeetingError(json.error || "Failed to schedule meeting"); return; }
+    setShowMeetingForm(false);
+    setRoom(prev => ({ ...prev, meeting_at: meetingAt, meeting_notes: meetingNotes }));
+  }
+
   const targetAmount    = room?.target_amount || 0;
   const committedAmount = room?.committed_amount || 0;
   const pct             = targetAmount > 0 ? Math.min(100, Math.round((committedAmount / targetAmount) * 100)) : 0;
@@ -14155,31 +14210,121 @@ function FundingRoomPage({ user, setPage, roomId }) {
           <div style={{ fontSize: 13, color: "#94A3B8", padding: "8px 0" }}>No lenders have committed yet.</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {members.map((m, i) => {
+            {members.map((m) => {
               const sharePct = targetAmount > 0 ? ((Number(m.amount) / targetAmount) * 100).toFixed(1) : null;
               const isMe = m.lender_id === user?.id;
+              const canRemove = isBuilder && m.status !== "fee_paid";
               return (
                 <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, background: isMe ? "color-mix(in srgb, var(--accent) 8%, transparent)" : "transparent" }}>
                   <Avatar initials={nameInitials(m.lender_name)} color={pickColor(m.lender_id)} size={32} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 500 }}>{m.lender_name}{isMe ? " (you)" : ""}</div>
-                    <div style={{ fontSize: 11, color: "#94A3B8" }}>Joined {new Date(m.joined_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</div>
+                    <div style={{ fontSize: 11, color: "#94A3B8" }}>
+                      Joined {new Date(m.joined_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                      {m.status === "fee_paid" && <span style={{ color: "#16A34A", marginLeft: 6, fontWeight: 600 }}>· Fee paid</span>}
+                      {m.status === "terms_agreed" && <span style={{ color: "#7E22CE", marginLeft: 6 }}>· Terms agreed</span>}
+                    </div>
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: "var(--accent)" }}>{fmt(m.amount)}</div>
-                    {sharePct && <div style={{ fontSize: 11, color: "#94A3B8" }}>{sharePct}% share</div>}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--accent)" }}>{fmt(m.amount)}</div>
+                      {sharePct && <div style={{ fontSize: 11, color: "#94A3B8" }}>{sharePct}% share</div>}
+                    </div>
+                    {canRemove && (
+                      <button
+                        onClick={() => handleRemoveMember(m.lender_id)}
+                        disabled={removingMember === m.lender_id}
+                        title="Remove from room"
+                        style={{ padding: "4px 10px", fontSize: 11, color: "#DC2626", background: "transparent", border: "1px solid #FCA5A5", borderRadius: 6, cursor: removingMember === m.lender_id ? "default" : "pointer", whiteSpace: "nowrap", opacity: removingMember === m.lender_id ? 0.6 : 1 }}
+                      >
+                        {removingMember === m.lender_id ? "Removing…" : "Remove"}
+                      </button>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
         )}
+        {removeError && <div style={{ color: "#DC2626", fontSize: 12, marginTop: 8 }}>{removeError}</div>}
       </div>
+
+      {/* Commitment protection notice (lenders only) */}
+      {!isBuilder && myMembership && myMembership.status !== "fee_paid" && (
+        <div style={{ background: "#FFF7ED", border: "1px solid #FED7AA", borderRadius: 12, padding: "12px 16px", marginBottom: 16, display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C2410C" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <div style={{ fontSize: 12, color: "#9A3412", lineHeight: 1.6 }}>
+            <strong>Your commitment is not binding.</strong> You are under no obligation until you have agreed the investment terms and paid the finder's fee. You can withdraw at any time before that point using the "Leave Room" button below.
+          </div>
+        </div>
+      )}
+
+      {/* Scheduled meeting banner */}
+      {room?.meeting_at && (
+        <div style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1D4ED8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#1D4ED8" }}>Meeting Scheduled</span>
+          </div>
+          <div style={{ fontSize: 13, color: "#1E40AF" }}>
+            {new Date(room.meeting_at).toLocaleString("en-GB", { dateStyle: "full", timeStyle: "short" })}
+          </div>
+          {room.meeting_notes && <div style={{ fontSize: 12, color: "#1E40AF", marginTop: 4 }}>{room.meeting_notes}</div>}
+          {!isBuilder && <div style={{ fontSize: 11, color: "#3B82F6", marginTop: 6 }}>Reply in the room chat below to confirm your attendance.</div>}
+          {isBuilder && (
+            <button onClick={() => { setShowMeetingForm(true); setMeetingAt(room.meeting_at?.slice(0, 16) || ""); setMeetingNotes(room.meeting_notes || ""); }}
+              style={{ marginTop: 8, fontSize: 11, color: "#1D4ED8", background: "transparent", border: "1px solid #BFDBFE", borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>
+              Update meeting
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Schedule meeting (builder, no meeting yet or update form open) */}
+      {isBuilder && ((!room?.meeting_at && !showMeetingForm) || showMeetingForm) && (
+        <div style={{ background: "var(--bg-card)", border: "1px solid #BFDBFE", borderRadius: 12, padding: "1.25rem", marginBottom: 16 }}>
+          {!showMeetingForm ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#1D4ED8" }}>Schedule a Meeting</div>
+                <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>Propose a time for all lenders to discuss before committing funds.</div>
+              </div>
+              <button onClick={() => setShowMeetingForm(true)} style={{ padding: "8px 16px", background: "#1D4ED8", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+                Schedule Meeting
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleScheduleMeeting} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#1D4ED8", marginBottom: 2 }}>Propose a meeting time</div>
+              <div>
+                <label style={{ fontSize: 12, color: "#555", display: "block", marginBottom: 4 }}>Date &amp; time</label>
+                <input type="datetime-local" value={meetingAt} onChange={e => setMeetingAt(e.target.value)} required
+                  style={{ width: "100%", height: 40, border: "1px solid #BFDBFE", borderRadius: 8, padding: "0 10px", fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "#555", display: "block", marginBottom: 4 }}>Agenda / notes (optional)</label>
+                <textarea value={meetingNotes} onChange={e => setMeetingNotes(e.target.value)} maxLength={400} rows={2}
+                  placeholder="e.g. We'll discuss project timeline and return structure"
+                  style={{ width: "100%", border: "1px solid #BFDBFE", borderRadius: 8, padding: "8px 10px", fontSize: 13, resize: "vertical", boxSizing: "border-box" }} />
+              </div>
+              {meetingError && <div style={{ color: "#DC2626", fontSize: 12 }}>{meetingError}</div>}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="submit" disabled={schedulingMeeting} style={{ flex: 1, height: 40, background: "#1D4ED8", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: schedulingMeeting ? "default" : "pointer" }}>
+                  {schedulingMeeting ? "Scheduling…" : "Notify All Lenders"}
+                </button>
+                <button type="button" onClick={() => { setShowMeetingForm(false); setMeetingError(""); }} style={{ height: 40, padding: "0 16px", background: "transparent", border: "1px solid #e0e0e0", borderRadius: 8, fontSize: 13, color: "#64748B", cursor: "pointer" }}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
 
       {/* Chat */}
       <div style={{ background: "var(--bg-card)", border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)", borderRadius: 12, overflow: "hidden", marginBottom: 16 }}>
         <div style={{ padding: "10px 16px", borderBottom: "1px solid color-mix(in srgb, var(--accent) 10%, transparent)", fontSize: 13, fontWeight: 600, color: "var(--text-primary, #1E3A5F)" }}>
-          Room chat
+          Group Chat · {listing?.title ? `"${listing.title}"` : "Funding Room"}
         </div>
         <div style={{ height: 320, overflowY: "auto", padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
           {messages.length === 0 && (

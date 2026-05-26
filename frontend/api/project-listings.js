@@ -448,7 +448,11 @@ module.exports = async function handler(req, res) {
 
     const builder = bd?.user;
     const builderListings = builder?.user_metadata?.project_listings || [];
-    const listing = builderListings.find(l => l.id === room.listing_id);
+    let listing = builderListings.find(l => l.id === room.listing_id);
+    if (!listing) {
+      const post = (builder?.user_metadata?.posts || []).find(p => p.id === room.listing_id);
+      if (post) listing = { id: post.id, title: post.title, location: post.location, funding_needed: post.funding_needed, return_type: post.return_type, return_value: post.return_value, timeline: post.timeline };
+    }
 
     return res.status(200).json({
       room, members: members || [], messages: messages || [],
@@ -523,12 +527,18 @@ module.exports = async function handler(req, res) {
       message: `${lenderName} committed ${fmtGbp(joinAmount)} to the room.`, is_system: true,
     }).catch(() => {});
 
-    try {
+    // Notify builder and all existing members
+    const { data: existingMembers } = await supabase.from("funding_room_members").select("lender_id").eq("room_id", room.id).neq("lender_id", user.id).catch(() => ({ data: [] }));
+    const notifyIds = new Set([post_author_id]);
+    for (const m of existingMembers || []) notifyIds.add(m.lender_id);
+    for (const uid of notifyIds) {
       await supabase.from("notifications").insert({
-        user_id: post_author_id, type: "funding_room_join",
-        message: `${lenderName} committed ${fmtGbp(joinAmount)} to your group funding post`,
-      });
-    } catch (_) {}
+        user_id: uid, type: "funding_room_join",
+        message: uid === post_author_id
+          ? `${lenderName} committed ${fmtGbp(joinAmount)} to your group funding post`
+          : `${lenderName} joined the funding room you're in`,
+      }).catch(() => {});
+    }
 
     return res.status(200).json({ ok: true, room_id: room.id });
   }
@@ -639,6 +649,75 @@ module.exports = async function handler(req, res) {
       await supabase.from("notifications").insert({
         user_id: room.builder_id, type: "funding_room_fee_paid",
         message: `${lenderName} has paid their finder's fee and is fully confirmed in your funding room.`,
+      }).catch(() => {});
+    }
+
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── FUNDING-ROOM-REMOVE-MEMBER ────────────────────────────────────────────
+  if (action === "funding-room-remove-member") {
+    if (userRole !== "builder") return res.status(403).json({ error: "Builders only" });
+    const { room_id, lender_id } = req.body;
+    if (!room_id || !lender_id) return res.status(400).json({ error: "room_id and lender_id required" });
+
+    const { data: room } = await supabase.from("funding_rooms").select("*").eq("id", room_id).single().catch(() => ({ data: null }));
+    if (!room || room.builder_id !== user.id) return res.status(403).json({ error: "Not authorised" });
+
+    const { data: membership } = await supabase.from("funding_room_members")
+      .select("*").eq("room_id", room_id).eq("lender_id", lender_id).single().catch(() => ({ data: null }));
+    if (!membership) return res.status(404).json({ error: "Member not found" });
+    if (membership.status === "fee_paid") return res.status(400).json({ error: "Cannot remove a lender who has already paid their finder's fee and confirmed funds" });
+
+    const { error: deleteErr } = await supabase.from("funding_room_members").delete().eq("room_id", room_id).eq("lender_id", lender_id);
+    if (deleteErr) return res.status(500).json({ error: deleteErr.message });
+
+    const { data: remainingMembers } = await supabase.from("funding_room_members").select("amount").eq("room_id", room_id);
+    const totalCommitted = (remainingMembers || []).reduce((s, m) => s + Number(m.amount), 0);
+    await supabase.from("funding_rooms").update({ committed_amount: totalCommitted }).eq("id", room_id).catch(() => {});
+
+    const fmtGbp = n => `£${Number(n).toLocaleString("en-GB")}`;
+    const builderDisplayName = sanitizeStr(user.user_metadata?.name || "Builder", 100);
+    const lenderDisplayName  = sanitizeStr(membership.lender_name || "Lender", 100);
+
+    await supabase.from("funding_room_messages").insert({
+      room_id, sender_id: user.id, sender_name: "System",
+      message: `${lenderDisplayName} has been removed from the room.`, is_system: true,
+    }).catch(() => {});
+
+    await supabase.from("notifications").insert({
+      user_id: lender_id, type: "funding_room_removed",
+      message: `You have been removed from a group funding room by ${builderDisplayName}. Your commitment of ${fmtGbp(membership.amount)} has been released — you are under no obligation.`,
+    }).catch(() => {});
+
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── FUNDING-ROOM-SCHEDULE-MEETING ─────────────────────────────────────────
+  if (action === "funding-room-schedule-meeting") {
+    if (userRole !== "builder") return res.status(403).json({ error: "Builders only" });
+    const { room_id, meeting_at, meeting_notes } = req.body;
+    if (!room_id || !meeting_at) return res.status(400).json({ error: "room_id and meeting_at required" });
+
+    const { data: room } = await supabase.from("funding_rooms").select("*").eq("id", room_id).single().catch(() => ({ data: null }));
+    if (!room || room.builder_id !== user.id) return res.status(403).json({ error: "Not authorised" });
+
+    const cleanNotes = sanitizeStr(meeting_notes, 500) || null;
+    const { error: e } = await supabase.from("funding_rooms").update({ meeting_at, meeting_notes: cleanNotes }).eq("id", room_id);
+    if (e) return res.status(500).json({ error: e.message });
+
+    const meetingDate = new Date(meeting_at).toLocaleString("en-GB", { dateStyle: "long", timeStyle: "short", timeZone: "Europe/London" });
+    const notesText = cleanNotes ? ` — "${cleanNotes}"` : "";
+    await supabase.from("funding_room_messages").insert({
+      room_id, sender_id: user.id, sender_name: "System",
+      message: `Meeting proposed: ${meetingDate}${notesText}. Please reply to confirm your attendance.`, is_system: true,
+    }).catch(() => {});
+
+    const { data: members } = await supabase.from("funding_room_members").select("lender_id").eq("room_id", room_id);
+    for (const m of members || []) {
+      await supabase.from("notifications").insert({
+        user_id: m.lender_id, type: "funding_room_meeting",
+        message: `A meeting has been proposed for ${meetingDate} in your group funding room. Reply in the room chat to confirm.`,
       }).catch(() => {});
     }
 
