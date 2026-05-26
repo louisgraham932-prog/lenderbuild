@@ -48,6 +48,8 @@ module.exports = async function handler(req, res) {
             interest_count:    (post.interested_by || []).length,
             user_has_interest: viewerUserId ? (post.interested_by || []).includes(viewerUserId) : false,
             interested_by:     undefined,
+            comments:          post.comments || [],
+            comments_count:    (post.comments || []).length,
           });
         }
       }
@@ -155,7 +157,31 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ ok: true, liked: !hasInterest });
     }
 
-    return res.status(400).json({ error: "action must be create, update, delete, view, or interest" });
+    if (action === "comment") {
+      const { author_id } = req.body || {};
+      const text = sanitizeStr(req.body?.text, 1000);
+      if (!post_id || !author_id || !text) return res.status(400).json({ error: "post_id, author_id, and text required" });
+      const { data: { user: author }, error: ae } = await supabase.auth.admin.getUserById(author_id);
+      if (ae || !author) return res.status(404).json({ error: "Author not found" });
+      const authorPosts = author.user_metadata?.posts || [];
+      const idx = authorPosts.findIndex(p => p.id === post_id);
+      if (idx < 0) return res.status(404).json({ error: "Post not found" });
+      const comment = {
+        id: randomUUID(),
+        author_id: user.id,
+        author_name: user.user_metadata?.name || user.email?.split("@")[0],
+        author_role: user.user_metadata?.role || "",
+        text,
+        created_at: new Date().toISOString(),
+      };
+      authorPosts[idx] = { ...authorPosts[idx], comments: [...(authorPosts[idx].comments || []), comment] };
+      await supabase.auth.admin.updateUserById(author_id, {
+        user_metadata: { ...author.user_metadata, posts: authorPosts },
+      });
+      return res.status(200).json({ ok: true, comment });
+    }
+
+    return res.status(400).json({ error: "action must be create, update, delete, view, interest, or comment" });
   }
 
   return res.status(405).json({ error: "Method not allowed" });

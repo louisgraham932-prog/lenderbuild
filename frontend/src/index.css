@@ -82,12 +82,16 @@
   --bg-secondary: #F8FAFC;
   --bg-surface:   #f9f9f7;
   --bg-nav:       #1E3A5F;
+  --nav-bg:       #1E3A5F;
   --text-primary: #2C3E50;
   --text-heading: #1E3A5F;
   --text-muted:   #64748B;
   --border-card:  #e0e0e0;
   --accent:       #3B82F6;
   --accent-bg:    #EBF2FF;
+
+  /* Icon colour */
+  --icon-color:   #1E3A5F;
 }
 
 /* ── Dark theme token overrides ───────────────────────────────────────────── */
@@ -97,6 +101,7 @@
   --bg-secondary: #12151F;
   --bg-surface:   #1E2130;
   --bg-nav:       #0A0D14;
+  --nav-bg:       #0A0D14;
   --text-primary: #E8EAF0;
   --text-heading: #93C5FD;
   --text-muted:   #94A3B8;
@@ -106,6 +111,7 @@
   --color-heading: #93C5FD;
   --color-body:    #E8EAF0;
   --color-muted:   #94A3B8;
+  --icon-color:   #E8EAF0;
 }
 
 body {
@@ -187,7 +193,7 @@ p, .body-text {
 
 /* ── Standard Card ────────────────────────────────────────────────────────── */
 .card {
-  background: #fff;
+  background: var(--bg-card);
   border-radius: var(--card-radius);
   padding: var(--card-padding);
   box-shadow: var(--card-shadow);
@@ -353,12 +359,29 @@ select:focus {
   }
 }
 
+/* ── App icon colour ──────────────────────────────────────────────────────── */
+.lb-icon {
+  color: var(--icon-color);
+  flex-shrink: 0;
+}
+
 /* ── Dark mode overrides ──────────────────────────────────────────────────── */
 /* data-theme is set on <html> (documentElement) */
 [data-theme="dark"] body,
 [data-theme="dark"] {
   background: var(--bg-page);
   color: var(--text-primary);
+}
+
+/* Ensure sidebar/nav dropdown backgrounds are dark */
+[data-theme="dark"] [style*="background: #fff"],
+[data-theme="dark"] [style*="background:#fff"],
+[data-theme="dark"] [style*="background: white"],
+[data-theme="dark"] [style*="background: rgb(255, 255, 255)"],
+[data-theme="dark"] [style*="background-color: rgb(255, 255, 255)"],
+[data-theme="dark"] [style*="background-color: #fff"],
+[data-theme="dark"] [style*="background-color: white"] {
+  /* handled by the broader rule below — keep this note */
 }
 
 [data-theme="dark"] .dm-bg    { background: #1A1D27 !important; }

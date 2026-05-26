@@ -354,7 +354,7 @@ const DEAL_TEMPLATES = [
     id: "residential",
     name: "Standard residential development",
     desc: "New build house — fixed interest, milestone drawdown",
-    icon: "🏠",
+    icon: "home",
     typical: "7–9% p.a. fixed interest",
     fields: { returnType: "fixed_interest", interestRate: "8", loanTermMonths: "18", dealTitle: "Residential development project" },
   },
@@ -362,7 +362,7 @@ const DEAL_TEMPLATES = [
     id: "btr",
     name: "Buy to let renovation",
     desc: "Renovation with rental income split",
-    icon: "🔑",
+    icon: "key",
     typical: "60/40 rental income split",
     fields: { returnType: "rental_split", rentalSplitPct: "40", loanTermMonths: "12", dealTitle: "Buy to let renovation" },
   },
@@ -370,7 +370,7 @@ const DEAL_TEMPLATES = [
     id: "commercial",
     name: "Commercial development",
     desc: "Office, retail or mixed-use commercial project",
-    icon: "🏢",
+    icon: "building",
     typical: "10–14% p.a. fixed or equity stake",
     fields: { returnType: "fixed_interest", interestRate: "12", loanTermMonths: "24", dealTitle: "Commercial development project" },
   },
@@ -378,7 +378,7 @@ const DEAL_TEMPLATES = [
     id: "quickflip",
     name: "Quick flip",
     desc: "Short-term renovation and sale — fast fixed return",
-    icon: "⚡",
+    icon: "zap",
     typical: "10–12% p.a. fixed, 6-month term",
     fields: { returnType: "fixed_interest", interestRate: "11", loanTermMonths: "6", dealTitle: "Quick flip renovation" },
   },
@@ -781,6 +781,105 @@ function removeSavedAccount(userId) {
   localStorage.setItem("lb_saved_accounts", JSON.stringify(getSavedAccounts().filter(a => a.user_id !== userId)));
 }
 
+// ─── SKELETON SHIMMER ────────────────────────────────────────────────────────
+(function injectSkeletonStyles() {
+  if (typeof document === "undefined" || document.getElementById("lb-skel-styles")) return;
+  const s = document.createElement("style");
+  s.id = "lb-skel-styles";
+  s.textContent = "@keyframes lb-shimmer{0%{background-position:-600px 0}100%{background-position:600px 0}}.lb-skel{background:linear-gradient(90deg,#e8ecef 25%,#f3f5f7 50%,#e8ecef 75%);background-size:1200px 100%;animation:lb-shimmer 0.8s infinite linear;border-radius:6px}";
+  document.head.appendChild(s);
+})();
+
+function Skel({ w, h, r, style }) {
+  return <div className="lb-skel" style={{ width: w || "100%", height: h || 16, borderRadius: r !== undefined ? r : 6, flexShrink: 0, ...style }} />;
+}
+
+function SkeletonPostCard() {
+  return (
+    <div style={{ background: "#fff", borderRadius: 12, padding: "16px 18px", marginBottom: 12, border: "1px solid #f0f0f0" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+        <Skel w={36} h={36} r="50%" />
+        <div style={{ flex: 1 }}>
+          <Skel w="45%" h={13} style={{ marginBottom: 6 }} />
+          <Skel w="28%" h={11} />
+        </div>
+      </div>
+      <Skel h={13} style={{ marginBottom: 8 }} />
+      <Skel w="88%" h={13} style={{ marginBottom: 8 }} />
+      <Skel w="62%" h={13} style={{ marginBottom: 14 }} />
+      <div style={{ display: "flex", gap: 10 }}>
+        <Skel w={58} h={26} r={20} />
+        <Skel w={58} h={26} r={20} />
+      </div>
+    </div>
+  );
+}
+
+function SkeletonProfileCard() {
+  return (
+    <div style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", border: "1px solid #f0f0f0", marginBottom: 12 }}>
+      <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+        <Skel w={52} h={52} r="50%" />
+        <div style={{ flex: 1 }}>
+          <Skel w="52%" h={16} style={{ marginBottom: 8 }} />
+          <Skel w="34%" h={12} style={{ marginBottom: 10 }} />
+          <Skel h={12} style={{ marginBottom: 6 }} />
+          <Skel w="78%" h={12} style={{ marginBottom: 14 }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <Skel w={82} h={32} r={20} />
+            <Skel w={82} h={32} r={20} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SkeletonConversationRow() {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: "1px solid #f5f5f5" }}>
+      <Skel w={42} h={42} r="50%" />
+      <div style={{ flex: 1 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+          <Skel w="44%" h={13} />
+          <Skel w="18%" h={11} />
+        </div>
+        <Skel w="68%" h={12} />
+      </div>
+    </div>
+  );
+}
+
+function SkeletonDashboard() {
+  return (
+    <div style={{ padding: "1.5rem 1.25rem", maxWidth: 1200, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: "1.75rem" }}>
+        <Skel w={52} h={52} r="50%" />
+        <div style={{ flex: 1 }}>
+          <Skel w={220} h={28} style={{ marginBottom: 8 }} />
+          <Skel w={90} h={20} r={20} />
+        </div>
+      </div>
+      <Skel h={52} r={12} style={{ marginBottom: "1.5rem" }} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: "1.5rem" }}>
+        {[0,1,2].map(i => (
+          <div key={i} style={{ background: "#fff", borderRadius: 12, padding: "16px 18px", border: "1px solid #f0f0f0" }}>
+            <Skel w="55%" h={11} style={{ marginBottom: 10 }} />
+            <Skel w="40%" h={28} />
+          </div>
+        ))}
+      </div>
+      {[0,1].map(i => (
+        <div key={i} style={{ background: "#fff", borderRadius: 12, padding: "18px 20px", border: "1px solid #f0f0f0", marginBottom: 12 }}>
+          <Skel w="38%" h={14} style={{ marginBottom: 12 }} />
+          <Skel h={12} style={{ marginBottom: 8 }} />
+          <Skel w="72%" h={12} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── NAVBAR ──────────────────────────────────────────────────────────────────
 
 // ─── NAVBAR HELPERS ──────────────────────────────────────────────────────────
@@ -875,6 +974,68 @@ function BellIcon() {
   );
 }
 
+// ─── ICON SYSTEM ─────────────────────────────────────────────────────────────
+// Thin-line SVG icons, 18×18 default. Color is currentColor (set via CSS).
+function Icon({ name, size = 18, style, className }) {
+  const s = { width: size, height: size, viewBox: "0 0 24 24", fill: "none",
+    stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round",
+    strokeLinejoin: "round", style, className, flexShrink: 0 };
+  switch (name) {
+    case "user":         return <svg {...s}><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
+    case "users":        return <svg {...s}><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>;
+    case "heart":        return <svg {...s}><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>;
+    case "heart-fill":   return <svg {...s} fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>;
+    case "pencil":       return <svg {...s}><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>;
+    case "bar-chart":    return <svg {...s}><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>;
+    case "trending-up":  return <svg {...s}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>;
+    case "bell":         return <svg {...s}><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>;
+    case "settings":     return <svg {...s}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>;
+    case "palette":      return <svg {...s}><circle cx="13.5" cy="6.5" r="0.5" fill="currentColor"/><circle cx="17.5" cy="10.5" r="0.5" fill="currentColor"/><circle cx="8.5" cy="7.5" r="0.5" fill="currentColor"/><circle cx="6.5" cy="12.5" r="0.5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.477-1.125-.29-.289-.472-.686-.472-1.187 0-.9.78-1.875 1.875-1.875H16c2.761 0 5-2.239 5-5 0-4.42-4.03-8-9-8z"/></svg>;
+    case "lock":         return <svg {...s}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>;
+    case "lock-open":    return <svg {...s}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 019.9-1"/></svg>;
+    case "handshake":    return <svg {...s}><path d="M20.42 4.58a5.4 5.4 0 00-7.65 0l-.77.78-.77-.78a5.4 5.4 0 00-7.65 0C1.46 6.7 1.33 10.28 4 13l8 8 8-8c2.67-2.72 2.54-6.3.42-8.42z"/><path d="M8 14l-1.5-1.5"/><path d="M11.5 17.5L10 16"/></svg>;
+    case "circle-help":  return <svg {...s}><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17" strokeWidth="2"/></svg>;
+    case "home":         return <svg {...s}><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>;
+    case "key":          return <svg {...s}><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>;
+    case "building":     return <svg {...s}><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22V12h6v10"/><path d="M8 7h.01M16 7h.01M8 12h.01M16 12h.01"/></svg>;
+    case "zap":          return <svg {...s}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>;
+    case "trophy":       return <svg {...s}><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="18" width="12" height="4" rx="2"/></svg>;
+    case "dollar":       return <svg {...s}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>;
+    case "message":      return <svg {...s}><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>;
+    case "clipboard":    return <svg {...s}><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>;
+    case "check-circle": return <svg {...s}><polyline points="20 6 9 17 4 12"/></svg>;
+    case "moon":         return <svg {...s}><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>;
+    case "sun":          return <svg {...s}><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>;
+    case "refresh":      return <svg {...s}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>;
+    case "smartphone":   return <svg {...s}><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18" strokeWidth="2"/></svg>;
+    case "monitor":      return <svg {...s}><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>;
+    case "bank":         return <svg {...s}><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg>;
+    case "file":         return <svg {...s}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>;
+    case "search":       return <svg {...s}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
+    case "warning":      return <svg {...s}><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17" strokeWidth="2"/></svg>;
+    case "briefcase":    return <svg {...s}><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>;
+    case "hard-hat":     return <svg {...s}><path d="M2 18a1 1 0 001 1h18a1 1 0 001-1v-2a1 1 0 00-1-1H3a1 1 0 00-1 1v2z"/><path d="M10 10V5a1 1 0 011-1h2a1 1 0 011 1v5"/><path d="M4 15v-3a8 8 0 0116 0v3"/></svg>;
+    case "book":         return <svg {...s}><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>;
+    case "shield":       return <svg {...s}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>;
+    case "mail":         return <svg {...s}><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>;
+    case "film":         return <svg {...s}><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>;
+    case "circle-green": return <svg {...s} fill="currentColor" style={{ ...style, color: "#22C55E" }}><circle cx="12" cy="12" r="10"/></svg>;
+    case "hammer":       return <svg {...s}><path d="M15 12l-8.5 8.5c-.83.83-2.17.83-3 0 0 0 0 0 0 0a2.12 2.12 0 010-3L12 9"/><path d="M17.64 15L22 10.64"/><path d="M20.91 11.7l-1.25-1.25c-.6-.6-.93-1.4-.93-2.25v-.86L16.01 4.6a5.56 5.56 0 00-3.94-1.64H9l.92.82A6.18 6.18 0 0112 8.4v1.56l2 2h2.47l2.26 1.91"/></svg>;
+    case "calculator":   return <svg {...s}><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="8" y2="10" strokeWidth="2"/><line x1="12" y1="10" x2="12" y2="10" strokeWidth="2"/><line x1="16" y1="10" x2="16" y2="10" strokeWidth="2"/><line x1="8" y1="14" x2="8" y2="14" strokeWidth="2"/><line x1="12" y1="14" x2="12" y2="14" strokeWidth="2"/><line x1="16" y1="14" x2="16" y2="14" strokeWidth="2"/><line x1="8" y1="18" x2="12" y2="18"/><line x1="16" y1="18" x2="16" y2="18" strokeWidth="2"/></svg>;
+    case "plus":         return <svg {...s}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>;
+    case "edit":         return <svg {...s}><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>;
+    case "star":         return <svg {...s}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>;
+    case "chart":        return <svg {...s}><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><rect x="1" y="1" width="22" height="22" rx="2" strokeOpacity="0"/></svg>;
+    case "scale":        return <svg {...s}><line x1="12" y1="3" x2="12" y2="21"/><path d="M3 6l9 6 9-6"/><path d="M3 18a6 6 0 006-6M15 18a6 6 0 01-6-6"/></svg>;
+    case "columns":      return <svg {...s}><rect x="9" y="3" width="13" height="18" rx="2" ry="2"/><path d="M5 3H4a2 2 0 00-2 2v14a2 2 0 002 2h1"/></svg>;
+    case "layout":       return <svg {...s}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>;
+    case "crown":        return <svg {...s}><path d="M12 2l3.5 7h5L16 13l2 7-6-4-6 4 2-7-4.5-4H8.5L12 2z"/></svg>;
+    case "inbox":        return <svg {...s}><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>;
+    case "clock":        return <svg {...s}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
+    default:             return <svg {...s}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16" strokeWidth="2"/></svg>;
+  }
+}
+
 function NotificationBell({ user }) {
   const [notifs, setNotifs] = useState([]);
   const [open, setOpen]     = useState(false);
@@ -922,12 +1083,12 @@ function NotificationBell({ user }) {
   }
 
   const typeIcon = {
-    connection_request:  "🤝",
-    connection_accepted: "✅",
-    message:             "💬",
-    milestone_complete:  "📋",
-    milestone_approved:  "💰",
-    deal_created:        "📊",
+    connection_request:  "handshake",
+    connection_accepted: "check-circle",
+    message:             "message",
+    milestone_complete:  "clipboard",
+    milestone_approved:  "dollar",
+    deal_created:        "bar-chart",
   };
 
   return (
@@ -980,7 +1141,7 @@ function NotificationBell({ user }) {
                     display: "flex", gap: 10, alignItems: "flex-start",
                   }}
                 >
-                  <span style={{ fontSize: 16, lineHeight: 1.4, flexShrink: 0 }}>{typeIcon[n.type] || "🔔"}</span>
+                  <Icon name={typeIcon[n.type] || "bell"} size={16} className="lb-icon" />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, lineHeight: 1.45, color: "#222" }}>{n.message}</div>
                     <div style={{ fontSize: 11, color: "#aaa", marginTop: 3 }}>{fmtTimeAgo(n.created_at)}</div>
@@ -1288,12 +1449,16 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
   const helpRef         = useRef(null);
   const moreRef         = useRef(null);
   const presenceChanRef = useRef(null);
-  const [navAddingAcct,  setNavAddingAcct]  = useState(false);
-  const [navAddEmail,    setNavAddEmail]    = useState("");
-  const [navAddPassword, setNavAddPassword] = useState("");
-  const [navAddLoading,  setNavAddLoading]  = useState(false);
-  const [navAddError,    setNavAddError]    = useState("");
-  const [navAccounts,    setNavAccounts]    = useState(getSavedAccounts);
+  const [navAddingAcct,    setNavAddingAcct]    = useState(false);
+  const [navAddEmail,      setNavAddEmail]      = useState("");
+  const [navAddPassword,   setNavAddPassword]   = useState("");
+  const [navAddLoading,    setNavAddLoading]    = useState(false);
+  const [navAddError,      setNavAddError]      = useState("");
+  const [navAccounts,      setNavAccounts]      = useState(getSavedAccounts);
+  const [navExpiredAcct,   setNavExpiredAcct]   = useState(null);
+  const [navExpiredPw,     setNavExpiredPw]     = useState("");
+  const [navExpiredErr,    setNavExpiredErr]    = useState("");
+  const [navSwitchLoading, setNavSwitchLoading] = useState(null);
 
   useEffect(() => {
     const onResize = () => setWidth(window.innerWidth);
@@ -1387,6 +1552,8 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
       role: newRole, member_id: newProf?.sequential_id || null,
       access_token: data.session.access_token, refresh_token: data.session.refresh_token,
     });
+    const newFirstName = (data.user.user_metadata?.name || data.user.email.split("@")[0]).split(" ")[0];
+    sessionStorage.setItem("lb_switching", JSON.stringify({ name: newFirstName }));
     window.location.href = "/";
   }
 
@@ -1514,22 +1681,22 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
 
   const moreNavItems = [
     { label: "Build Calculator", target: "build-calculator" },
-    { label: "Community",        target: "posts" },
+    { label: "Community",        target: "community" },
     { label: "Leaderboard",      target: "leaderboard" },
     { label: "Market",           target: "market" },
   ];
 
   const profileItems = [
-    { label: "My profile",      icon: "👤", target: "profile-setup" },
-    { label: "Saved profiles",  icon: "🤍", target: "saved-profiles" },
-    { label: "My posts",        icon: "📝", target: "my-posts" },
-    { label: "Project tracker", icon: "📊", target: "deals",         tourId: "tour-project-tracker" },
-    { label: "Disputes",        icon: "⚖️", target: "disputes" },
-    ...(role === "lender" ? [{ label: "Requests", icon: "📬", target: "lender-dashboard" }] : []),
-    ...(role === "admin"  ? [{ label: "Admin",    icon: "🛠️", target: "admin" }, { label: "Analytics", icon: "📈", target: "analytics" }] : []),
+    { label: "My profile",      icon: "user",        target: "profile-setup" },
+    { label: "Saved profiles",  icon: "heart",       target: "saved-profiles" },
+    { label: "My posts",        icon: "pencil",      target: "my-posts" },
+    { label: "Project tracker", icon: "bar-chart",   target: "deals",         tourId: "tour-project-tracker" },
+    { label: "Disputes",        icon: "scale",       target: "disputes" },
+    ...(role === "lender" ? [{ label: "Requests", icon: "inbox",       target: "lender-dashboard" }] : []),
+    ...(role === "admin"  ? [{ label: "Admin",    icon: "settings",    target: "admin" }, { label: "Analytics", icon: "trending-up", target: "analytics" }] : []),
     { divider: true },
-    { label: "Notifications",   icon: "🔔", target: "notifications" },
-    { label: "Settings",        icon: "⚙️", target: "account" },
+    { label: "Notifications",   icon: "bell",        target: "notifications" },
+    { label: "Settings",        icon: "settings",    target: "account" },
   ];
 
   if (isMobile && width < 768) {
@@ -1629,8 +1796,8 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
         ))}
 
         {/* Leaderboard + Market — always visible on desktop */}
-        <button onClick={() => go("leaderboard")} style={navLinkStyle(page === "leaderboard")}>🏆 Leaderboard</button>
-        <button onClick={() => go("market")} style={navLinkStyle(page === "market")}>📈 Market</button>
+        <button onClick={() => go("leaderboard")} style={navLinkStyle(page === "leaderboard")}><Icon name="trophy" size={13} /> Leaderboard</button>
+        <button onClick={() => go("market")} style={navLinkStyle(page === "market")}><Icon name="trending-up" size={13} /> Market</button>
 
         {/* More dropdown */}
         <div ref={moreRef} style={{ position: "relative" }}>
@@ -1689,11 +1856,19 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
             const otherAccounts = navAccounts.filter(a => a.user_id !== user?.id);
 
             async function doNavSwitch(acct) {
-              // Show overlay immediately before any async work
+              if (navSwitchLoading) return;
+              const acctFirstName = acct.name?.split(" ")[0] || acct.email.split("@")[0];
+
+              // Store in sessionStorage so the overlay persists through the page reload
+              sessionStorage.setItem("lb_switching", JSON.stringify({ name: acctFirstName }));
+
+              // Inject overlay immediately for visual feedback during the async setSession call
               const overlay = document.createElement("div");
-              overlay.style.cssText = "position:fixed;inset:0;z-index:9999;background:#1E3A5F;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;";
-              overlay.innerHTML = `<div style="font-family:'Playfair Display',Georgia,serif;font-size:28px;font-weight:700;letter-spacing:-0.5px;"><span style="color:#fff">Lender</span><span style="color:#3B82F6">Build</span></div><div style="display:flex;align-items:center;gap:10px;color:rgba(255,255,255,0.75);font-size:15px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:lb-spin 0.8s linear infinite"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>Switching account…</div><style>@keyframes lb-spin{to{transform:rotate(360deg)}}</style>`;
+              overlay.style.cssText = "position:fixed;inset:0;z-index:9999;background:#1E3A5F;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;opacity:0;transition:opacity 150ms ease;";
+              overlay.innerHTML = `<div style="font-family:'Playfair Display',Georgia,serif;font-size:28px;font-weight:700;letter-spacing:-0.5px;"><span style="color:#fff">Lender</span><span style="color:#3B82F6">Build</span></div><div style="display:flex;align-items:center;gap:10px;color:rgba(255,255,255,0.75);font-size:15px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:lb-spin 0.8s linear infinite"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>Switching to ${acctFirstName}…</div><style>@keyframes lb-spin{to{transform:rotate(360deg)}}</style>`;
               document.body.appendChild(overlay);
+              requestAnimationFrame(() => requestAnimationFrame(() => { overlay.style.opacity = "1"; }));
+              setNavSwitchLoading(acct.user_id);
 
               const { data: { session: curSess } } = await supabase.auth.getSession();
               if (curSess && user) {
@@ -1705,7 +1880,31 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
                 });
               }
               const { error } = await supabase.auth.setSession({ access_token: acct.access_token, refresh_token: acct.refresh_token });
-              if (error) { document.body.removeChild(overlay); go("profile-menu"); return; }
+              if (error) {
+                // Clear sessionStorage so we don't show a stale overlay on the next page load
+                sessionStorage.removeItem("lb_switching");
+                // Restore the current session so the user is NOT logged out
+                if (curSess) await supabase.auth.setSession({ access_token: curSess.access_token, refresh_token: curSess.refresh_token });
+                overlay.style.opacity = "0";
+                setTimeout(() => { try { document.body.removeChild(overlay); } catch(e) {} }, 150);
+                setNavSwitchLoading(null);
+                setNavExpiredAcct(acct);
+                setNavExpiredPw("");
+                setNavExpiredErr("");
+                return;
+              }
+              window.location.href = "/";
+            }
+
+            async function handleNavSwitchWithPassword(e) {
+              e.preventDefault();
+              setNavSwitchLoading(navExpiredAcct.user_id);
+              setNavExpiredErr("");
+              const { data, error } = await supabase.auth.signInWithPassword({ email: navExpiredAcct.email, password: navExpiredPw });
+              if (error) { setNavSwitchLoading(null); setNavExpiredErr(error.message); return; }
+              upsertSavedAccount({ ...navExpiredAcct, access_token: data.session.access_token, refresh_token: data.session.refresh_token });
+              const firstName = navExpiredAcct.name?.split(" ")[0] || navExpiredAcct.email.split("@")[0];
+              sessionStorage.setItem("lb_switching", JSON.stringify({ name: firstName }));
               window.location.href = "/";
             }
 
@@ -1724,30 +1923,50 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
                   <div style={{ borderBottom: "0.5px solid #f0f0f0" }}>
                     <div style={{ padding: "6px 14px 4px", fontSize: 10, fontWeight: 600, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.07em" }}>Switch account</div>
                     {otherAccounts.map(acct => (
-                      <button key={acct.user_id} onClick={() => doNavSwitch(acct)}
-                        style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 14px", fontSize: 12, background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
-                        onMouseEnter={e => e.currentTarget.style.background = "#f9f9f7"}
-                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                      >
-                        {acct.avatar_url
-                          ? <div style={{ width: 26, height: 26, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><img src={acct.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
-                          : <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#EBF2FF", color: "#1E3A5F", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{nameInitials(acct.name)}</div>
-                        }
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "nowrap" }}>
-                            <span style={{ fontWeight: 500, color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.name || acct.email.split("@")[0]}</span>
-                            {acct.role && (
-                              <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: acct.role === "lender" ? "#EFF6FF" : "#F0FDF4", color: acct.role === "lender" ? "#2563EB" : "#16A34A", border: `1px solid ${acct.role === "lender" ? "#BFDBFE" : "#BBF7D0"}`, flexShrink: 0, whiteSpace: "nowrap" }}>
-                                {acct.role === "lender" ? "Lender" : "Builder"}
-                              </span>
-                            )}
-                            {acct.member_id && (
-                              <span style={{ fontSize: 9, color: "#aaa", fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>{fmtId(acct.member_id)}</span>
-                            )}
+                      <div key={acct.user_id}>
+                        <button onClick={() => doNavSwitch(acct)} disabled={navSwitchLoading !== null}
+                          style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 14px", fontSize: 12, background: "transparent", border: "none", cursor: navSwitchLoading ? "default" : "pointer", textAlign: "left" }}
+                          onMouseEnter={e => { if (!navSwitchLoading) e.currentTarget.style.background = "#f9f9f7"; }}
+                          onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                        >
+                          {acct.avatar_url
+                            ? <div style={{ width: 26, height: 26, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><img src={acct.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
+                            : <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#EBF2FF", color: "#1E3A5F", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{nameInitials(acct.name)}</div>
+                          }
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "nowrap" }}>
+                              <span style={{ fontWeight: 500, color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.name || acct.email.split("@")[0]}</span>
+                              {acct.role && (
+                                <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: acct.role === "lender" ? "#EFF6FF" : "#F0FDF4", color: acct.role === "lender" ? "#2563EB" : "#16A34A", border: `1px solid ${acct.role === "lender" ? "#BFDBFE" : "#BBF7D0"}`, flexShrink: 0, whiteSpace: "nowrap" }}>
+                                  {acct.role === "lender" ? "Lender" : "Builder"}
+                                </span>
+                              )}
+                              {acct.member_id && (
+                                <span style={{ fontSize: 9, color: "#aaa", fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>{fmtId(acct.member_id)}</span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 11, color: "#aaa", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.email}</div>
                           </div>
-                          <div style={{ fontSize: 11, color: "#aaa", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.email}</div>
-                        </div>
-                      </button>
+                        </button>
+                        {navExpiredAcct?.user_id === acct.user_id && (
+                          <form onSubmit={handleNavSwitchWithPassword} style={{ padding: "8px 14px 12px", background: "#FFFBEB", borderTop: "0.5px solid #f0f0f0" }}>
+                            <div style={{ fontSize: 12, color: "#92400E", marginBottom: 8 }}>Session expired — enter password for {acct.email}</div>
+                            {navExpiredErr && <div style={{ fontSize: 12, color: "#DC2626", marginBottom: 6 }}>{navExpiredErr}</div>}
+                            <div style={{ display: "flex", gap: 6 }}>
+                              <input type="password" placeholder="Password" value={navExpiredPw} onChange={e => setNavExpiredPw(e.target.value)} required autoFocus
+                                style={{ flex: 1, height: 34, border: "1px solid #E2E8F0", borderRadius: 7, padding: "0 10px", fontSize: 13, outline: "none" }} />
+                              <button type="submit" disabled={navSwitchLoading !== null}
+                                style={{ padding: "0 12px", height: 34, background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: navSwitchLoading ? "default" : "pointer" }}>
+                                {navSwitchLoading === acct.user_id ? "…" : "Go"}
+                              </button>
+                              <button type="button" onClick={() => setNavExpiredAcct(null)}
+                                style={{ padding: "0 10px", height: 34, background: "transparent", color: "#64748B", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 13, cursor: "pointer" }}>
+                                Cancel
+                              </button>
+                            </div>
+                          </form>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}
@@ -1756,7 +1975,7 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
                   item.divider
                     ? <div key={i} style={{ borderTop: "0.5px solid #f0f0f0", margin: "4px 0" }} />
                     : <button key={item.target} id={item.tourId} onClick={() => go(item.target)} style={ddItemStyle(page === item.target)}>
-                        <span style={{ fontSize: 15 }}>{item.icon}</span>{item.label}
+                        <Icon name={item.icon} size={15} className="lb-icon" />{item.label}
                       </button>
                 )}
                 <div style={{ borderTop: "0.5px solid #f0f0f0", margin: "4px 0" }} />
@@ -3623,7 +3842,7 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
               <button onClick={() => setDarkMode && setDarkMode(d => !d)}
                 style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "12px 14px", borderRadius: 12, border: "1.5px solid #e0e0e0", background: "#fff", cursor: "pointer", minHeight: 52, gap: 10 }}>
                 <span style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontWeight: 500, color: "#374151" }}>
-                  <span style={{ fontSize: 20 }}>{darkMode ? "🌙" : "☀️"}</span>
+                  <Icon name={darkMode ? "moon" : "sun"} size={20} className="lb-icon" />
                   {darkMode ? "Dark mode" : "Light mode"}
                 </span>
                 <div style={{ position: "relative", width: 56, height: 30, borderRadius: 15, background: darkMode ? "var(--accent,#3B82F6)" : "#CBD5E1", flexShrink: 0, transition: "background 0.2s" }}>
@@ -3670,12 +3889,12 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
             <div style={{ marginBottom: "1.5rem" }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Layout density</div>
               <div style={{ display: "flex", gap: 8 }}>
-                {[{ key: "comfortable", label: "Comfortable", icon: "⬜" }, { key: "compact", label: "Compact", icon: "▪️" }].map(d => {
+                {[{ key: "comfortable", label: "Comfortable", icon: "layout" }, { key: "compact", label: "Compact", icon: "columns" }].map(d => {
                   const isSel = density === d.key;
                   return (
                     <button key={d.key} onClick={e => { e.preventDefault(); setDensity && setDensity(d.key); }}
                       style={{ flex: 1, padding: "14px 16px", borderRadius: 10, border: "1.5px solid", borderColor: isSel ? "var(--accent,#3B82F6)" : "#e0e0e0", background: isSel ? "var(--accent-bg,#EBF2FF)" : "#fff", color: isSel ? "var(--accent,#1E3A5F)" : "#64748B", fontSize: 14, fontWeight: 600, cursor: "pointer", minHeight: 52, display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 16 }}>{d.icon}</span><span>{d.label}</span>
+                      <Icon name={d.icon} size={16} className="lb-icon" /><span>{d.label}</span>
                       {isSel && <span style={{ marginLeft: "auto", color: "var(--accent,#3B82F6)" }}>✓</span>}
                     </button>
                   );
@@ -3687,12 +3906,12 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Device layout</div>
               <div style={{ display: "flex", gap: 8 }}>
-                {[{ key: "auto", label: "Auto", icon: "🔄" }, { key: "mobile", label: "Mobile", icon: "📱" }, { key: "desktop", label: "Desktop", icon: "💻" }].map(d => {
+                {[{ key: "auto", label: "Auto", icon: "refresh" }, { key: "mobile", label: "Mobile", icon: "smartphone" }, { key: "desktop", label: "Desktop", icon: "monitor" }].map(d => {
                   const isSel = devPref === d.key;
                   return (
                     <button key={d.key} onClick={e => { e.preventDefault(); try { localStorage.setItem("lb_device_preference", d.key); } catch {} setDevPrefState(d.key); document.body.classList.remove("lb-mobile-layout", "lb-desktop-layout"); if (d.key === "mobile") document.body.classList.add("lb-mobile-layout"); if (d.key === "desktop") document.body.classList.add("lb-desktop-layout"); }}
                       style={{ flex: 1, padding: "10px 8px", borderRadius: 10, border: "1.5px solid", borderColor: isSel ? "var(--accent,#3B82F6)" : "#e0e0e0", background: isSel ? "var(--accent-bg,#EBF2FF)" : "#fff", color: isSel ? "var(--accent,#1E3A5F)" : "#64748B", fontSize: 13, fontWeight: 600, cursor: "pointer", minHeight: 48, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
-                      <span style={{ fontSize: 18 }}>{d.icon}</span><span>{d.label}</span>
+                      <Icon name={d.icon} size={18} className="lb-icon" /><span>{d.label}</span>
                     </button>
                   );
                 })}
@@ -3912,18 +4131,18 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
           <div style={{ padding: "16px", maxWidth: 600, margin: "0 auto" }}>
             <div style={card}>
               {[
-                { label: "Help Centre",            action: () => setPage("help"),         icon: "📚" },
-                { label: "How it works",          action: () => setPage("how-it-works"), icon: "📖" },
-                { label: "Trust & Safety",         action: () => setPage("safety"),       icon: "🛡️" },
-                { label: "Contact support",        action: () => setPage("help"),                                                   icon: "✉️" },
-                { label: "Replay onboarding tour", action: onReplayTour,                  icon: "🎬" },
-                { label: "System status",          action: () => setPage("status"),       icon: "🟢" },
+                { label: "Help Centre",            action: () => setPage("help"),         icon: "book" },
+                { label: "How it works",          action: () => setPage("how-it-works"), icon: "circle-help" },
+                { label: "Trust & Safety",         action: () => setPage("safety"),       icon: "shield" },
+                { label: "Contact support",        action: () => setPage("help"),         icon: "mail" },
+                { label: "Replay onboarding tour", action: onReplayTour,                  icon: "film" },
+                { label: "System status",          action: () => setPage("status"),       icon: "circle-green" },
               ].map(({ label, action, icon }, i, arr) => (
                 <button key={label} onClick={action}
                   style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", padding: "0 0", fontSize: 15, background: "transparent", border: "none", borderBottom: i < arr.length - 1 ? "0.5px solid #f5f5f5" : "none", cursor: "pointer", minHeight: 52, color: "#1E3A5F", textAlign: "left", fontWeight: 500 }}
                   onTouchStart={e => e.currentTarget.style.background = "#f5f5f5"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}
                   onMouseEnter={e => e.currentTarget.style.background = "#f9f9f7"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <span style={{ fontSize: 18, flexShrink: 0 }}>{icon}</span>
+                  <Icon name={icon} size={18} className="lb-icon" />
                   <span style={{ flex: 1 }}>{label}</span>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
                 </button>
@@ -3939,21 +4158,21 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
           <h2 style={{ fontSize: 22, fontWeight: 600, margin: "0 0 1.5rem", color: "#1E3A5F" }}>Settings</h2>
           <div style={{ background: "#fff", borderRadius: 12, overflow: "hidden", border: "0.5px solid #e8e8e8" }}>
             {[
-              { id: "account",       icon: "👤", title: "Account" },
-              ...(role === "builder" ? [{ id: "companies-house", icon: "🏢", title: "Companies House" }] : []),
-              ...(role === "builder" ? [{ id: "bank-details", icon: "🏦", title: "Bank Details" }] : []),
-              { id: "appearance",    icon: "🎨", title: "Appearance" },
-              { id: "notifications", icon: "🔔", title: "Notifications" },
-              { id: "privacy",       icon: "🔐", title: "Privacy" },
-              { id: "security",      icon: "🔒", title: "Security" },
-              { id: "connections",   icon: "🤝", title: "My Connections" },
-              { id: "help",          icon: "❓", title: "Help & Support" },
+              { id: "account",       icon: "user",        title: "Account" },
+              ...(role === "builder" ? [{ id: "companies-house", icon: "building",     title: "Companies House" }] : []),
+              ...(role === "builder" ? [{ id: "bank-details",    icon: "bank",         title: "Bank Details" }] : []),
+              { id: "appearance",    icon: "palette",     title: "Appearance" },
+              { id: "notifications", icon: "bell",        title: "Notifications" },
+              { id: "privacy",       icon: "lock-open",   title: "Privacy" },
+              { id: "security",      icon: "lock",        title: "Security" },
+              { id: "connections",   icon: "handshake",   title: "My Connections" },
+              { id: "help",          icon: "circle-help", title: "Help & Support" },
             ].map((s, i, arr) => (
               <button key={s.id} onClick={() => { setOpenSection(s.id); window.scrollTo({ top: 0, behavior: "instant" }); }}
                 style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", padding: "0 20px", fontSize: 15, background: "transparent", border: "none", borderBottom: i < arr.length - 1 ? "1px solid #f5f5f5" : "none", cursor: "pointer", minHeight: 52, color: "#1E3A5F", textAlign: "left" }}
                 onTouchStart={e => e.currentTarget.style.background = "#f5f5f5"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}
                 onMouseEnter={e => e.currentTarget.style.background = "#f9f9f7"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <span style={{ fontSize: 20, flexShrink: 0 }}>{s.icon}</span>
+                <Icon name={s.icon} size={20} className="lb-icon" />
                 <span style={{ fontWeight: 500, flex: 1 }}>{s.title}</span>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
               </button>
@@ -4264,8 +4483,13 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
   const recoForBuilder = recoLenderCards;
   const recoForLender  = recoBuilderCards;
 
-  // Show getting-started immediately when metadata shows no connections, without waiting for API loading
-  const isNewUser = myConnections.length === 0 && (loading || conversations.length === 0) && page !== "home-dashboard";
+  // Skip onboarding during account switch (check both the window flag set by the inline script
+  // and the raw sessionStorage key as a fallback in case the inline script didn't run).
+  const isAccountSwitching = !!window.__lb_account_switching || !!sessionStorage.getItem("lb_switching");
+  if (isAccountSwitching) sessionStorage.removeItem("lb_switching");
+
+  // Show getting-started immediately when metadata shows no connections, without waiting for API loading.
+  const isNewUser = !isAccountSwitching && myConnections.length === 0 && (loading || conversations.length === 0) && page !== "home-dashboard";
 
   if (isNewUser) {
     return (
@@ -4277,6 +4501,8 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
       />
     );
   }
+
+  if (loading) return <SkeletonDashboard />;
 
   return (
     <div style={{ padding: "1.5rem 1.25rem", maxWidth: 1200, margin: "0 auto" }}>
@@ -5596,7 +5822,7 @@ function SearchPage({ user, setPage, onViewProfile, viewerRoleProfile }) {
           {saveSearchMsg && <span style={{ fontSize: 12, color: "#16A34A" }}>{saveSearchMsg}</span>}
         </div>
       )}
-      {loadingReal && <div style={{ textAlign: "center", padding: "1rem", color: "#aaa", fontSize: 13, marginBottom: "1rem" }}>Loading lenders…</div>}
+      {loadingReal && [0,1,2,3].map(i => <SkeletonProfileCard key={i} />)}
 
       {!loadingReal && allCards.length === 0 && realCards.length === 0 ? (
         <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
@@ -6084,7 +6310,7 @@ function FindBuilderPage({ user, setPage, onMessage, onViewProfile, viewerRolePr
           {allFiltered.length === 0 ? (activeBuilderFiltersCount > 0 ? "No builders match your filters — try adjusting them" : "No builders yet") : `Showing ${allFiltered.length} builder${allFiltered.length !== 1 ? "s" : ""} matching your criteria`}
         </div>
       )}
-      {loadingReal && <div style={{ textAlign: "center", padding: "1rem", color: "#aaa", fontSize: 13, marginBottom: "1rem" }}>Loading builders…</div>}
+      {loadingReal && [0,1,2,3].map(i => <SkeletonProfileCard key={i} />)}
 
       {!loadingReal && realCards.length === 0 ? (
         <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748B" }}>
@@ -8196,12 +8422,115 @@ function PostCard({ post, isOwn, onView, onEdit, onDelete, user, onConnect, onMe
   );
 }
 
-function PostDetailPage({ post, user, setPage, onMessage, onBack, onEdit, onDelete }) {
-  const cat = CATEGORY_META[post.category] || CATEGORY_META.general;
-  const isOwn = user && post.author_id === user.id;
-  const [msgStatus,   setMsgStatus]   = useState("idle");
-  const [confirmDel,  setConfirmDel]  = useState(false);
-  const [deleting,    setDeleting]    = useState(false);
+function PostDetailPage({ post: initialPost, user, setPage, onMessage, onBack, onEdit, onDelete }) {
+  const [post,           setPost]          = useState(initialPost);
+  const cat                                = CATEGORY_META[post.category] || CATEGORY_META.general;
+  const isOwn                              = user && post.author_id === user.id;
+  const [msgStatus,      setMsgStatus]     = useState("idle");
+  const [confirmDel,     setConfirmDel]    = useState(false);
+  const [deleting,       setDeleting]      = useState(false);
+  const [liked,          setLiked]         = useState(!!post.user_has_interest);
+  const [likeCount,      setLikeCount]     = useState(post.interest_count || 0);
+  const [comments,       setComments]      = useState(post.comments || []);
+  const [commentText,    setCommentText]   = useState("");
+  const [commentLoading, setCommentLoading]= useState(false);
+  const [copied,         setCopied]        = useState(false);
+  const [connectStatus,  setConnectStatus] = useState("idle");
+  const [relatedPosts,   setRelatedPosts]  = useState([]);
+
+  const viewerRole     = user?.user_metadata?.role;
+  const showConnect    = user && !isOwn && viewerRole && post.author_role && viewerRole !== post.author_role;
+  const alreadySent    = showConnect && (
+    viewerRole === "lender" && post.author_role === "builder"
+      ? (user.user_metadata?.builder_connections || []).some(c => c.builder_name === post.author_name)
+      : viewerRole === "builder" && post.author_role === "lender"
+      ? (user.user_metadata?.connections || []).some(c => c.lender_name === post.author_name && (c.status === "pending" || c.status === "accepted"))
+      : false
+  );
+  const alreadyAccepted = showConnect && viewerRole === "builder" && post.author_role === "lender" &&
+    (user.user_metadata?.connections || []).some(c => c.lender_name === post.author_name && c.status === "accepted");
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      const headers = {};
+      if (session) headers.Authorization = `Bearer ${session.access_token}`;
+      fetch("/api/posts", { headers })
+        .then(r => r.json())
+        .then(json => {
+          const all = (json.posts || []).filter(p => p.id !== post.id);
+          const sameCat = all.filter(p => p.category === post.category);
+          setRelatedPosts((sameCat.length >= 2 ? sameCat : all).slice(0, 3));
+        })
+        .catch(() => {});
+    });
+  }, [post.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleLike() {
+    if (!user) { setPage("auth"); return; }
+    const newLiked = !liked;
+    setLiked(newLiked);
+    setLikeCount(c => c + (newLiked ? 1 : -1));
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    fetch("/api/posts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "interest", post_id: post.id, author_id: post.author_id }),
+    }).catch(() => {});
+  }
+
+  async function handleComment(e) {
+    e.preventDefault();
+    if (!user) { setPage("auth"); return; }
+    if (!commentText.trim()) return;
+    setCommentLoading(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/posts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "comment", post_id: post.id, author_id: post.author_id, text: commentText.trim() }),
+    });
+    const json = await res.json();
+    setCommentLoading(false);
+    if (res.ok && json.comment) {
+      setComments(prev => [...prev, json.comment]);
+      setCommentText("");
+    }
+  }
+
+  function handleShare() {
+    const url = window.location.origin + "/";
+    const copyFn = () => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    };
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(copyFn).catch(copyFn);
+    } else {
+      copyFn();
+    }
+  }
+
+  async function handleConnect() {
+    if (!user) { setPage("auth"); return; }
+    setConnectStatus("loading");
+    const { data: { session } } = await supabase.auth.getSession();
+    const body = viewerRole === "lender" && post.author_role === "builder"
+      ? { builder_name: post.author_name }
+      : { lender_name: post.author_name };
+    const res = await fetch("/api/connect-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      await supabase.auth.refreshSession();
+      setConnectStatus("done");
+    } else {
+      setConnectStatus("error");
+      setTimeout(() => setConnectStatus("idle"), 3000);
+    }
+  }
 
   async function handleMessage() {
     if (!user) { setPage("auth"); return; }
@@ -8221,6 +8550,13 @@ function PostDetailPage({ post, user, setPage, onMessage, onBack, onEdit, onDele
       setTimeout(() => setMsgStatus("idle"), 3000);
     }
   }
+
+  const connectLabel = alreadySent || connectStatus === "done" ? "Request sent"
+    : connectStatus === "loading" ? "Sending…"
+    : connectStatus === "error"   ? "Try again"
+    : "Connect";
+
+  const btnBase = { border: "none", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", minHeight: 38 };
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "1.5rem 1.25rem", minHeight: "calc(100vh - 56px)" }}>
@@ -8281,44 +8617,178 @@ function PostDetailPage({ post, user, setPage, onMessage, onBack, onEdit, onDele
       {/* Author */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "1.5rem", paddingBottom: "1.5rem", borderBottom: "0.5px solid #f0f0f0" }}>
         <div style={{
-          width: 38, height: 38, borderRadius: "50%", background: "#EBF2FF", color: "#1E3A5F",
-          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 600, flexShrink: 0,
+          width: 40, height: 40, borderRadius: "50%", background: "#EBF2FF", color: "#1E3A5F",
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 600, flexShrink: 0,
         }}>
           {(post.author_name || "?").charAt(0).toUpperCase()}
         </div>
         <div>
           <div style={{ fontSize: 14, fontWeight: 500 }}>{post.author_name}</div>
-          <div style={{ fontSize: 12, color: "#64748B", textTransform: "capitalize" }}>{post.author_role}</div>
+          <div style={{ fontSize: 12, color: "#64748B", textTransform: "capitalize" }}>
+            {post.author_role}
+            {post.author_verified && <span style={{ marginLeft: 6, color: "#16A34A", fontWeight: 600 }}>✓ Verified</span>}
+          </div>
         </div>
       </div>
 
       {/* Body */}
-      <div style={{ fontSize: 15, color: "#333", lineHeight: 1.75, whiteSpace: "pre-wrap", marginBottom: "2rem" }}>
+      <div style={{ fontSize: 15, color: "#333", lineHeight: 1.8, whiteSpace: "pre-wrap", marginBottom: "1rem" }}>
         {post.body}
       </div>
 
-      {/* Message button */}
-      {!isOwn && (
-        <div style={{ borderTop: "0.5px solid #f0f0f0", paddingTop: "1.5rem" }}>
-          {msgStatus === "error" && (
-            <div style={{ fontSize: 13, color: "#993C1D", marginBottom: 10 }}>
-              Couldn't start a conversation — please try again.
+      {/* Stats line */}
+      <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: "1.25rem" }}>
+        {post.view_count || 0} view{post.view_count !== 1 ? "s" : ""} · {likeCount} like{likeCount !== 1 ? "s" : ""} · {comments.length} comment{comments.length !== 1 ? "s" : ""}
+      </div>
+
+      {/* Action bar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: "0.75rem", paddingBottom: "1.5rem", borderTop: "0.5px solid #f0f0f0", borderBottom: "0.5px solid #f0f0f0", flexWrap: "wrap" }}>
+        {/* Like */}
+        <button
+          onClick={handleLike}
+          style={{ ...btnBase, background: liked ? "#FEF2F2" : "#F8FAFC", color: liked ? "#DC2626" : "#64748B", border: liked ? "0.5px solid #FECACA" : "0.5px solid #e0e0e0", fontWeight: liked ? 600 : 500 }}
+        >
+          {liked ? "♥" : "♡"} {likeCount > 0 ? likeCount : "Like"}
+        </button>
+
+        {/* Share */}
+        <button
+          onClick={handleShare}
+          style={{ ...btnBase, background: copied ? "#F0FDF4" : "#F8FAFC", color: copied ? "#16A34A" : "#64748B", border: copied ? "0.5px solid #BBF7D0" : "0.5px solid #e0e0e0" }}
+        >
+          {copied ? "✓ Copied" : "↗ Share"}
+        </button>
+
+        {/* Connect / Message */}
+        {!isOwn && (
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {showConnect && !alreadyAccepted && (
+              <button
+                onClick={handleConnect}
+                disabled={alreadySent || connectStatus === "loading" || connectStatus === "done"}
+                style={{
+                  ...btnBase,
+                  background: alreadySent || connectStatus === "done" ? "#F1F5F9" : connectStatus === "error" ? "#DC2626" : "#1E3A5F",
+                  color: alreadySent || connectStatus === "done" ? "#64748B" : "#fff",
+                  cursor: alreadySent || connectStatus !== "idle" ? "default" : "pointer",
+                }}
+              >
+                {connectLabel}
+              </button>
+            )}
+            <button
+              onClick={handleMessage}
+              disabled={msgStatus === "loading"}
+              style={{ ...btnBase, background: msgStatus === "loading" ? "#aaa" : "#3B82F6", color: "#fff", cursor: msgStatus === "loading" ? "default" : "pointer" }}
+            >
+              {msgStatus === "loading" ? "Opening…" : `Message ${post.author_name?.split(" ")[0] || post.author_name}`}
+            </button>
+          </div>
+        )}
+        {msgStatus === "error" && (
+          <span style={{ fontSize: 12, color: "#993C1D", width: "100%" }}>Couldn't start a conversation — please try again.</span>
+        )}
+        {!user && !isOwn && (
+          <span style={{ fontSize: 12, color: "#64748B", marginLeft: "auto" }}>
+            <button onClick={() => setPage("auth")} style={{ background: "none", border: "none", color: "#3B82F6", cursor: "pointer", fontSize: 12, fontWeight: 500, padding: 0 }}>Log in</button> to like, comment or connect.
+          </span>
+        )}
+      </div>
+
+      {/* Comments */}
+      <div style={{ marginTop: "1.75rem" }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: "#1E3A5F", marginBottom: "1rem" }}>
+          Comments {comments.length > 0 && <span style={{ color: "#64748B", fontWeight: 400, fontSize: 13 }}>({comments.length})</span>}
+        </div>
+
+        {user ? (
+          <form onSubmit={handleComment} style={{ display: "flex", gap: 10, marginBottom: "1.5rem", alignItems: "flex-start" }}>
+            <div style={{
+              width: 34, height: 34, borderRadius: "50%", background: "#EBF2FF", color: "#1E3A5F",
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 600, flexShrink: 0, marginTop: 2,
+            }}>
+              {(user.user_metadata?.name || user.email || "?").charAt(0).toUpperCase()}
             </div>
-          )}
-          <button
-            onClick={handleMessage}
-            disabled={msgStatus === "loading"}
-            style={{
-              padding: "10px 24px", minHeight: 44, background: msgStatus === "loading" ? "#aaa" : "#3B82F6",
-              color: "#fff", border: "none", borderRadius: 8,
-              fontSize: 14, fontWeight: 500, cursor: msgStatus === "loading" ? "default" : "pointer",
-            }}
-          >
-            {msgStatus === "loading" ? "Opening…" : `Message ${post.author_name}`}
-          </button>
-          {!user && (
-            <p style={{ fontSize: 12, color: "#64748B", marginTop: 8 }}>You need to be logged in to send a message.</p>
-          )}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+              <textarea
+                value={commentText}
+                onChange={e => setCommentText(e.target.value)}
+                placeholder="Write a comment…"
+                rows={2}
+                style={{ width: "100%", border: "0.5px solid #d0d0d0", borderRadius: 8, padding: "9px 12px", fontSize: 14, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box", outline: "none" }}
+                onFocus={e => e.target.style.borderColor = "#3B82F6"}
+                onBlur={e => e.target.style.borderColor = "#d0d0d0"}
+              />
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  type="submit"
+                  disabled={commentLoading || !commentText.trim()}
+                  style={{ padding: "7px 18px", minHeight: 36, borderRadius: 8, border: "none", background: commentText.trim() ? "#3B82F6" : "#e0e0e0", color: commentText.trim() ? "#fff" : "#aaa", fontSize: 13, fontWeight: 600, cursor: commentText.trim() && !commentLoading ? "pointer" : "default" }}
+                >
+                  {commentLoading ? "Posting…" : "Post"}
+                </button>
+              </div>
+            </div>
+          </form>
+        ) : (
+          <div style={{ background: "#F8FAFC", border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "14px 16px", fontSize: 13, color: "#64748B", marginBottom: "1.5rem" }}>
+            <button onClick={() => setPage("auth")} style={{ background: "none", border: "none", color: "#3B82F6", cursor: "pointer", fontSize: 13, fontWeight: 500, padding: 0 }}>Log in</button> to leave a comment.
+          </div>
+        )}
+
+        {comments.length === 0 ? (
+          <div style={{ fontSize: 13, color: "#9CA3AF", textAlign: "center", padding: "1.5rem 0" }}>No comments yet. Be the first to reply.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {comments.map(c => (
+              <div key={c.id} style={{ display: "flex", gap: 10 }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: "50%", background: "#EBF2FF", color: "#1E3A5F",
+                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, flexShrink: 0, marginTop: 2,
+                }}>
+                  {(c.author_name || "?").charAt(0).toUpperCase()}
+                </div>
+                <div style={{ flex: 1, background: "#F8FAFC", borderRadius: 8, padding: "10px 12px" }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{c.author_name}</span>
+                    <span style={{ fontSize: 11, color: "#9CA3AF", textTransform: "capitalize" }}>{c.author_role}</span>
+                    <span style={{ fontSize: 11, color: "#C0C8D2", marginLeft: "auto" }}>
+                      {new Date(c.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 14, color: "#374151", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{c.text}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Related posts */}
+      {relatedPosts.length > 0 && (
+        <div style={{ marginTop: "2.5rem", paddingTop: "1.5rem", borderTop: "0.5px solid #f0f0f0" }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "#1E3A5F", marginBottom: "1rem" }}>More posts</div>
+          {relatedPosts.map(p => {
+            const rc = CATEGORY_META[p.category] || CATEGORY_META.general;
+            return (
+              <div
+                key={p.id}
+                onClick={() => setPost(p)}
+                style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 10, padding: "1rem 1.25rem", marginBottom: 10, cursor: "pointer" }}
+                onMouseEnter={e => e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.06)"}
+                onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span style={{ background: rc.bg, color: rc.text, fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 500 }}>{rc.label}</span>
+                  <span style={{ fontSize: 11, color: "#aaa" }}>{p.author_name}</span>
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>{p.title}</div>
+                <div style={{ fontSize: 12, color: "#64748B", lineHeight: 1.5 }}>
+                  {p.body.length > 100 ? p.body.slice(0, 100).trimEnd() + "…" : p.body}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -8554,7 +9024,7 @@ function PostsFeedPage({ user, setPage }) {
         </div>
       )}
 
-      {loading && <div style={{ textAlign: "center", padding: "4rem", color: "#64748B", fontSize: 14 }}>Loading posts…</div>}
+      {loading && [0,1,2].map(i => <SkeletonPostCard key={i} />)}
       {error   && <div style={{ background: "#FAECE7", color: "#993C1D", borderRadius: 8, padding: "12px 16px", fontSize: 13, marginBottom: "1rem" }}>{error}</div>}
 
       {!loading && !error && sorted.length === 0 && (
@@ -8691,7 +9161,7 @@ function CreateEditPostPage({ user, setPage, editPost = null, onSaved, onCancelB
       onSaved({ ...editPost, title, body, category, updated_at: new Date().toISOString() });
     } else {
       await supabase.auth.refreshSession();
-      setPage("community-posts");
+      setPage("posts");
     }
   }
 
@@ -9728,7 +10198,7 @@ function MessagesPage({ user, initialConversationId, setPage, onViewProfile, onV
               Conversations
             </div>
             {loading ? (
-              <div style={{ padding: "2rem", textAlign: "center", color: "#aaa", fontSize: 13 }}>Loading…</div>
+              <div>{[0,1,2,3].map(i => <SkeletonConversationRow key={i} />)}</div>
             ) : conversations.length === 0 ? (
               <div style={{ padding: "2.5rem 1.5rem", textAlign: "center" }}>
                 <div style={{ fontSize: 36, marginBottom: 10 }}>💬</div>
@@ -10337,7 +10807,7 @@ function PostsSection({ user, setPage, onMessage }) {
   if (viewingPost) {
     return (
       <>
-        <div key={contentKey} style={{ opacity: 0, animation: contentKey > 0 ? "lbFadeIn 0.3s ease forwards" : "none" }}>
+        <div key={contentKey} style={{ animation: contentKey > 0 ? "lbFadeIn 0.3s ease forwards" : "none" }}>
         <PostDetailPage
           post={viewingPost}
           user={user}
@@ -10370,11 +10840,10 @@ function PostsSection({ user, setPage, onMessage }) {
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.25rem", gap: 12 }}>
-        <p style={{ margin: 0, fontSize: 13, color: "#64748B" }}>What builders and lenders are saying</p>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginBottom: "1.25rem" }}>
         <button
           onClick={() => user ? setPage("create-post") : setPage("auth")}
-          style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "9px 18px", minHeight: 44, borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
+          style={{ background: "#3B82F6", color: "#fff", border: "none", padding: "9px 18px", minHeight: 44, borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer" }}
         >
           + Create post
         </button>
@@ -10454,19 +10923,30 @@ function FullScreenCommunityPage({ title, onBack, children }) {
   );
 }
 
-function CommunityPostsPage({ user, setPage, onMessage }) {
+function CommunityPostsPage({ user, setPage, onMessage, showBack = false }) {
   return (
-    <FullScreenCommunityPage title="Posts" onBack={() => setPage("posts")}>
-      <div style={{ padding: "1rem 1.25rem" }}>
-        <PostsSection user={user} setPage={setPage} onMessage={onMessage} />
+    <div style={{ maxWidth: 780, margin: "0 auto", padding: "1.5rem 1.25rem" }}>
+      {showBack && (
+        <button
+          onClick={() => setPage("community")}
+          style={{ background: "none", border: "none", color: "#3B82F6", fontSize: 13, cursor: "pointer", padding: 0, marginBottom: "1.25rem", display: "flex", alignItems: "center", gap: 4, fontWeight: 500 }}
+        >
+          ← Back to Community Hub
+        </button>
+      )}
+      <div style={{ marginBottom: "1.25rem" }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Community</div>
+        <h2 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Posts</h2>
+        <p style={{ fontSize: 13, color: "#64748B", margin: "4px 0 0" }}>What builders and lenders are saying</p>
       </div>
-    </FullScreenCommunityPage>
+      <PostsSection user={user} setPage={setPage} onMessage={onMessage} />
+    </div>
   );
 }
 
 function CommunityGroupsPage({ user, setPage }) {
   return (
-    <FullScreenCommunityPage title="Groups" onBack={() => setPage("posts")}>
+    <FullScreenCommunityPage title="Groups" onBack={() => setPage("community")}>
       <div style={{ padding: "1rem 1.25rem" }}>
         <GroupsTab user={user} setPage={setPage} fullScreen />
       </div>
@@ -10476,7 +10956,7 @@ function CommunityGroupsPage({ user, setPage }) {
 
 function CommunityChatPage({ user, setPage }) {
   return (
-    <FullScreenCommunityPage title="Chat" onBack={() => setPage("posts")}>
+    <FullScreenCommunityPage title="Chat" onBack={() => setPage("community")}>
       <CommunityChatSection user={user} setPage={setPage} />
     </FullScreenCommunityPage>
   );
@@ -10497,11 +10977,10 @@ function CommunityPage({ user, setPage, onMessage }) {
         <div style={{ marginBottom: "1.5rem" }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>LenderBuild</div>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>Community Hub</h1>
-          <p style={{ fontSize: 13, color: "#64748B", margin: 0 }}>Posts, groups and live chat for builders and lenders</p>
+          <p style={{ fontSize: 13, color: "#64748B", margin: 0 }}>Groups and live chat for builders and lenders</p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {[
-            { page: "community-posts", emoji: "📝", title: "Posts", desc: "Read and share posts with the community" },
             { page: "community-groups", emoji: "👥", title: "Groups", desc: "Join local area groups and connect with others" },
             { page: "community-chat", emoji: "💬", title: "Chat", desc: "Live chat with builders and lenders" },
           ].map(item => (
@@ -13014,119 +13493,6 @@ function AboutPage({ setPage }) {
   );
 }
 
-// ─── RECOMMENDED SOLICITORS ───────────────────────────────────────────────────
-
-const PARTNER_SOLICITORS = [
-  {
-    id: "bennett-associates",
-    name: "Bennett & Associates",
-    initials: "B&A",
-    colour: "#1E3A5F",
-    specialisation: "Property development finance & secured lending",
-    price: "£350",
-    priceNote: "Fixed fee — standard deal agreement",
-    email: "info@bennett-associates.co.uk",
-  },
-  {
-    id: "morgan-legal",
-    name: "Morgan Legal LLP",
-    initials: "ML",
-    colour: "#16A34A",
-    specialisation: "Bridging loans, development finance & legal charges",
-    price: "£375",
-    priceNote: "Fixed fee — standard deal agreement",
-    email: "property@morganlegal.co.uk",
-  },
-  {
-    id: "clarke-whitfield",
-    name: "Clarke Whitfield LLP",
-    initials: "CW",
-    colour: "#7C3AED",
-    specialisation: "Property finance, Land Registry charges & conveyancing",
-    price: "£320",
-    priceNote: "Fixed fee — standard deal agreement",
-    email: "enquiries@clarkewhitfield.co.uk",
-  },
-];
-
-function RecommendedSolicitors({ user, deal }) {
-  const [sending, setSending] = useState({});
-  const [sent, setSent]       = useState({});
-
-  async function handleContact(solicitor) {
-    if (sending[solicitor.id] || sent[solicitor.id]) return;
-    setSending(s => ({ ...s, [solicitor.id]: true }));
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const milestones   = deal?.milestones || [];
-      const totalAmount  = milestones.reduce((s, m) => s + Number(m.amount), 0);
-      await fetch("/api/notify-message", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(session ? { Authorization: `Bearer ${session.access_token}` } : {}),
-        },
-        body: JSON.stringify({
-          action:          "contact-solicitor",
-          solicitor_id:    solicitor.id,
-          solicitor_name:  solicitor.name,
-          solicitor_email: solicitor.email,
-          deal_id:         deal?.id   || null,
-          deal_title:      deal?.title || null,
-          deal_value:      deal && totalAmount ? `£${totalAmount.toLocaleString("en-GB")}` : null,
-        }),
-      });
-      setSent(s => ({ ...s, [solicitor.id]: true }));
-    } catch (_) {
-      /* fire-and-forget */
-    } finally {
-      setSending(s => ({ ...s, [solicitor.id]: false }));
-    }
-  }
-
-  return (
-    <div style={{ marginTop: "2rem" }}>
-      <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Recommended Solicitors</h3>
-      <p style={{ fontSize: 13, color: "#64748B", marginBottom: "1.25rem", lineHeight: 1.5 }}>
-        These partner firms specialise in property development finance and offer fixed-price services to LenderBuild users.
-      </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {PARTNER_SOLICITORS.map(s => (
-          <div key={s.id} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", display: "flex", alignItems: "flex-start", gap: 14, flexWrap: "wrap" }}>
-            <div style={{ width: 48, height: 48, borderRadius: 10, background: s.colour, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
-              {s.initials}
-            </div>
-            <div style={{ flex: 1, minWidth: 180 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 15, fontWeight: 600 }}>{s.name}</span>
-                <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20, background: "#FEF3C7", color: "#92400E", textTransform: "uppercase", letterSpacing: "0.05em" }}>Partner</span>
-              </div>
-              <div style={{ fontSize: 12, color: "#64748B", marginBottom: 6 }}>{s.specialisation}</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#16A34A" }}>
-                {s.price} <span style={{ fontSize: 11, fontWeight: 400, color: "#64748B" }}>— {s.priceNote}</span>
-              </div>
-            </div>
-            <div style={{ flexShrink: 0 }}>
-              {sent[s.id]
-                ? <div style={{ fontSize: 13, color: "#16A34A", fontWeight: 500, padding: "8px 0" }}>Enquiry sent ✓</div>
-                : <button
-                    onClick={() => handleContact(s)}
-                    disabled={!!sending[s.id]}
-                    style={{ padding: "9px 16px", background: "#1E3A5F", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: sending[s.id] ? "wait" : "pointer", opacity: sending[s.id] ? 0.7 : 1, whiteSpace: "nowrap" }}>
-                    {sending[s.id] ? "Sending…" : "Contact this solicitor"}
-                  </button>
-              }
-            </div>
-          </div>
-        ))}
-      </div>
-      <p style={{ fontSize: 11, color: "#94A3B8", marginTop: 14, lineHeight: 1.5 }}>
-        LenderBuild may receive a referral fee from recommended solicitors. This does not affect the advice you receive.
-      </p>
-    </div>
-  );
-}
-
 // ─── DEAL ROOM PAGE ───────────────────────────────────────────────────────────
 
 function DealRoomPage({ user, setPage, deal }) {
@@ -13196,7 +13562,7 @@ function DealRoomPage({ user, setPage, deal }) {
     ...docs.filter(d => d.uploaded_at).map(d => ({ date: d.uploaded_at, label: `Document uploaded: ${d.doc_type?.replace(/_/g, " ")}`, color: "#D97706" })),
   ].sort((a, b) => new Date(a.date) - new Date(b.date));
 
-  const tabs = ["Summary", "Documents", "Timeline", "Notes", "Milestones", "Messages", "Solicitors"];
+  const tabs = ["Summary", "Documents", "Timeline", "Notes", "Milestones", "Messages"];
 
   const statusColors = { pending: { bg: "#F1EFE8", text: "#5F5E5A" }, completed: { bg: "#EBF2FF", text: "#1E3A5F" }, approved: { bg: "#FEF3C7", text: "#B45309" }, payment_sent: { bg: "#EEEDFE", text: "#534AB7" }, paid: { bg: "#E1F5EE", text: "#0F6E56" } };
   const statusLabels = { pending: "Pending", completed: "Awaiting approval", approved: "Approved — awaiting transfer", payment_sent: "Transfer sent — confirm receipt", paid: "Paid" };
@@ -13391,13 +13757,6 @@ function DealRoomPage({ user, setPage, deal }) {
           <button onClick={() => setPage("messages")} style={{ padding: "10px 24px", background: "#3B82F6", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
             Go to Messages
           </button>
-        </div>
-      )}
-
-      {/* ── Solicitors ── */}
-      {activeTab === "solicitors" && (
-        <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.5rem" }}>
-          <RecommendedSolicitors user={user} deal={deal} />
         </div>
       )}
 
@@ -13853,17 +14212,17 @@ function MarketPage({ setPage }) {
             <MktSectionLabel>LenderBuild Platform</MktSectionLabel>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10, marginBottom: "2rem" }}>
               {[
-                { label: "Capital matched",     value: fmtM(platformStats?.totalCapital),       icon: "💰" },
-                { label: "Total deals",         value: platformStats?.totalDeals ?? "—",         icon: "🤝" },
-                { label: "Completed deals",     value: platformStats?.completedDeals ?? "—",     icon: "✅" },
-                { label: "Avg. deal size",      value: fmtM(platformStats?.avgDealSize),         icon: "📊" },
-                { label: "Finder's fees paid",  value: fmtM(platformStats?.totalFees),           icon: "🏦" },
-                { label: "Avg. interest rate",  value: platformStats?.avgRate ? `${platformStats.avgRate}%` : "—", icon: "📈" },
-                { label: "Active lenders",      value: platformStats?.activeLenders ?? "—",      icon: "🏛️" },
-                { label: "Active builders",     value: platformStats?.activeBuilders ?? "—",     icon: "🔨" },
+                { label: "Capital matched",     value: fmtM(platformStats?.totalCapital),       icon: "dollar" },
+                { label: "Total deals",         value: platformStats?.totalDeals ?? "—",         icon: "handshake" },
+                { label: "Completed deals",     value: platformStats?.completedDeals ?? "—",     icon: "check-circle" },
+                { label: "Avg. deal size",      value: fmtM(platformStats?.avgDealSize),         icon: "bar-chart" },
+                { label: "Finder's fees paid",  value: fmtM(platformStats?.totalFees),           icon: "bank" },
+                { label: "Avg. interest rate",  value: platformStats?.avgRate ? `${platformStats.avgRate}%` : "—", icon: "trending-up" },
+                { label: "Active lenders",      value: platformStats?.activeLenders ?? "—",      icon: "users" },
+                { label: "Active builders",     value: platformStats?.activeBuilders ?? "—",     icon: "hard-hat" },
               ].map(s => (
                 <div key={s.label} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1rem", textAlign: "center" }}>
-                  <div style={{ fontSize: 22, marginBottom: 6 }}>{s.icon}</div>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 6 }}><Icon name={s.icon} size={22} className="lb-icon" /></div>
                   <div style={{ fontSize: 17, fontWeight: 700, color: "#1E3A5F" }}>{s.value}</div>
                   <div style={{ fontSize: 11, color: "#64748B", marginTop: 3 }}>{s.label}</div>
                 </div>
@@ -14506,7 +14865,7 @@ function DealsPage({ user, setPage, setCelebration }) {
                     outline: selectedTemplate?.id === tpl.id ? "2px solid #3B82F6" : "none",
                   }}
                 >
-                  <div style={{ fontSize: 20, marginBottom: 4 }}>{tpl.icon}</div>
+                  <div style={{ marginBottom: 4 }}><Icon name={tpl.icon} size={20} className="lb-icon" /></div>
                   <div style={{ fontSize: 12, fontWeight: 600, color: "#1E3A5F", marginBottom: 2, lineHeight: 1.3 }}>{tpl.name}</div>
                   <div style={{ fontSize: 11, color: "#64748B", lineHeight: 1.4 }}>{tpl.typical}</div>
                 </button>
@@ -15137,7 +15496,6 @@ Yours sincerely,
           )}
         </div>
       ))}
-      <RecommendedSolicitors user={user} deal={null} />
     </div>
   );
 }
@@ -17365,13 +17723,13 @@ function NotificationsPage({ user }) {
   }
 
   const typeIcons = {
-    connection_request:  { icon: "🤝", label: "Connection" },
-    connection_accepted: { icon: "✅", label: "Connected" },
-    message:             { icon: "💬", label: "Message" },
-    milestone_complete:  { icon: "📋", label: "Milestone" },
-    milestone_approved:  { icon: "💰", label: "Payment" },
-    deal_created:        { icon: "📊", label: "Deal" },
-    document_approved:   { icon: "📄", label: "Document" },
+    connection_request:  { icon: "handshake",   label: "Connection" },
+    connection_accepted: { icon: "check-circle", label: "Connected" },
+    message:             { icon: "message",      label: "Message" },
+    milestone_complete:  { icon: "clipboard",    label: "Milestone" },
+    milestone_approved:  { icon: "dollar",       label: "Payment" },
+    deal_created:        { icon: "bar-chart",    label: "Deal" },
+    document_approved:   { icon: "file",         label: "Document" },
     repayment_due:       { icon: "⏰", label: "Repayment" },
   };
 
@@ -17442,13 +17800,13 @@ function NotificationsPage({ user }) {
             <div style={{ fontSize: 11, fontWeight: 600, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>{group}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {items.map(n => {
-                const ti = typeIcons[n.type] || { icon: "🔔", label: n.type };
+                const ti = typeIcons[n.type] || { icon: "bell", label: n.type };
                 return (
                   <div key={n.id}
                     onClick={() => !n.read && markRead(n.id)}
                     style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "12px 16px", background: n.read ? "#fff" : "#EBF5FF", borderRadius: 10, border: "0.5px solid #e0e0e0", cursor: n.read ? "default" : "pointer", position: "relative" }}
                   >
-                    <span style={{ fontSize: 20, lineHeight: 1, flexShrink: 0 }}>{ti.icon}</span>
+                    <Icon name={ti.icon} size={20} className="lb-icon" />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, color: "#1E3A5F", lineHeight: 1.45 }}>{n.message}</div>
                       <div style={{ fontSize: 11, color: "#aaa", marginTop: 4 }}>{fmtTimeAgo(n.created_at)}</div>
@@ -17741,13 +18099,13 @@ function AnalyticsPage({ user }) {
       {summary && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: "2rem" }}>
           {[
-            { label: "Total deals", val: summary.totalDeals, icon: "📊" },
-            { label: "Capital matched", val: fmtM(summary.totalCapital), icon: "💰" },
-            { label: "Finder's fees", val: fmtM(summary.totalFees), icon: "🏦" },
-            { label: "Avg deal size", val: fmtM(summary.avgDeal), icon: "📈" },
+            { label: "Total deals", val: summary.totalDeals, icon: "bar-chart" },
+            { label: "Capital matched", val: fmtM(summary.totalCapital), icon: "dollar" },
+            { label: "Finder's fees", val: fmtM(summary.totalFees), icon: "bank" },
+            { label: "Avg deal size", val: fmtM(summary.avgDeal), icon: "trending-up" },
           ].map(({ label, val, icon }) => (
             <div key={label} style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-              <div style={{ fontSize: 11, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>{icon} {label}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}><Icon name={icon} size={13} className="lb-icon" /> {label}</div>
               <div style={{ fontSize: 26, fontWeight: 700, color: "#1E3A5F" }}>{val}</div>
             </div>
           ))}
@@ -18640,28 +18998,28 @@ function DevPanel({ user, onClose, devRoleOverride, setDevRoleOverride }) {
 }
 
 const PALETTE_COMMANDS = [
-  { cat: "Navigation", label: "Dashboard",          target: "home",                    icon: "🏠" },
-  { cat: "Navigation", label: "Find lender",         target: "search",                  icon: "💰" },
-  { cat: "Navigation", label: "Find builder",        target: "find-builder",            icon: "🔨" },
-  { cat: "Navigation", label: "Browse projects",     target: "browse-projects",         icon: "🏗️" },
-  { cat: "Navigation", label: "Messages",            target: "messages",                icon: "💬" },
-  { cat: "Navigation", label: "My deals",            target: "deals",                   icon: "📊" },
-  { cat: "Navigation", label: "Leaderboard",         target: "leaderboard",             icon: "🏆" },
-  { cat: "Navigation", label: "Community",           target: "community",               icon: "👥" },
-  { cat: "Navigation", label: "Posts",               target: "posts",                   icon: "📝" },
-  { cat: "Navigation", label: "Market Intelligence", target: "market",                  icon: "📈" },
-  { cat: "Navigation", label: "Build Calculator",    target: "build-calculator",        icon: "🧮" },
-  { cat: "Navigation", label: "Returns Calculator",  target: "build-calculator",        icon: "💰" },
-  { cat: "Navigation", label: "Notifications",       target: "notifications",           icon: "🔔" },
-  { cat: "Navigation", label: "Disputes",            target: "disputes",                icon: "⚖️" },
-  { cat: "Actions",    label: "Post a project",      target: "create-project-listing",  icon: "➕" },
-  { cat: "Actions",    label: "Create a post",       target: "create-post",             icon: "✏️" },
-  { cat: "Actions",    label: "Saved profiles",      target: "saved-profiles",          icon: "🤍" },
-  { cat: "Settings",   label: "Settings",            target: "account",                 icon: "⚙️" },
-  { cat: "Settings",   label: "Edit profile",        target: "profile-setup",           icon: "👤" },
-  { cat: "Settings",   label: "How it works",        target: "how-it-works",            icon: "❓" },
-  { cat: "Settings",   label: "Trust & Safety",      target: "safety",                  icon: "🛡️" },
-  { cat: "Developer",  label: "/dev — Developer panel", target: "__dev_panel__",           icon: "🛠" },
+  { cat: "Navigation", label: "Dashboard",          target: "home",                    icon: "home" },
+  { cat: "Navigation", label: "Find lender",         target: "search",                  icon: "search" },
+  { cat: "Navigation", label: "Find builder",        target: "find-builder",            icon: "hammer" },
+  { cat: "Navigation", label: "Browse projects",     target: "browse-projects",         icon: "hard-hat" },
+  { cat: "Navigation", label: "Messages",            target: "messages",                icon: "message" },
+  { cat: "Navigation", label: "My deals",            target: "deals",                   icon: "bar-chart" },
+  { cat: "Navigation", label: "Leaderboard",         target: "leaderboard",             icon: "trophy" },
+  { cat: "Navigation", label: "Community",           target: "community",               icon: "users" },
+  { cat: "Navigation", label: "Posts",               target: "posts",                   icon: "pencil" },
+  { cat: "Navigation", label: "Market Intelligence", target: "market",                  icon: "trending-up" },
+  { cat: "Navigation", label: "Build Calculator",    target: "build-calculator",        icon: "calculator" },
+  { cat: "Navigation", label: "Returns Calculator",  target: "build-calculator",        icon: "dollar" },
+  { cat: "Navigation", label: "Notifications",       target: "notifications",           icon: "bell" },
+  { cat: "Navigation", label: "Disputes",            target: "disputes",                icon: "scale" },
+  { cat: "Actions",    label: "Post a project",      target: "create-project-listing",  icon: "plus" },
+  { cat: "Actions",    label: "Create a post",       target: "create-post",             icon: "edit" },
+  { cat: "Actions",    label: "Saved profiles",      target: "saved-profiles",          icon: "heart" },
+  { cat: "Settings",   label: "Settings",            target: "account",                 icon: "settings" },
+  { cat: "Settings",   label: "Edit profile",        target: "profile-setup",           icon: "user" },
+  { cat: "Settings",   label: "How it works",        target: "how-it-works",            icon: "circle-help" },
+  { cat: "Settings",   label: "Trust & Safety",      target: "safety",                  icon: "shield" },
+  { cat: "Developer",  label: "/dev — Developer panel", target: "__dev_panel__",           icon: "settings" },
 ];
 
 function CommandPalette({ open, onClose, setPage, user, onOpenDevPanel, onViewProfile, onViewBuilderProfile }) {
@@ -18781,7 +19139,7 @@ function CommandPalette({ open, onClose, setPage, user, onOpenDevPanel, onViewPr
                   return (
                     <button key={cmd.target + cmd.label} onClick={() => go(cmd.target)} onMouseEnter={() => setCursor(globalIdx)}
                       style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 16px", fontSize: 14, background: active ? "#EBF2FF" : "transparent", border: "none", cursor: "pointer", textAlign: "left", color: active ? "#1E3A5F" : "#374151" }}>
-                      <span style={{ fontSize: 16, flexShrink: 0 }}>{cmd.icon}</span>
+                      <Icon name={cmd.icon} size={16} className="lb-icon" />
                       <span style={{ fontWeight: active ? 600 : 400 }}>{cmd.label}</span>
                       {active && <span style={{ marginLeft: "auto", fontSize: 11, color: "#94A3B8" }}>↵ Open</span>}
                     </button>
@@ -18918,7 +19276,7 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
   const displayName = user?.user_metadata?.name || user?.email?.split("@")[0] || "";
   const [savedAccounts, setSavedAccounts] = useState(() => getSavedAccounts().filter(a => a.user_id !== user?.id));
   const [switchLoadingId, setSwitchLoadingId] = useState(null);
-  const [showSwitchOverlay, setShowSwitchOverlay] = useState(false);
+  const [showSwitchOverlay, setShowSwitchOverlay] = useState("");
   const [expiredAcct, setExpiredAcct] = useState(null);
   const [expiredPassword, setExpiredPassword] = useState("");
   const [expiredError, setExpiredError] = useState("");
@@ -18957,23 +19315,28 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
     }
   }
 
-  function doSwitchRedirect() {
-    setShowSwitchOverlay(true);
+  function doSwitchRedirect(acctFirstName) {
+    if (acctFirstName) sessionStorage.setItem("lb_switching", JSON.stringify({ name: acctFirstName }));
+    setShowSwitchOverlay(acctFirstName || "account");
     setTimeout(() => { window.location.href = "/"; }, 300);
   }
 
   async function handleSwitch(acct) {
     setSwitchLoadingId(acct.user_id);
+    // Capture current tokens before any setSession call so we can restore on failure
+    const { data: { session: curSess } } = await supabase.auth.getSession();
     await saveCurrentSession();
     const { error } = await supabase.auth.setSession({ access_token: acct.access_token, refresh_token: acct.refresh_token });
     if (error) {
+      // Restore the current session so the user is NOT logged out
+      if (curSess) await supabase.auth.setSession({ access_token: curSess.access_token, refresh_token: curSess.refresh_token });
       setSwitchLoadingId(null);
       setExpiredAcct(acct);
       setExpiredPassword("");
       setExpiredError("");
       return;
     }
-    doSwitchRedirect();
+    doSwitchRedirect(acct.name?.split(" ")[0] || acct.email.split("@")[0]);
   }
 
   async function handleSwitchWithPassword(e) {
@@ -18983,7 +19346,7 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
     const { data, error } = await supabase.auth.signInWithPassword({ email: expiredAcct.email, password: expiredPassword });
     if (error) { setSwitchLoadingId(null); setExpiredError(error.message); return; }
     upsertSavedAccount({ ...expiredAcct, access_token: data.session.access_token, refresh_token: data.session.refresh_token });
-    doSwitchRedirect();
+    doSwitchRedirect(expiredAcct.name?.split(" ")[0] || expiredAcct.email.split("@")[0]);
   }
 
   async function handleAddAccount(e) {
@@ -19004,6 +19367,8 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
       role: newAcctRole, member_id: newProf?.sequential_id || null,
       access_token: data.session.access_token, refresh_token: data.session.refresh_token,
     });
+    const addFirstName = (data.user.user_metadata?.name || data.user.email.split("@")[0]).split(" ")[0];
+    sessionStorage.setItem("lb_switching", JSON.stringify({ name: addFirstName }));
     window.location.href = "/";
   }
 
@@ -19030,7 +19395,7 @@ function ProfileMenuPage({ user, setPage, onLogout }) {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, color: "rgba(255,255,255,0.75)", fontSize: 15 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "lb-spin 0.8s linear infinite" }}><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
-            Switching account…
+            Switching to {showSwitchOverlay}…
           </div>
           <style>{`@keyframes lb-spin { to { transform: rotate(360deg); } }`}</style>
         </div>
@@ -19513,7 +19878,7 @@ export default function App() {
       "help", "how-it-works", "safety", "about", "privacy", "terms",
       "risk-warning", "legal-resources", "status", "search", "find-builder",
       "browse-projects", "leaderboard", "market", "build-calculator",
-      "posts", "auth", "forgot-password",
+      "posts", "community", "community-posts", "auth", "forgot-password",
     ]);
     return DEEP_LINK.has(path) ? path : "home";
   });
@@ -19623,6 +19988,18 @@ export default function App() {
       });
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Fade out account-switch overlay once the new user session is ready ───────
+  useEffect(() => {
+    if (!user) return;
+    const overlay = document.getElementById("lb-switch-overlay");
+    if (!overlay) return;
+    window.__lb_account_switching = false;
+    overlay.style.transition = "opacity 300ms ease";
+    overlay.style.opacity = "0";
+    const t = setTimeout(() => { try { overlay.remove(); } catch(e) {} }, 300);
+    return () => clearTimeout(t);
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Onboarding tour trigger ────────────────────────────────────────────────
   useEffect(() => {
     if (!user || tourShownRef.current) return;
@@ -19713,6 +20090,27 @@ export default function App() {
       .select("id", { count: "exact", head: true })
       .gt("created_at", new Date(parseInt(lastVisit)).toISOString())
       .then(({ count }) => { setCommunityBadge((count || 0) > 0); });
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── After Stripe finder's-fee payment, redirect to that deal's room ─────────
+  useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    const dealId = params.get("finder_fee_paid");
+    if (!dealId) return;
+    // Clear the Stripe params from the URL immediately
+    window.history.replaceState(null, "", "/");
+    // Fetch all user deals then open the matching one
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) { navigateTo("deals"); return; }
+      fetch("/api/deals", { headers: { Authorization: `Bearer ${session.access_token}` } })
+        .then(r => r.json())
+        .then(d => {
+          const deal = (d.deals || []).find(dl => String(dl.id) === String(dealId));
+          navigateTo(deal ? "deal-room" : "deals", deal || undefined);
+        })
+        .catch(() => navigateTo("deals"));
+    });
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { pageRef.current = page; }, [page]);
@@ -19934,11 +20332,12 @@ export default function App() {
           {(page === "home" || page === "home-dashboard") && (!user ? <HomePage setPage={navigateTo} user={user} onViewProfile={handleViewProfile} /> : <DashboardPage user={user} setPage={navigateTo} onViewProfile={handleViewProfile} onViewBuilderProfile={handleViewBuilderProfile} onMessage={handleOpenConversation} viewerRoleProfile={viewerRoleProfile} userProfile={userProfile} page={page} />)}
           {page === "search"           && <SearchPage         setPage={navigateTo} user={user} onViewProfile={handleViewProfile} viewerRoleProfile={viewerRoleProfile} />}
           {page === "find-builder"     && <FindBuilderPage    setPage={navigateTo} user={user} onMessage={handleOpenConversation} onViewProfile={handleViewBuilderProfile} viewerRoleProfile={viewerRoleProfile} />}
-          {page === "posts"            && <CommunityPage user={user} setPage={navigateTo} onMessage={handleOpenConversation} />}
-          {page === "community-posts"  && <CommunityPostsPage user={user} setPage={navigateTo} onMessage={handleOpenConversation} />}
+          {page === "community"        && <CommunityPage      user={user} setPage={navigateTo} onMessage={handleOpenConversation} />}
+          {page === "posts"            && <CommunityPostsPage user={user} setPage={navigateTo} onMessage={handleOpenConversation} showBack={false} />}
+          {page === "community-posts"  && <CommunityPostsPage user={user} setPage={navigateTo} onMessage={handleOpenConversation} showBack={true} />}
           {page === "community-groups" && <CommunityGroupsPage user={user} setPage={navigateTo} />}
           {page === "community-chat"   && <CommunityChatPage user={user} setPage={navigateTo} />}
-          {page === "post-detail"      && (selectedPost ? <PostDetailPage post={selectedPost} user={user} setPage={navigateTo} onMessage={handleOpenConversation} onEdit={post => navigateTo("edit-post", post)} onDelete={async (postId) => { const { data: { session } } = await supabase.auth.getSession(); if (session) fetch("/api/posts", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ action: "delete", post_id: postId }) }).catch(() => {}); navigateTo("posts"); }} /> : <CommunityPage user={user} setPage={navigateTo} onMessage={handleOpenConversation} />)}
+          {page === "post-detail"      && (selectedPost ? <PostDetailPage post={selectedPost} user={user} setPage={navigateTo} onMessage={handleOpenConversation} onEdit={post => navigateTo("edit-post", post)} onDelete={async (postId) => { const { data: { session } } = await supabase.auth.getSession(); if (session) fetch("/api/posts", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ action: "delete", post_id: postId }) }).catch(() => {}); navigateTo("posts"); }} /> : <CommunityPostsPage user={user} setPage={navigateTo} onMessage={handleOpenConversation} showBack={false} />)}
           {page === "my-posts"         && user && <MyPostsPage        user={user} setPage={navigateTo} />}
           {page === "create-post"      && user && <CreateEditPostPage user={user} setPage={navigateTo} />}
           {page === "edit-post"        && user && <CreateEditPostPage user={user} setPage={navigateTo} editPost={editingPost} />}
@@ -19979,7 +20378,6 @@ export default function App() {
           {page === "disputes"                && user && <DisputesPage user={user} setPage={navigateTo} />}
           {page === "browse-projects"         && <BrowseProjectsPage user={user} setPage={navigateTo} />}
           {page === "create-project-listing"  && user && <CreateProjectListingPage user={user} setPage={navigateTo} />}
-          {page === "community"               && <CommunityPage user={user} setPage={navigateTo} onMessage={handleOpenConversation} />}
           {page === "analytics"               && user && user.user_metadata?.role === "admin" && <AnalyticsPage user={user} />}
           {page === "privacy"       && <PrivacyPolicyPage  setPage={navigateTo} />}
           {page === "terms"         && <TermsPage           setPage={navigateTo} />}
