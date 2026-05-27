@@ -498,80 +498,112 @@ module.exports = async function handler(req, res) {
   // ── FUNDING-ROOM-JOIN-POST ────────────────────────────────────────────────
   // Lender joins a funding room linked to a community post (not a project listing)
   if (action === "funding-room-join-post") {
-    console.log("[funding-room-join-post] start", { user_id: user.id, userRole });
+    console.log("[frjp] start user_id=%s role=%s", user.id, userRole);
     try {
       if (userRole !== "lender") return res.status(403).json({ error: "Lenders only" });
       const { post_id, post_author_id, amount } = req.body;
-      console.log("[funding-room-join-post] params", { post_id, post_author_id, amount });
+      console.log("[frjp] params post_id=%s post_author_id=%s amount=%s", post_id, post_author_id, amount);
       if (!post_id || !post_author_id || !amount) return res.status(400).json({ error: "post_id, post_author_id, amount required" });
       const joinAmount = Number(amount);
       if (!Number.isFinite(joinAmount) || joinAmount <= 0) return res.status(400).json({ error: "Invalid amount" });
 
-      // Find the funding room by listing_id = post_id
-      console.log("[funding-room-join-post] looking up room for post_id", post_id);
-      const { data: room, error: roomErr } = await supabase.from("funding_rooms").select("*").eq("listing_id", post_id).maybeSingle();
-      console.log("[funding-room-join-post] room lookup result", { room: room?.id, status: room?.status, roomErr: roomErr?.message });
+      // Protect against TypeError: user.email?.split("@")[0] throws if email is null
+      const lenderName = sanitizeStr(
+        user.user_metadata?.name || user.email?.split("@")?.[0] || "Lender",
+        100
+      );
+      console.log("[frjp] lenderName=%s", lenderName);
+
+      // ── 1. Find the funding room ──────────────────────────────────────────
+      console.log("[frjp] looking up room for listing_id=%s", post_id);
+      const { data: existingRoom, error: roomErr } = await supabase
+        .from("funding_rooms").select("*").eq("listing_id", post_id).maybeSingle();
+      console.log("[frjp] room lookup: id=%s status=%s err=%s",
+        existingRoom?.id, existingRoom?.status, roomErr?.message);
       if (roomErr) return res.status(500).json({ error: `Room lookup failed: ${roomErr.message}` });
+
+      let room = existingRoom;
+
+      // ── 2. Auto-create room if missing (post was created before auto-room logic) ──
       if (!room) {
-        // Auto-create room if it wasn't created when the post was made
-        console.log("[funding-room-join-post] no room found — auto-creating");
+        console.log("[frjp] no room — auto-creating for post_id=%s builder=%s", post_id, post_author_id);
         const { data: newRoom, error: createErr } = await supabase.from("funding_rooms").insert({
           listing_id: post_id, builder_id: post_author_id,
           target_amount: 0, committed_amount: 0, status: "open",
         }).select().single();
-        console.log("[funding-room-join-post] auto-create result", { id: newRoom?.id, createErr: createErr?.message });
-        if (createErr) return res.status(404).json({ error: "Funding room not found and could not be created" });
-        return res.status(200).json({ ok: true, room_id: newRoom.id, auto_created: true });
+        console.log("[frjp] auto-create: id=%s err=%s", newRoom?.id, createErr?.message);
+        if (createErr || !newRoom) {
+          return res.status(500).json({ error: `Could not create funding room: ${createErr?.message || "no data returned"}` });
+        }
+        room = newRoom;
       }
+
       if (room.status === "fully_funded") return res.status(400).json({ error: "Room is already fully funded" });
 
-      const lenderName = sanitizeStr(user.user_metadata?.name || user.email?.split("@")[0] || "Lender", 100);
+      // ── 3. Check if already a member — just return room_id so they navigate in ──
+      console.log("[frjp] checking existing membership room_id=%s lender_id=%s", room.id, user.id);
+      const { data: existingMember, error: memCheckErr } = await supabase
+        .from("funding_room_members").select("id, amount").eq("room_id", room.id).eq("lender_id", user.id).maybeSingle();
+      console.log("[frjp] membership check: found=%s err=%s", !!existingMember, memCheckErr?.message);
+      if (existingMember) {
+        console.log("[frjp] already a member — returning room_id directly");
+        return res.status(200).json({ ok: true, room_id: room.id, already_member: true });
+      }
 
-      // Build upsert payload — omit `status` if column may not exist (graceful degradation)
+      // ── 4. Insert member ──────────────────────────────────────────────────
       const memberPayload = {
         room_id: room.id, lender_id: user.id, lender_name: lenderName,
         amount: joinAmount, joined_at: new Date().toISOString(),
       };
-      console.log("[funding-room-join-post] upserting member", { room_id: room.id, lender_id: user.id, amount: joinAmount });
-      let memberErr;
-      ({ error: memberErr } = await supabase.from("funding_room_members").upsert(
+      console.log("[frjp] inserting member payload=%j", memberPayload);
+
+      // Try with status column first; fall back without it if migration v2 not run
+      let insertResult = await supabase.from("funding_room_members").upsert(
         { ...memberPayload, status: "committed" },
         { onConflict: "room_id,lender_id" }
-      ));
-      if (memberErr) {
-        // If status column is missing (migration v2 not run), retry without it
-        if (memberErr.message?.includes("status")) {
-          console.warn("[funding-room-join-post] status column missing — retrying without it");
-          ({ error: memberErr } = await supabase.from("funding_room_members").upsert(
+      );
+      console.log("[frjp] insert (with status) err=%s", insertResult.error?.message);
+      if (insertResult.error) {
+        const msg = insertResult.error.message || "";
+        if (msg.includes("status") || msg.includes("column")) {
+          console.warn("[frjp] status column missing — retrying without status field");
+          insertResult = await supabase.from("funding_room_members").upsert(
             memberPayload,
             { onConflict: "room_id,lender_id" }
-          ));
+          );
+          console.log("[frjp] retry insert err=%s", insertResult.error?.message);
         }
-        if (memberErr) {
-          console.error("[funding-room-join-post] member upsert failed", memberErr.message);
-          return res.status(500).json({ error: memberErr.message });
+        if (insertResult.error) {
+          console.error("[frjp] member insert failed: %s", insertResult.error.message);
+          return res.status(500).json({ error: `Failed to join room: ${insertResult.error.message}` });
         }
       }
-      console.log("[funding-room-join-post] member upserted OK");
+      console.log("[frjp] member inserted OK");
 
-      const { data: members } = await supabase.from("funding_room_members").select("amount").eq("room_id", room.id);
-      const totalCommitted = (members || []).reduce((s, m) => s + Number(m.amount), 0);
-      const newStatus = room.target_amount > 0 && totalCommitted >= room.target_amount ? "fully_funded" : "open";
-      console.log("[funding-room-join-post] total committed", totalCommitted, "new status", newStatus);
-      await supabase.from("funding_rooms").update({ committed_amount: totalCommitted, status: newStatus }).eq("id", room.id).catch(e => console.warn("[funding-room-join-post] room update warn", e?.message));
+      // ── 5. Update room committed total ────────────────────────────────────
+      const { data: allMembers } = await supabase
+        .from("funding_room_members").select("amount").eq("room_id", room.id);
+      const totalCommitted = (allMembers || []).reduce((s, m) => s + Number(m.amount), 0);
+      const newRoomStatus = room.target_amount > 0 && totalCommitted >= room.target_amount ? "fully_funded" : "open";
+      console.log("[frjp] total=%d new_status=%s", totalCommitted, newRoomStatus);
+      await supabase.from("funding_rooms")
+        .update({ committed_amount: totalCommitted, status: newRoomStatus }).eq("id", room.id)
+        .catch(e => console.warn("[frjp] room total update warn: %s", e?.message));
 
+      // ── 6. System message + notifications (fire-and-forget) ──────────────
       const fmtGbp = n => `£${Number(n).toLocaleString("en-GB")}`;
-      await supabase.from("funding_room_messages").insert({
+      supabase.from("funding_room_messages").insert({
         room_id: room.id, sender_id: user.id, sender_name: "System",
         message: `${lenderName} committed ${fmtGbp(joinAmount)} to the room.`, is_system: true,
-      }).catch(e => console.warn("[funding-room-join-post] msg insert warn", e?.message));
+      }).catch(e => console.warn("[frjp] msg insert warn: %s", e?.message));
 
-      // Notify builder and all existing members
-      const { data: existingMembers } = await supabase.from("funding_room_members").select("lender_id").eq("room_id", room.id).neq("lender_id", user.id).catch(() => ({ data: [] }));
+      const { data: otherMembers } = await supabase
+        .from("funding_room_members").select("lender_id").eq("room_id", room.id).neq("lender_id", user.id)
+        .catch(() => ({ data: [] }));
       const notifyIds = new Set([post_author_id]);
-      for (const m of existingMembers || []) notifyIds.add(m.lender_id);
+      for (const m of otherMembers || []) notifyIds.add(m.lender_id);
       for (const uid of notifyIds) {
-        await supabase.from("notifications").insert({
+        supabase.from("notifications").insert({
           user_id: uid, type: "funding_room_join",
           message: uid === post_author_id
             ? `${lenderName} committed ${fmtGbp(joinAmount)} to your group funding post`
@@ -579,11 +611,11 @@ module.exports = async function handler(req, res) {
         }).catch(() => {});
       }
 
-      console.log("[funding-room-join-post] done, room_id", room.id);
+      console.log("[frjp] success room_id=%s", room.id);
       return res.status(200).json({ ok: true, room_id: room.id });
     } catch (err) {
-      console.error("[funding-room-join-post] unhandled error", err?.message, err?.stack);
-      return res.status(500).json({ error: "Unexpected error joining funding room" });
+      console.error("[frjp] UNHANDLED %s\n%s", err?.message, err?.stack);
+      return res.status(500).json({ error: `Join failed (${err?.message || "unknown error"}) — check Vercel logs` });
     }
   }
 

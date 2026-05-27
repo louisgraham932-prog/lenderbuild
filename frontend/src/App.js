@@ -21329,6 +21329,10 @@ export default function App() {
 
   async function handleAcceptRiskWarning() {
     if (!riskWarningChecked || riskWarningAccepting) return;
+    // Set the session flag immediately — before any awaits — so that auth state
+    // changes (TOKEN_REFRESHED) firing during the async save cannot re-show the modal.
+    try { sessionStorage.setItem("fca_warning_accepted", "true"); } catch (_) {}
+    setSessionFcaAccepted(true);
     setRiskWarningAccepting(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -21339,15 +21343,12 @@ export default function App() {
           body: JSON.stringify({ action: "accept-risk-warning" }),
         });
       }
-      // Refresh user so the modal closes
+      // Refresh user so risk_warning_accepted is in local state too
       const { data: { user: freshUser } } = await supabase.auth.getUser();
       if (freshUser) setUser(freshUser);
     } catch (_) {
-      // Even on network error, update local state so the modal doesn't block
       setUser(u => u ? { ...u, user_metadata: { ...u.user_metadata, risk_warning_accepted: true } } : u);
     } finally {
-      try { sessionStorage.setItem("fca_warning_accepted", "true"); } catch (_) {}
-      setSessionFcaAccepted(true);
       setRiskWarningAccepting(false);
       setRiskWarningChecked(false);
     }
