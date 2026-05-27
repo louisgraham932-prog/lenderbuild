@@ -1,4 +1,6 @@
-.env 
-backend/.env 
-**/.env 
+.env
+backend/.env
+**/.env
 .vercel
+node_modules
+**/node_modules
