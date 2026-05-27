@@ -4,7 +4,8 @@
   "description": "",
   "main": "api.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node api.js",
+    "dev": "node --watch api.js"
   },
   "keywords": [],
   "author": "",
@@ -13,7 +14,6 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.103.0",
     "cors": "^2.8.6",
-    "corss": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^5.2.1",
     "pg": "^8.20.0",
