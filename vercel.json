@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd frontend && npm install --legacy-peer-deps && CI=false npm run build",
+  "buildCommand": "cd frontend && bun install && CI=false bun run build",
   "outputDirectory": "frontend/build",
   "installCommand": "echo skip",
   "rewrites": [
