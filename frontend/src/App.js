@@ -1079,11 +1079,18 @@ function Icon({ name, size = 18, style, className }) {
   }
 }
 
-function NotificationBell({ user }) {
+function NotificationBell({ user, onReplayTour }) {
   const [notifs, setNotifs] = useState([]);
   const [open, setOpen]     = useState(false);
   const bellRef = useRef(null);
   const myId = user?.id;
+  const whatsNew = [
+    { label: "Group Funding Rooms",   desc: "Co-fund projects with multiple lenders in real time" },
+    { label: "Builder Passport",      desc: "Verified builder profiles with credibility score" },
+    { label: "Market Intelligence",   desc: "Live deal flow, rate trends and regional data" },
+    { label: "Command Palette",       desc: "Press Ctrl+K to jump anywhere instantly" },
+    { label: "Saved Searches",        desc: "Save filter combos and get notified on new matches" },
+  ];
 
   const unread = notifs.filter(n => !n.read).length;
 
@@ -1151,12 +1158,15 @@ function NotificationBell({ user }) {
       >
         <BellIcon />
         {unread > 0 && <span style={{ ...UNREAD_BADGE, background: "#EF4444" }}>{unread > 9 ? "9+" : unread}</span>}
+        <span style={{ position: "absolute", top: 5, left: 5, lineHeight: 0, color: "rgba(250,204,21,0.9)", pointerEvents: "none" }}>
+          <Icon name="sparkles" size={8} />
+        </span>
       </button>
 
       {open && (
         <div style={{
           position: "absolute", top: "calc(100% + 6px)", right: 0,
-          width: 300, maxWidth: "calc(100vw - 1.5rem)", maxHeight: 400,
+          width: 300, maxWidth: "calc(100vw - 1.5rem)", maxHeight: 560,
           background: "#fff", borderRadius: 12,
           border: "0.5px solid #e0e0e0",
           boxShadow: "0 8px 30px rgba(0,0,0,0.14)",
@@ -1192,6 +1202,31 @@ function NotificationBell({ user }) {
                   {!n.read && <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#3B82F6", flexShrink: 0, marginTop: 5 }} />}
                 </div>
               ))
+            )}
+          </div>
+
+          {/* What's New */}
+          <div style={{ borderTop: "0.5px solid #f0f0f0", flexShrink: 0 }}>
+            <div style={{ padding: "10px 16px 6px", display: "flex", alignItems: "center", gap: 5 }}>
+              <Icon name="sparkles" size={12} style={{ color: "#2563EB" }} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F" }}>What's new</span>
+            </div>
+            {whatsNew.map(f => (
+              <div key={f.label} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "5px 16px" }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "#2563EB", background: "#DBEAFE", borderRadius: 4, padding: "2px 5px", marginTop: 2, flexShrink: 0 }}>NEW</span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1E293B" }}>{f.label}</div>
+                  <div style={{ fontSize: 12, color: "#64748B", lineHeight: 1.4 }}>{f.desc}</div>
+                </div>
+              </div>
+            ))}
+            {onReplayTour && (
+              <div style={{ padding: "8px 16px 12px" }}>
+                <button onClick={() => { setOpen(false); onReplayTour(); }}
+                  style={{ width: "100%", padding: "8px", borderRadius: 8, border: "1px solid #e0e0e0", background: "transparent", fontSize: 13, fontWeight: 500, color: "#1E3A5F", cursor: "pointer" }}>
+                  Replay tour
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -1902,9 +1937,7 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-        <NotificationBell user={user} />
-
-        <WhatsNewButton onReplayTour={onReplayTour} />
+        <NotificationBell user={user} onReplayTour={onReplayTour} />
 
         {/* Profile dropdown */}
         <div ref={profileRef} style={{ position: "relative" }}>
@@ -20214,58 +20247,6 @@ function CommandPalette({ open, onClose, setPage, user, onOpenDevPanel, onViewPr
     document.body
   );
 }
-
-// ─── WHAT'S NEW BUTTON ────────────────────────────────────────────────────────
-function WhatsNewButton({ onReplayTour }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  useEffect(() => {
-    function handler(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-  const features = [
-    { label: "Group Funding Rooms",   desc: "Co-fund projects with multiple lenders in real time" },
-    { label: "Builder Passport",      desc: "Verified builder profiles with credibility score" },
-    { label: "Market Intelligence",   desc: "Live deal flow, rate trends and regional data" },
-    { label: "Command Palette",       desc: "Press Ctrl+K to jump anywhere instantly" },
-    { label: "Saved Searches",        desc: "Save filter combos and get notified on new matches" },
-  ];
-  return (
-    <div ref={ref} style={{ position: "relative" }}>
-      <button onClick={() => setOpen(o => !o)} title="What's new"
-        style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, border: "none", background: open ? "rgba(255,255,255,0.1)" : "transparent", color: "rgba(255,255,255,0.75)", cursor: "pointer" }}>
-        <Icon name="sparkles" size={16} />
-      </button>
-      {open && (
-        <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", width: 300, background: "#fff", border: "0.5px solid #e8e8e8", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", zIndex: 500, overflow: "hidden" }}>
-          <div style={{ padding: "12px 16px 10px", borderBottom: "0.5px solid #f0f0f0" }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#1E3A5F" }}>What's new</div>
-            <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>Recent features on LenderBuild</div>
-          </div>
-          <div style={{ padding: "8px 0" }}>
-            {features.map(f => (
-              <div key={f.label} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 16px" }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: "#2563EB", background: "#DBEAFE", borderRadius: 4, padding: "2px 5px", marginTop: 1, flexShrink: 0 }}>NEW</span>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1E293B" }}>{f.label}</div>
-                  <div style={{ fontSize: 12, color: "#64748B", lineHeight: 1.4 }}>{f.desc}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ borderTop: "0.5px solid #f0f0f0", padding: "10px 16px" }}>
-            <button onClick={() => { setOpen(false); onReplayTour && onReplayTour(); }}
-              style={{ width: "100%", padding: "9px", borderRadius: 8, border: "1px solid #e0e0e0", background: "transparent", fontSize: 13, fontWeight: 500, color: "#1E3A5F", cursor: "pointer" }}>
-              Replay tour
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 
 // ─── ONBOARDING CHECKLIST ─────────────────────────────────────────────────────
 function OnboardingChecklist({ user, setPage }) {
