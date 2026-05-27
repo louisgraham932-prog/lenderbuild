@@ -21413,9 +21413,9 @@ export default function App() {
   }
 
   return (
-    <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-primary)" }}>
+    <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column", background: "var(--bg-page)", color: "var(--text-primary)" }}>
       <Navbar page={page} setPage={navigateTo} user={user} onLogout={handleLogout} unreadCount={unreadCount} userProfile={userProfile} tourForceProfileOpen={tourForceProfileOpen} darkMode={darkMode} setDarkMode={setDarkMode} onReplayTour={handleReplayTour} />
-      <div style={{ display: "flex", alignItems: "flex-start" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", flex: 1, overflow: "hidden" }}>
         {showSidebar && (
           <DesktopSidebar
             page={page}
@@ -21426,7 +21426,7 @@ export default function App() {
             unreadCount={unreadCount}
           />
         )}
-        <div style={{ flex: 1, minWidth: 0, paddingBottom: isMobileLayout ? "calc(72px + env(safe-area-inset-bottom, 0px))" : 0 }}>
+        <div style={{ flex: 1, minWidth: 0, height: "100%", overflowY: "auto", paddingBottom: isMobileLayout ? "calc(72px + env(safe-area-inset-bottom, 0px))" : 0 }}>
           <div key={page} className="page-transition">
           {(page === "home" || page === "home-dashboard") && (!user ? <HomePage setPage={navigateTo} user={user} onViewProfile={handleViewProfile} /> : <DashboardPage user={user} setPage={navigateTo} onViewProfile={handleViewProfile} onViewBuilderProfile={handleViewBuilderProfile} onMessage={handleOpenConversation} viewerRoleProfile={viewerRoleProfile} userProfile={userProfile} page={page} />)}
           {page === "search"           && <SearchPage         setPage={navigateTo} user={user} onViewProfile={handleViewProfile} viewerRoleProfile={viewerRoleProfile} />}
