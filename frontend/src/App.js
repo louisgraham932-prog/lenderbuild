@@ -3957,7 +3957,7 @@ function AccountPage({ user, setPage, userProfile, viewerRoleProfile, onReplayTo
                 {ACCENT_PRESETS.map(p => {
                   const isSelected = accentColor === p.value;
                   return (
-                    <button key={p.value} onClick={() => setAccentColor && setAccentColor(p.value)} title={p.label}
+                    <button type="button" key={p.value} onClick={() => setAccentColor && setAccentColor(p.value)} title={p.label}
                       style={{ width: 56, height: 56, borderRadius: "50%", padding: 0, cursor: "pointer", background: p.value, justifySelf: "center", border: "none", outline: "none", boxShadow: isSelected ? `0 0 0 3px #fff, 0 0 0 5px ${p.value}` : "none", transition: "box-shadow 0.15s", position: "relative" }}>
                       {isSelected && <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 20, fontWeight: 700, pointerEvents: "none" }}>✓</span>}
                     </button>
