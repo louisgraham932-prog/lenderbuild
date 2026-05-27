@@ -4584,41 +4584,28 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
   if (loading) return <SkeletonDashboard />;
 
   return (
-    <div style={{ padding: "1.5rem 1.25rem", maxWidth: 1200, margin: "0 auto" }}>
+    <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column", padding: "1rem 1.25rem", maxWidth: 1200, margin: "0 auto", boxSizing: "border-box", width: "100%" }}>
 
-      {/* Welcome header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: "1.75rem" }}>
-        <Avatar initials={nameInitials(name)} color={pickColor(user?.id || "")} size={52} url={avatarUrl} />
+      {/* ── TOP BAR ── */}
+      <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+        <Avatar initials={nameInitials(name)} color={pickColor(user?.id || "")} size={40} url={avatarUrl} />
         <div>
-          <h1 id="tour-dashboard-heading" style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(22px, 4vw, 32px)", fontWeight: 700, margin: 0, color: "#1E3A5F", lineHeight: 1.2 }}>
+          <h1 id="tour-dashboard-heading" style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(16px, 2.5vw, 22px)", fontWeight: 700, margin: 0, color: "#1E3A5F", lineHeight: 1.2 }}>
             Welcome back, {name.split(" ")[0]}
           </h1>
-          <div style={{ fontSize: 13, color: "#64748B", marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <span style={{
-              background: role === "lender" ? "#EBF2FF" : "#DCFCE7",
-              color:      role === "lender" ? "#1E3A5F" : "#166534",
-              padding: "2px 9px", borderRadius: 20, fontSize: 11, fontWeight: 500, textTransform: "capitalize",
-            }}>{role}</span>
+          <div style={{ fontSize: 12, color: "#64748B", marginTop: 2, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <span style={{ background: role === "lender" ? "#EBF2FF" : "#DCFCE7", color: role === "lender" ? "#1E3A5F" : "#166534", padding: "2px 9px", borderRadius: 20, fontSize: 11, fontWeight: 500, textTransform: "capitalize" }}>{role}</span>
             {!user?.user_metadata?.profile_complete && (
-              <button onClick={() => setPage("profile-setup")} style={{ fontSize: 11, color: "#1E3A5F", background: "#EBF2FF", border: "none", borderRadius: 20, padding: "2px 9px", cursor: "pointer", fontWeight: 500 }}>
-                Complete your profile →
-              </button>
+              <button onClick={() => setPage("profile-setup")} style={{ fontSize: 11, color: "#1E3A5F", background: "#EBF2FF", border: "none", borderRadius: 20, padding: "2px 9px", cursor: "pointer", fontWeight: 500 }}>Complete your profile →</button>
             )}
           </div>
         </div>
-      </div>
-
-      {/* Big primary CTA */}
-      <div style={{ marginBottom: "1.5rem" }}>
-        <button
-          onClick={() => setPage(role === "builder" ? "search" : "browse-projects")}
-          style={{ width: "100%", padding: "14px 24px", minHeight: 52, background: "#3B82F6", color: "#fff", border: "none", borderRadius: 12, fontSize: 16, fontWeight: 600, cursor: "pointer" }}
-        >
+        <button onClick={() => setPage(role === "builder" ? "search" : "browse-projects")} style={{ marginLeft: "auto", flexShrink: 0, padding: "8px 20px", background: "#3B82F6", color: "#fff", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer", minHeight: 38 }}>
           {role === "builder" ? "Find a lender →" : "Browse projects →"}
         </button>
       </div>
 
-      {/* ── BUILDER DASHBOARD ────────────────────────────────────────── */}
+      {/* ── BUILDER GRID ── */}
       {role === "builder" && (() => {
         const profileData = { avatar_url: avatarUrl, bio: userProfile?.bio, location: userProfile?.location, specialization: viewerRoleProfile?.specialization, projects_completed: viewerRoleProfile?.projects_completed, verified_documents: user?.user_metadata?.verified_documents };
         const { score: profileScore, missing } = computeProfileCompleteness(profileData, "builder");
@@ -4627,379 +4614,308 @@ function DashboardPage({ user, setPage, onViewProfile, onViewBuilderProfile, onM
         const avgProject = completed > 0 ? totalBuilt / completed : 0;
         const fundingPotential = avgProject > 0 ? Math.round(avgProject * 1.2) : 150000;
 
+        const repaymentBanner = (() => {
+          const today = new Date().toISOString().split("T")[0];
+          const d3 = new Date(); d3.setDate(d3.getDate() + 3);
+          const threeDayStr = d3.toISOString().split("T")[0];
+          const urgentReps = activeDeals.flatMap(d =>
+            (d.repayments || []).filter(r =>
+              (r.status === "scheduled" && r.due_date <= threeDayStr && r.due_date >= today) ||
+              r.status === "missed"
+            ).map(r => ({ ...r, deal_title: d.title }))
+          ).sort((a,b) => a.due_date.localeCompare(b.due_date));
+          if (urgentReps.length === 0) return null;
+          const isOverdue = urgentReps.some(r => r.status === "missed" || r.due_date < today);
+          return (
+            <div style={{ background: isOverdue ? "#FEF2F2" : "#FEF3C7", border: `0.5px solid ${isOverdue ? "#FECACA" : "#FCD34D"}`, borderRadius: 12, padding: "14px 18px" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: isOverdue ? "#DC2626" : "#B45309", marginBottom: 6 }}>
+                {isOverdue ? <><Icon name="warning" size={13} style={{marginRight:4}} />Overdue repayment</> : <><Icon name="clock" size={13} style={{marginRight:4}} />Repayment due soon</>}
+              </div>
+              {urgentReps.slice(0, 2).map((r, i) => (
+                <div key={i} style={{ fontSize: 13, color: isOverdue ? "#991B1B" : "#92400E", marginBottom: 2 }}>
+                  £{Number(r.amount).toLocaleString()} for <em>{r.deal_title}</em> — {r.status === "missed" ? `overdue since ${r.due_date}` : `due ${r.due_date}`}
+                </div>
+              ))}
+              <button onClick={() => setPage("deals")} style={{ marginTop: 8, padding: "6px 16px", background: isOverdue ? "#DC2626" : "#D97706", color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 32 }}>View and pay →</button>
+            </div>
+          );
+        })();
+
         return (
-          <>
-            {/* Funding potential card */}
-            {!dismissFunding && (
-            <div style={{ background: "linear-gradient(135deg, #1E3A5F 0%, #2E5FA3 100%)", borderRadius: 14, padding: "20px 24px", marginBottom: "1.5rem", color: "#fff", position: "relative" }}>
-              <button onClick={() => dismiss(`lb_dismiss_funding_${uid}`, setDismissFunding)} aria-label="Dismiss" style={{ position: "absolute", top: 8, right: 8, width: 20, height: 20, borderRadius: "50%", background: "rgba(255,255,255,0.25)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#fff", lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
-              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.7, marginBottom: 8 }}>Your funding potential</div>
-              <div style={{ fontSize: 34, fontWeight: 700, marginBottom: 4 }}>Up to {fmt(fundingPotential)}</div>
-              <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 14 }}>
-                Estimated based on your {completed > 0 ? `${completed} completed project${completed !== 1 ? "s" : ""}` : "profile"}.
-                {profileScore < 80 && " Complete your profile to attract higher-value lenders."}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ flex: 1, height: 6, background: "rgba(255,255,255,0.2)", borderRadius: 3 }}>
-                  <div style={{ height: 6, borderRadius: 3, background: "#fff", width: `${profileScore}%`, transition: "width 0.5s" }} />
-                </div>
-                <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.9 }}>Profile {profileScore}%</span>
-              </div>
-            </div>
-            )}
-
-            {/* Quick tools row — Build Calculator + Market */}
-            {dismissBuilderTools ? (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 14px", background: "#F8FAFC", border: "0.5px solid #E2E8F0", borderRadius: 8, marginBottom: "1.5rem" }}>
-              <span style={{ fontSize: 12, color: "#64748B", display:"inline-flex", alignItems:"center", gap:4 }}><Icon name="calculator" size={12} /> Build Calculator & Market Intelligence</span>
-              <button onClick={() => show(`lb_dismiss_btools_${uid}`, setDismissBuilderTools)} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 3, padding: "2px 6px", fontWeight: 500, flexShrink: 0 }}>
-                Show <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
-              </button>
-            </div>
-            ) : (
-            <div style={{ marginBottom: "1.5rem" }}>
-              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-                <button onClick={() => dismiss(`lb_dismiss_btools_${uid}`, setDismissBuilderTools)} style={{ display: "flex", alignItems: "center", gap: 3, padding: "3px 8px", background: "#F1F5F9", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, color: "#64748B", fontWeight: 500 }}>
-                  Hide <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-                </button>
-              </div>
-              <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={() => setPage("build-calculator")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2, display:"flex", alignItems:"center", gap:4 }}><Icon name="calculator" size={12} /> Build Calculator</div>
-                  <div style={{ fontSize: 11, color: "#2E5FA3" }}>Not sure how much to ask for?</div>
-                </button>
-                <button onClick={() => setPage("market")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2, display:"flex", alignItems:"center", gap:4 }}><Icon name="trending-up" size={12} /> Market Intelligence</div>
-                  <div style={{ fontSize: 11, color: "#2E5FA3" }}>See UK market data →</div>
-                </button>
-              </div>
-            </div>
-            )}
-
-            {/* Repayment reminder banner */}
-            {(() => {
-              const today = new Date().toISOString().split("T")[0];
-              const d3 = new Date(); d3.setDate(d3.getDate() + 3);
-              const threeDayStr = d3.toISOString().split("T")[0];
-              const urgentReps = activeDeals.flatMap(d =>
-                (d.repayments || []).filter(r =>
-                  (r.status === "scheduled" && r.due_date <= threeDayStr && r.due_date >= today) ||
-                  r.status === "missed"
-                ).map(r => ({ ...r, deal_title: d.title }))
-              ).sort((a,b) => a.due_date.localeCompare(b.due_date));
-              if (urgentReps.length === 0) return null;
-              const isOverdue = urgentReps.some(r => r.status === "missed" || r.due_date < today);
-              return (
-                <div style={{ background: isOverdue ? "#FEF2F2" : "#FEF3C7", border: `0.5px solid ${isOverdue ? "#FECACA" : "#FCD34D"}`, borderRadius: 12, padding: "14px 18px", marginBottom: "1.5rem" }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: isOverdue ? "#DC2626" : "#B45309", marginBottom: 6 }}>
-                    {isOverdue ? <><Icon name="warning" size={13} style={{marginRight:4}} />Overdue repayment</> : <><Icon name="clock" size={13} style={{marginRight:4}} />Repayment due soon</>}
+          <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, overflow: "hidden" }}>
+            {/* Left column: funding + actions */}
+            <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, paddingBottom: 12 }}>
+              {!dismissFunding && (
+                <div style={{ background: "linear-gradient(135deg, #1E3A5F 0%, #2E5FA3 100%)", borderRadius: 14, padding: "20px 24px", color: "#fff", position: "relative" }}>
+                  <button onClick={() => dismiss(`lb_dismiss_funding_${uid}`, setDismissFunding)} aria-label="Dismiss" style={{ position: "absolute", top: 8, right: 8, width: 20, height: 20, borderRadius: "50%", background: "rgba(255,255,255,0.25)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#fff", lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
+                  <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.7, marginBottom: 8 }}>Your funding potential</div>
+                  <div style={{ fontSize: 34, fontWeight: 700, marginBottom: 4 }}>Up to {fmt(fundingPotential)}</div>
+                  <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 14 }}>Estimated based on your {completed > 0 ? `${completed} completed project${completed !== 1 ? "s" : ""}` : "profile"}.{profileScore < 80 && " Complete your profile to attract higher-value lenders."}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ flex: 1, height: 6, background: "rgba(255,255,255,0.2)", borderRadius: 3 }}>
+                      <div style={{ height: 6, borderRadius: 3, background: "#fff", width: `${profileScore}%`, transition: "width 0.5s" }} />
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.9 }}>Profile {profileScore}%</span>
                   </div>
-                  {urgentReps.slice(0, 2).map((r, i) => (
-                    <div key={i} style={{ fontSize: 13, color: isOverdue ? "#991B1B" : "#92400E", marginBottom: 2 }}>
-                      £{Number(r.amount).toLocaleString()} for <em>{r.deal_title}</em> — {r.status === "missed" ? `overdue since ${r.due_date}` : `due ${r.due_date}`}
-                    </div>
-                  ))}
-                  <button onClick={() => setPage("deals")} style={{ marginTop: 8, padding: "6px 16px", background: isOverdue ? "#DC2626" : "#D97706", color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 32 }}>
-                    View and pay →
-                  </button>
                 </div>
-              );
-            })()}
-
-            {/* "To attract lenders" checklist */}
-            {missing.length > 0 && (
-              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--accent)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>To attract lenders — complete these steps</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {missing.map(item => (
-                    <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div style={{ width: 22, height: 22, borderRadius: "50%", border: "1.5px solid var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent)" }} />
+              )}
+              {repaymentBanner}
+              {missing.length > 0 && (
+                <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "var(--accent)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>To attract lenders — complete these steps</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {missing.map(item => (
+                      <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ width: 22, height: 22, borderRadius: "50%", border: "1.5px solid var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent)" }} /></div>
+                        <span style={{ fontSize: 13, color: "#555" }}>{item.label}</span>
+                        <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--accent)", fontWeight: 500 }}>+{item.weight}%</span>
                       </div>
-                      <span style={{ fontSize: 13, color: "#555" }}>{item.label}</span>
-                      <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--accent)", fontWeight: 500 }}>+{item.weight}%</span>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                  <button onClick={() => setPage("profile-setup")} style={{ marginTop: 12, padding: "8px 16px", minHeight: 36, background: "var(--accent)", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Complete profile →</button>
                 </div>
-                <button onClick={() => setPage("profile-setup")} style={{ marginTop: 12, padding: "8px 16px", minHeight: 36, background: "var(--accent)", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                  Complete profile →
-                </button>
-              </div>
-            )}
-
-            {/* Active projects */}
-            {activeDeals.length > 0 && (
-              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#534AB7", letterSpacing: "0.1em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>Active projects <HelpTooltip text="Projects where you and a lender have agreed to work together. Track milestones here." /></div>
-                  <button onClick={() => setPage("deals")} style={{ fontSize: 12, color: "#534AB7", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>View all →</button>
-                </div>
-                {activeDeals.slice(0, 3).map(deal => {
-                  const ms   = deal.milestones || [];
-                  const done = ms.filter(m => ["approved","paid"].includes(m.status)).length;
-                  const pct  = ms.length > 0 ? Math.round((done / ms.length) * 100) : 0;
-                  const next = ms.find(m => m.status === "pending" || m.status === "completed");
-                  const pctColor = pct >= 80 ? "#16A34A" : pct >= 40 ? "#534AB7" : "#D97706";
-                  return (
-                    <div key={deal.id} onClick={() => setPage("deal-detail", deal)} style={{ padding: "12px 14px", background: "#F8FAFC", borderRadius: 10, border: "0.5px solid #e0e0e0", marginBottom: 8, cursor: "pointer" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F" }}>{deal.title}</div>
-                          <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>with {deal.lender_name}{next ? ` · Next: ${next.title}` : ""}</div>
+              )}
+              {activeDeals.length > 0 && (
+                <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#534AB7", letterSpacing: "0.1em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>Active projects <HelpTooltip text="Projects where you and a lender have agreed to work together. Track milestones here." /></div>
+                    <button onClick={() => setPage("deals")} style={{ fontSize: 12, color: "#534AB7", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>View all →</button>
+                  </div>
+                  {activeDeals.slice(0, 3).map(deal => {
+                    const ms   = deal.milestones || [];
+                    const done = ms.filter(m => ["approved","paid"].includes(m.status)).length;
+                    const pct  = ms.length > 0 ? Math.round((done / ms.length) * 100) : 0;
+                    const next = ms.find(m => m.status === "pending" || m.status === "completed");
+                    const pctColor = pct >= 80 ? "#16A34A" : pct >= 40 ? "#534AB7" : "#D97706";
+                    return (
+                      <div key={deal.id} onClick={() => setPage("deal-detail", deal)} style={{ padding: "12px 14px", background: "#F8FAFC", borderRadius: 10, border: "0.5px solid #e0e0e0", marginBottom: 8, cursor: "pointer" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
+                          <div><div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F" }}>{deal.title}</div><div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>with {deal.lender_name}{next ? ` · Next: ${next.title}` : ""}</div></div>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: pctColor, flexShrink: 0 }}>{pct}%</span>
                         </div>
-                        <span style={{ fontSize: 14, fontWeight: 700, color: pctColor, flexShrink: 0 }}>{pct}%</span>
+                        <div style={{ height: 5, background: "#e0e0e0", borderRadius: 3 }}><div style={{ height: 5, borderRadius: 3, background: pctColor, width: `${pct}%` }} /></div>
+                        <div style={{ fontSize: 11, color: "#64748B", marginTop: 4 }}>{done}/{ms.length} milestones complete</div>
                       </div>
-                      <div style={{ height: 5, background: "#e0e0e0", borderRadius: 3 }}>
-                        <div style={{ height: 5, borderRadius: 3, background: pctColor, width: `${pct}%` }} />
-                      </div>
-                      <div style={{ fontSize: 11, color: "#64748B", marginTop: 4 }}>{done}/{ms.length} milestones complete</div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Top 3 matched lenders */}
-            {recoForBuilder.length > 0 && (
-              <div style={{ marginBottom: "1.5rem" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>Top lender matches for you <HelpTooltip text="Ranked by compatibility score based on your profile, location, and project type." /></div>
-                  <button onClick={() => setPage("search")} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>Browse all →</button>
+                    );
+                  })}
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
-                  {recoForBuilder.map(lc => <LenderCard key={lc.id || lc.name} lc={lc} user={user} setPage={setPage} onViewProfile={onViewProfile} viewerProfile={viewerRoleProfile} />)}
+              )}
+              {pendingBuilderRequests.length > 0 && (
+                <PendingBuilderRequestsCard requests={pendingBuilderRequests} user={user} onCancelled={() => supabase.auth.refreshSession().then(() => window.location.reload())} />
+              )}
+            </div>
+
+            {/* Right column: tools + discovery */}
+            <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, paddingBottom: 12 }}>
+              {dismissBuilderTools ? (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 14px", background: "#F8FAFC", border: "0.5px solid #E2E8F0", borderRadius: 8 }}>
+                  <span style={{ fontSize: 12, color: "#64748B", display:"inline-flex", alignItems:"center", gap:4 }}><Icon name="calculator" size={12} /> Build Calculator & Market Intelligence</span>
+                  <button onClick={() => show(`lb_dismiss_btools_${uid}`, setDismissBuilderTools)} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 3, padding: "2px 6px", fontWeight: 500, flexShrink: 0 }}>Show <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6"/></svg></button>
                 </div>
-              </div>
-            )}
-
-            <SearchById setPage={setPage} onViewProfile={onViewProfile} onViewBuilderProfile={onViewBuilderProfile} />
-
-            {/* Recent messages */}
-            {conversations.length > 0 && (
-              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>Recent messages</div>
-                {conversations.slice(0, 3).map(convo => {
-                  const otherName = user.id === convo.lender_id ? convo.builder_name : convo.lender_name;
-                  return (
-                    <div key={convo.id} onClick={() => onMessage(convo.id)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px", borderRadius: 8, marginBottom: 4 }}
-                      onMouseEnter={e => e.currentTarget.style.background = "#F8FAFC"}
-                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                      <Avatar initials={nameInitials(otherName)} color={pickColor(otherName || "")} size={32} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1E3A5F" }}>{otherName}</div>
-                        <div style={{ fontSize: 11, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{convo.last_message ? convo.last_message : "Start a conversation"}</div>
+              ) : (
+                <div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                    <button onClick={() => dismiss(`lb_dismiss_btools_${uid}`, setDismissBuilderTools)} style={{ display: "flex", alignItems: "center", gap: 3, padding: "3px 8px", background: "#F1F5F9", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, color: "#64748B", fontWeight: 500 }}>Hide <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+                  </div>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button onClick={() => setPage("build-calculator")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2, display:"flex", alignItems:"center", gap:4 }}><Icon name="calculator" size={12} /> Build Calculator</div>
+                      <div style={{ fontSize: 11, color: "#2E5FA3" }}>Not sure how much to ask for?</div>
+                    </button>
+                    <button onClick={() => setPage("market")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2, display:"flex", alignItems:"center", gap:4 }}><Icon name="trending-up" size={12} /> Market Intelligence</div>
+                      <div style={{ fontSize: 11, color: "#2E5FA3" }}>See UK market data →</div>
+                    </button>
+                  </div>
+                </div>
+              )}
+              {recoForBuilder.length > 0 && (
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>Top lender matches <HelpTooltip text="Ranked by compatibility score based on your profile, location, and project type." /></div>
+                    <button onClick={() => setPage("search")} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>Browse all →</button>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {recoForBuilder.map(lc => <LenderCard key={lc.id || lc.name} lc={lc} user={user} setPage={setPage} onViewProfile={onViewProfile} viewerProfile={viewerRoleProfile} />)}
+                  </div>
+                </div>
+              )}
+              <SearchById setPage={setPage} onViewProfile={onViewProfile} onViewBuilderProfile={onViewBuilderProfile} />
+              {conversations.length > 0 && (
+                <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>Recent messages</div>
+                  {conversations.slice(0, 3).map(convo => {
+                    const otherName = user.id === convo.lender_id ? convo.builder_name : convo.lender_name;
+                    return (
+                      <div key={convo.id} onClick={() => onMessage(convo.id)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px", borderRadius: 8, marginBottom: 4 }} onMouseEnter={e => e.currentTarget.style.background = "#F8FAFC"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        <Avatar initials={nameInitials(otherName)} color={pickColor(otherName || "")} size={32} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1E3A5F" }}>{otherName}</div>
+                          <div style={{ fontSize: 11, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{convo.last_message || "Start a conversation"}</div>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-                <button onClick={() => setPage("messages")} style={{ marginTop: 4, width: "100%", background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "8px", minHeight: 40, fontSize: 12, color: "#555", cursor: "pointer" }}>Open all messages →</button>
-              </div>
-            )}
-
-            {/* Pending sent connection requests with Cancel button (Feature 2) */}
-            {pendingBuilderRequests.length > 0 && (
-              <PendingBuilderRequestsCard
-                requests={pendingBuilderRequests}
-                user={user}
-                onCancelled={() => supabase.auth.refreshSession().then(() => window.location.reload())}
-              />
-            )}
-
-          </>
+                    );
+                  })}
+                  <button onClick={() => setPage("messages")} style={{ marginTop: 4, width: "100%", background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "8px", minHeight: 40, fontSize: 12, color: "#555", cursor: "pointer" }}>Open all messages →</button>
+                </div>
+              )}
+            </div>
+          </div>
         );
       })()}
 
-      {/* ── LENDER DASHBOARD ─────────────────────────────────────────── */}
+      {/* ── LENDER GRID ── */}
       {role === "lender" && (() => {
         const totalInvested = activeDeals.reduce((s, d) => s + (d.milestones || []).filter(m => ["paid","approved"].includes(m.status)).reduce((ms, m) => ms + Number(m.amount || 0), 0), 0);
-        const today = new Date().toISOString().split("T")[0];
         const thisMonth = new Date().toISOString().slice(0, 7);
         const upcomingRepayments = activeDeals.flatMap(d =>
           (d.repayments || []).filter(r => (r.status === "scheduled" || r.status === "missed") && r.due_date?.startsWith(thisMonth)).map(r => ({ ...r, deal_title: d.title }))
         ).sort((a,b) => a.due_date.localeCompare(b.due_date));
 
         return (
-          <>
-            {/* Investment overview card */}
-            <div style={{ background: "linear-gradient(135deg, #0F6E56 0%, #1D9E75 100%)", borderRadius: 14, padding: "20px 24px", marginBottom: "1.5rem", color: "#fff" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.7, marginBottom: 12 }}>Your investment overview</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
-                <div>
-                  <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>Total invested</div>
-                  <div style={{ fontSize: 22, fontWeight: 700 }}>{totalInvested > 0 ? fmt(totalInvested) : "—"}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>Active deals</div>
-                  <div style={{ fontSize: 22, fontWeight: 700 }}>{activeDeals.length}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>Connections</div>
-                  <div style={{ fontSize: 22, fontWeight: 700 }}>{myConnections.length}</div>
+          <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, overflow: "hidden" }}>
+            {/* Left column: portfolio + actions */}
+            <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, paddingBottom: 12 }}>
+              <div style={{ background: "linear-gradient(135deg, #0F6E56 0%, #1D9E75 100%)", borderRadius: 14, padding: "20px 24px", color: "#fff" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.7, marginBottom: 12 }}>Your investment overview</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+                  <div><div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>Total invested</div><div style={{ fontSize: 22, fontWeight: 700 }}>{totalInvested > 0 ? fmt(totalInvested) : "—"}</div></div>
+                  <div><div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>Active deals</div><div style={{ fontSize: 22, fontWeight: 700 }}>{activeDeals.length}</div></div>
+                  <div><div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>Connections</div><div style={{ fontSize: 22, fontWeight: 700 }}>{myConnections.length}</div></div>
                 </div>
               </div>
-            </div>
-
-            {/* Quick tools row — Returns Calculator + Market */}
-            {dismissLenderTools ? (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 14px", background: "#F8FAFC", border: "0.5px solid #E2E8F0", borderRadius: 8, marginBottom: "1.5rem" }}>
-              <span style={{ fontSize: 12, color: "#64748B", display:"inline-flex", alignItems:"center", gap:4 }}><Icon name="calculator" size={12} /> Returns Calculator & Market Intelligence</span>
-              <button onClick={() => show(`lb_dismiss_ltools_${uid}`, setDismissLenderTools)} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 3, padding: "2px 6px", fontWeight: 500, flexShrink: 0 }}>
-                Show <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
-              </button>
-            </div>
-            ) : (
-            <div style={{ marginBottom: "1.5rem" }}>
-              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-                <button onClick={() => dismiss(`lb_dismiss_ltools_${uid}`, setDismissLenderTools)} style={{ display: "flex", alignItems: "center", gap: 3, padding: "3px 8px", background: "#F1F5F9", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, color: "#64748B", fontWeight: 500 }}>
-                  Hide <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-                </button>
-              </div>
-              <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={() => setPage("build-calculator")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2, display:"flex", alignItems:"center", gap:4 }}><Icon name="calculator" size={12} /> Returns Calculator</div>
-                  <div style={{ fontSize: 11, color: "#2E5FA3" }}>Calculate your potential returns</div>
-                </button>
-                <button onClick={() => setPage("market")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2, display:"flex", alignItems:"center", gap:4 }}><Icon name="trending-up" size={12} /> Market Intelligence</div>
-                  <div style={{ fontSize: 11, color: "#2E5FA3" }}>See UK market data →</div>
-                </button>
-              </div>
-            </div>
-            )}
-
-            {/* Pending connection requests */}
-            {pendingRequests.length > 0 && (
-              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-                  Pending requests <span style={{ background: "#D97706", color: "#fff", borderRadius: 20, padding: "1px 8px", fontSize: 10 }}>{pendingRequests.length}</span>
-                </div>
-                {pendingRequests.slice(0, 3).map(req => {
-                  const st = respondStatus[req.builder_id];
-                  return (
-                    <div key={req.builder_id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                      <Avatar initials={nameInitials(req.builder_name)} color={pickColor(req.builder_id || "")} size={34} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 500 }}>{req.builder_name}</div>
-                        <div style={{ fontSize: 11, color: "#64748B" }}>{req.builder_type || "Builder"}</div>
-                      </div>
-                      {st === "accepted" ? <span style={{ fontSize: 11, color: "#16A34A", fontWeight: 500 }}>Accepted ✓</span>
-                      : st === "declined" ? <span style={{ fontSize: 11, color: "#64748B" }}>Declined</span>
-                      : <div style={{ display: "flex", gap: 5 }}>
-                          <button onClick={() => handleRespond(req.builder_id, "accepted")} disabled={st === "loading"} style={{ padding: "5px 10px", minHeight: 34, background: "#16A34A", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{st === "loading" ? "…" : "Accept"}</button>
-                          <button onClick={() => handleRespond(req.builder_id, "declined")} disabled={st === "loading"} style={{ padding: "5px 10px", minHeight: 34, background: "#FEE2E2", color: "#DC2626", border: "0.5px solid #FCA5A5", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>Decline</button>
-                        </div>}
-                    </div>
-                  );
-                })}
-                {pendingRequests.length > 3 && <button onClick={() => setPage("lender-dashboard")} style={{ width: "100%", background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "8px", minHeight: 40, fontSize: 12, color: "#555", cursor: "pointer" }}>View all {pendingRequests.length} →</button>}
-              </div>
-            )}
-
-            {/* Available projects */}
-            {projectListings.length > 0 && (
-              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#0F6E56", letterSpacing: "0.1em", textTransform: "uppercase" }}>Available projects</div>
-                  <button onClick={() => setPage("browse-projects")} style={{ fontSize: 12, color: "#0F6E56", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>Browse all →</button>
-                </div>
-                {projectListings.map(p => (
-                  <div key={p.id} style={{ padding: "12px 14px", background: "#F0FDF4", borderRadius: 10, border: "0.5px solid #A8DFC9", marginBottom: 8 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F" }}>{p.title}</div>
-                        <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>{p.location}{p.funding_required ? ` · ${fmt(p.funding_required)} needed` : ""}</div>
-                      </div>
-                      <button onClick={async () => {
-                        const { data: { session } } = await supabase.auth.getSession();
-                        if (!session) { setPage("auth"); return; }
-                        await fetch("/api/connect-request", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ action: "express-interest", project_id: p.id, builder_name: p.builder_name || p.user_name }) });
-                      }} style={{ padding: "5px 12px", background: "#1D9E75", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0, minHeight: 34 }}>
-                        Express interest
-                      </button>
-                    </div>
+              {pendingRequests.length > 0 && (
+                <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                    Pending requests <span style={{ background: "#D97706", color: "#fff", borderRadius: 20, padding: "1px 8px", fontSize: 10 }}>{pendingRequests.length}</span>
                   </div>
-                ))}
-              </div>
-            )}
-
-            {/* Upcoming repayments this month */}
-            {upcomingRepayments.length > 0 && (
-              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#B45309", letterSpacing: "0.1em", textTransform: "uppercase" }}>Repayments due this month</div>
-                  <button onClick={() => setPage("my-repayments")} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>View all →</button>
+                  {pendingRequests.slice(0, 3).map(req => {
+                    const st = respondStatus[req.builder_id];
+                    return (
+                      <div key={req.builder_id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                        <Avatar initials={nameInitials(req.builder_name)} color={pickColor(req.builder_id || "")} size={34} />
+                        <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 500 }}>{req.builder_name}</div><div style={{ fontSize: 11, color: "#64748B" }}>{req.builder_type || "Builder"}</div></div>
+                        {st === "accepted" ? <span style={{ fontSize: 11, color: "#16A34A", fontWeight: 500 }}>Accepted ✓</span>
+                        : st === "declined" ? <span style={{ fontSize: 11, color: "#64748B" }}>Declined</span>
+                        : <div style={{ display: "flex", gap: 5 }}>
+                            <button onClick={() => handleRespond(req.builder_id, "accepted")} disabled={st === "loading"} style={{ padding: "5px 10px", minHeight: 34, background: "#16A34A", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{st === "loading" ? "…" : "Accept"}</button>
+                            <button onClick={() => handleRespond(req.builder_id, "declined")} disabled={st === "loading"} style={{ padding: "5px 10px", minHeight: 34, background: "#FEE2E2", color: "#DC2626", border: "0.5px solid #FCA5A5", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>Decline</button>
+                          </div>}
+                      </div>
+                    );
+                  })}
+                  {pendingRequests.length > 3 && <button onClick={() => setPage("lender-dashboard")} style={{ width: "100%", background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "8px", minHeight: 40, fontSize: 12, color: "#555", cursor: "pointer" }}>View all {pendingRequests.length} →</button>}
                 </div>
-                {upcomingRepayments.map((r, i) => (
-                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: i < upcomingRepayments.length - 1 ? "0.5px solid #f0f0f0" : "none" }}>
-                    <div>
-                      <div style={{ fontSize: 13, color: "#1E3A5F", fontWeight: 500 }}>{r.deal_title}</div>
-                      <div style={{ fontSize: 11, color: "#64748B" }}>Due {r.due_date}</div>
-                    </div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: r.status === "missed" ? "#DC2626" : "#B45309" }}>{fmt(r.amount)}</div>
+              )}
+              {upcomingRepayments.length > 0 && (
+                <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#B45309", letterSpacing: "0.1em", textTransform: "uppercase" }}>Repayments due this month</div>
+                    <button onClick={() => setPage("my-repayments")} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>View all →</button>
                   </div>
-                ))}
-              </div>
-            )}
-
-            {/* Top 3 matched builders */}
-            {recoForLender.length > 0 && (
-              <div style={{ marginBottom: "1.5rem" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase" }}>Top builder matches for you</div>
-                  <button onClick={() => setPage("find-builder")} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>Browse all →</button>
+                  {upcomingRepayments.map((r, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: i < upcomingRepayments.length - 1 ? "0.5px solid #f0f0f0" : "none" }}>
+                      <div><div style={{ fontSize: 13, color: "#1E3A5F", fontWeight: 500 }}>{r.deal_title}</div><div style={{ fontSize: 11, color: "#64748B" }}>Due {r.due_date}</div></div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: r.status === "missed" ? "#DC2626" : "#B45309" }}>{fmt(r.amount)}</div>
+                    </div>
+                  ))}
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
-                  {recoForLender.map(b => <BuilderCard key={b.id} builder={b} user={user} setPage={setPage} onMessage={onMessage} onViewProfile={onViewBuilderProfile} viewerProfile={viewerRoleProfile} />)}
-                </div>
+              )}
+              <div style={{ background: "linear-gradient(135deg, #1E3A5F 0%, #2E5FA3 100%)", borderRadius: 12, padding: "16px 20px", color: "#fff", cursor: "pointer" }} onClick={() => setPage("lender-wallet")}>
+                <div style={{ fontSize: 11, opacity: 0.7, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Investment portfolio</div>
+                <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>View your wallet →</div>
+                <div style={{ fontSize: 12, opacity: 0.7 }}>Track returns, download statements, see portfolio breakdown</div>
               </div>
-            )}
+            </div>
 
-            <SearchById setPage={setPage} onViewProfile={onViewProfile} onViewBuilderProfile={onViewBuilderProfile} />
-
-            {/* Recent messages */}
-            {conversations.length > 0 && (
-              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>Recent messages</div>
-                {conversations.slice(0, 3).map(convo => {
-                  const otherName = user.id === convo.lender_id ? convo.builder_name : convo.lender_name;
-                  return (
-                    <div key={convo.id} onClick={() => onMessage(convo.id)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px", borderRadius: 8, marginBottom: 4 }}
-                      onMouseEnter={e => e.currentTarget.style.background = "#F8FAFC"}
-                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                      <Avatar initials={nameInitials(otherName)} color={pickColor(otherName || "")} size={32} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1E3A5F" }}>{otherName}</div>
-                        <div style={{ fontSize: 11, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{convo.last_message ? convo.last_message : "Start a conversation"}</div>
+            {/* Right column: tools + discovery */}
+            <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, paddingBottom: 12 }}>
+              {dismissLenderTools ? (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 14px", background: "#F8FAFC", border: "0.5px solid #E2E8F0", borderRadius: 8 }}>
+                  <span style={{ fontSize: 12, color: "#64748B", display:"inline-flex", alignItems:"center", gap:4 }}><Icon name="calculator" size={12} /> Returns Calculator & Market Intelligence</span>
+                  <button onClick={() => show(`lb_dismiss_ltools_${uid}`, setDismissLenderTools)} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 3, padding: "2px 6px", fontWeight: 500, flexShrink: 0 }}>Show <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6"/></svg></button>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                    <button onClick={() => dismiss(`lb_dismiss_ltools_${uid}`, setDismissLenderTools)} style={{ display: "flex", alignItems: "center", gap: 3, padding: "3px 8px", background: "#F1F5F9", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, color: "#64748B", fontWeight: 500 }}>Hide <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+                  </div>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button onClick={() => setPage("build-calculator")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2, display:"flex", alignItems:"center", gap:4 }}><Icon name="calculator" size={12} /> Returns Calculator</div>
+                      <div style={{ fontSize: 11, color: "#2E5FA3" }}>Calculate your potential returns</div>
+                    </button>
+                    <button onClick={() => setPage("market")} style={{ flex: 1, padding: "12px 14px", background: "#EBF2FF", border: "0.5px solid #C3D9FF", borderRadius: 12, cursor: "pointer", textAlign: "left" }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 2, display:"flex", alignItems:"center", gap:4 }}><Icon name="trending-up" size={12} /> Market Intelligence</div>
+                      <div style={{ fontSize: 11, color: "#2E5FA3" }}>See UK market data →</div>
+                    </button>
+                  </div>
+                </div>
+              )}
+              {projectListings.length > 0 && (
+                <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#0F6E56", letterSpacing: "0.1em", textTransform: "uppercase" }}>Available projects</div>
+                    <button onClick={() => setPage("browse-projects")} style={{ fontSize: 12, color: "#0F6E56", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>Browse all →</button>
+                  </div>
+                  {projectListings.map(p => (
+                    <div key={p.id} style={{ padding: "12px 14px", background: "#F0FDF4", borderRadius: 10, border: "0.5px solid #A8DFC9", marginBottom: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                        <div><div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F" }}>{p.title}</div><div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>{p.location}{p.funding_required ? ` · ${fmt(p.funding_required)} needed` : ""}</div></div>
+                        <button onClick={async () => {
+                          const { data: { session } } = await supabase.auth.getSession();
+                          if (!session) { setPage("auth"); return; }
+                          await fetch("/api/connect-request", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ action: "express-interest", project_id: p.id, builder_name: p.builder_name || p.user_name }) });
+                        }} style={{ padding: "5px 12px", background: "#1D9E75", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0, minHeight: 34 }}>Express interest</button>
                       </div>
                     </div>
-                  );
-                })}
-                <button onClick={() => setPage("messages")} style={{ marginTop: 4, width: "100%", background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "8px", minHeight: 40, fontSize: 12, color: "#555", cursor: "pointer" }}>Open all messages →</button>
-              </div>
-            )}
-
-            {/* Smart matches from matches_cache */}
-            {smartMatches.length > 0 && (
-              <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#1D9E75", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12, display:"flex", alignItems:"center", gap:4 }}><Icon name="zap" size={11} />Smart matches for you</div>
-                {smartMatches.map(m => (
-                  <div key={m.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "0.5px solid #f5f5f3" }}>
-                    <div style={{ fontSize: 13, color: "#1E3A5F" }}>Match found</div>
-                    <span style={{ fontSize: 12, background: "#DCFCE7", color: "#166534", padding: "2px 8px", borderRadius: 20, fontWeight: 600 }}>{m.score}% compatible</span>
+                  ))}
+                </div>
+              )}
+              {recoForLender.length > 0 && (
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase" }}>Top builder matches</div>
+                    <button onClick={() => setPage("find-builder")} style={{ fontSize: 12, color: "#2E5FA3", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>Browse all →</button>
                   </div>
-                ))}
-                <button onClick={() => setPage("find-builder")} style={{ marginTop: 8, fontSize: 12, color: "#1D9E75", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>View matched builders →</button>
-              </div>
-            )}
-
-            {/* Portfolio wallet shortcut */}
-            <div style={{ background: "linear-gradient(135deg, #1E3A5F 0%, #2E5FA3 100%)", borderRadius: 12, padding: "16px 20px", marginBottom: "1.5rem", color: "#fff", cursor: "pointer" }} onClick={() => setPage("lender-wallet")}>
-              <div style={{ fontSize: 11, opacity: 0.7, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Investment portfolio</div>
-              <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>View your wallet →</div>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Track returns, download statements, see portfolio breakdown</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {recoForLender.map(b => <BuilderCard key={b.id} builder={b} user={user} setPage={setPage} onMessage={onMessage} onViewProfile={onViewBuilderProfile} viewerProfile={viewerRoleProfile} />)}
+                  </div>
+                </div>
+              )}
+              {smartMatches.length > 0 && (
+                <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#1D9E75", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12, display:"flex", alignItems:"center", gap:4 }}><Icon name="zap" size={11} />Smart matches for you</div>
+                  {smartMatches.map(m => (
+                    <div key={m.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "0.5px solid #f5f5f3" }}>
+                      <div style={{ fontSize: 13, color: "#1E3A5F" }}>Match found</div>
+                      <span style={{ fontSize: 12, background: "#DCFCE7", color: "#166534", padding: "2px 8px", borderRadius: 20, fontWeight: 600 }}>{m.score}% compatible</span>
+                    </div>
+                  ))}
+                  <button onClick={() => setPage("find-builder")} style={{ marginTop: 8, fontSize: 12, color: "#1D9E75", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>View matched builders →</button>
+                </div>
+              )}
+              <SearchById setPage={setPage} onViewProfile={onViewProfile} onViewBuilderProfile={onViewBuilderProfile} />
+              {conversations.length > 0 && (
+                <div style={{ background: "#fff", border: "0.5px solid #e0e0e0", borderRadius: 12, padding: "1.25rem", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#2E5FA3", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>Recent messages</div>
+                  {conversations.slice(0, 3).map(convo => {
+                    const otherName = user.id === convo.lender_id ? convo.builder_name : convo.lender_name;
+                    return (
+                      <div key={convo.id} onClick={() => onMessage(convo.id)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px", borderRadius: 8, marginBottom: 4 }} onMouseEnter={e => e.currentTarget.style.background = "#F8FAFC"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        <Avatar initials={nameInitials(otherName)} color={pickColor(otherName || "")} size={32} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1E3A5F" }}>{otherName}</div>
+                          <div style={{ fontSize: 11, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{convo.last_message || "Start a conversation"}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <button onClick={() => setPage("messages")} style={{ marginTop: 4, width: "100%", background: "transparent", border: "0.5px solid #e0e0e0", borderRadius: 8, padding: "8px", minHeight: 40, fontSize: 12, color: "#555", cursor: "pointer" }}>Open all messages →</button>
+                </div>
+              )}
             </div>
-
-          </>
+          </div>
         );
       })()}
     </div>
