@@ -1285,7 +1285,7 @@ function DeviceDetectionModal({ onChoose }) {
 }
 
 // ─── DESKTOP SIDEBAR ─────────────────────────────────────────────────────────
-function DesktopSidebar({ page, setPage, user, collapsed, onToggle }) {
+function DesktopSidebar({ page, setPage, user, collapsed, onToggle, unreadCount = 0 }) {
   const role = user?.user_metadata?.role;
   const navGroups = [
     {
@@ -1321,20 +1321,12 @@ function DesktopSidebar({ page, setPage, user, collapsed, onToggle }) {
       position: "sticky", top: 60, height: "calc(100vh - 60px)",
       width: collapsed ? 58 : 224, flexShrink: 0,
       background: "var(--bg-card)", borderRight: "var(--border-light)",
-      overflowY: "auto", overflowX: "hidden",
+      overflow: "hidden",
       transition: "width 0.22s ease",
       display: "flex", flexDirection: "column",
-      zIndex: 50, padding: collapsed ? "12px 8px" : "14px 10px",
+      zIndex: 50,
     }}>
-      {/* Toggle button */}
-      <button onClick={onToggle}
-        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        style={{ alignSelf: collapsed ? "center" : "flex-end", background: "none", border: "none", cursor: "pointer", padding: 6, borderRadius: 6, color: "var(--text-muted)", marginBottom: 10, lineHeight: 0, flexShrink: 0 }}>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          {collapsed ? <path d="M9 18l6-6-6-6"/> : <path d="M15 18l-6-6 6-6"/>}
-        </svg>
-      </button>
-
+      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: collapsed ? "12px 8px" : "14px 10px" }}>
       {navGroups.map((group, gi) => (
         <div key={gi} style={{ marginBottom: collapsed ? 8 : 16 }}>
           {!collapsed && group.label && (
@@ -1370,6 +1362,49 @@ function DesktopSidebar({ page, setPage, user, collapsed, onToggle }) {
           )}
         </div>
       ))}
+      </div>
+
+      {/* Bottom utility bar */}
+      <div style={{ borderTop: "var(--border-light)", padding: collapsed ? "8px" : "8px 10px", display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
+        <button
+          onClick={() => { setPage("help"); window.scrollTo({ top: 0, behavior: "instant" }); }}
+          title={collapsed ? "Help Centre" : undefined}
+          style={{ display: "flex", alignItems: "center", gap: collapsed ? 0 : 9, width: "100%", padding: collapsed ? "9px 0" : "9px 10px", borderRadius: 8, border: "none", cursor: "pointer", background: page === "help" ? "var(--accent-bg)" : "transparent", color: page === "help" ? "var(--accent)" : "var(--text-muted)", fontSize: 13, fontWeight: page === "help" ? 600 : 400, justifyContent: collapsed ? "center" : "flex-start", transition: "background 0.15s, color 0.15s" }}
+          onMouseEnter={e => { if (page !== "help") e.currentTarget.style.background = "var(--bg-secondary)"; }}
+          onMouseLeave={e => { if (page !== "help") e.currentTarget.style.background = "transparent"; }}
+        >
+          <span style={{ flexShrink: 0, lineHeight: 1, fontSize: 15, fontWeight: 700, color: page === "help" ? "var(--accent)" : "var(--text-muted)" }}>?</span>
+          {!collapsed && <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>Help</span>}
+        </button>
+
+        <button
+          id="tour-inbox-btn"
+          onClick={() => { setPage("messages"); window.scrollTo({ top: 0, behavior: "instant" }); }}
+          title={collapsed ? "Inbox" : undefined}
+          style={{ position: "relative", display: "flex", alignItems: "center", gap: collapsed ? 0 : 9, width: "100%", padding: collapsed ? "9px 0" : "9px 10px", borderRadius: 8, border: "none", cursor: "pointer", background: page === "messages" ? "var(--accent-bg)" : "transparent", color: page === "messages" ? "var(--accent)" : "var(--text-muted)", fontSize: 13, fontWeight: page === "messages" ? 600 : 400, justifyContent: collapsed ? "center" : "flex-start", transition: "background 0.15s, color 0.15s" }}
+          onMouseEnter={e => { if (page !== "messages") e.currentTarget.style.background = "var(--bg-secondary)"; }}
+          onMouseLeave={e => { if (page !== "messages") e.currentTarget.style.background = "transparent"; }}
+        >
+          <span style={{ flexShrink: 0, lineHeight: 0, color: page === "messages" ? "var(--accent)" : "var(--text-muted)" }}><NavInboxIcon /></span>
+          {!collapsed && <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>Inbox</span>}
+          {unreadCount > 0 && <span style={UNREAD_BADGE}>{unreadCount > 9 ? "9+" : unreadCount}</span>}
+        </button>
+
+        <button
+          onClick={onToggle}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          style={{ display: "flex", alignItems: "center", gap: collapsed ? 0 : 9, width: "100%", padding: collapsed ? "9px 0" : "9px 10px", borderRadius: 8, border: "none", cursor: "pointer", background: "transparent", color: "var(--text-muted)", fontSize: 13, justifyContent: collapsed ? "center" : "flex-start", transition: "background 0.15s" }}
+          onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-secondary)"; }}
+          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+        >
+          <span style={{ flexShrink: 0, lineHeight: 0 }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              {collapsed ? <path d="M9 18l6-6-6-6"/> : <path d="M15 18l-6-6 6-6"/>}
+            </svg>
+          </span>
+          {!collapsed && <span>Collapse</span>}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1867,19 +1902,6 @@ function Navbar({ page, setPage, user, onLogout, unreadCount = 0, userProfile, t
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-        {/* Help */}
-        <button onClick={() => go("help")} aria-label="Help Centre"
-          style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid rgba(255,255,255,0.18)", background: page === "help" ? "rgba(255,255,255,0.14)" : "transparent", color: page === "help" ? "var(--accent)" : "rgba(255,255,255,0.7)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, flexShrink: 0, lineHeight: 1 }}>
-          ?
-        </button>
-        {/* Inbox */}
-        <button id="tour-inbox-btn" onClick={() => go("messages")} aria-label="Inbox"
-          style={{ position: "relative", display: "flex", alignItems: "center", gap: 5, padding: "7px 12px", borderRadius: 8, border: "none", background: page === "messages" ? "rgba(255,255,255,0.12)" : "transparent", color: page === "messages" ? "var(--accent)" : "rgba(255,255,255,0.7)", cursor: "pointer" }}>
-          <NavInboxIcon />
-          <span style={{ fontSize: 12, fontWeight: 500 }}>Inbox</span>
-          {unreadCount > 0 && <span style={UNREAD_BADGE}>{unreadCount > 9 ? "9+" : unreadCount}</span>}
-        </button>
-
         <NotificationBell user={user} />
 
         <WhatsNewButton onReplayTour={onReplayTour} />
@@ -21420,6 +21442,7 @@ export default function App() {
             user={user}
             collapsed={sidebarCollapsed}
             onToggle={() => setSidebarCollapsed(c => !c)}
+            unreadCount={unreadCount}
           />
         )}
         <div style={{ flex: 1, minWidth: 0, paddingBottom: isMobileLayout ? "calc(72px + env(safe-area-inset-bottom, 0px))" : 0 }}>
