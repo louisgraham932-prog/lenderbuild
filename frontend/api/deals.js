@@ -2,6 +2,8 @@ const Stripe = require("stripe");
 const { createClient } = require("@supabase/supabase-js");
 const { rateLimit, getClientIp } = require("./_rateLimit");
 const { sanitizeStr } = require("./_sanitize");
+const { encrypt, decrypt } = require("./_crypto");
+const { logAudit } = require("./_audit");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -219,7 +221,14 @@ module.exports = async function handler(req, res) {
       const builderIds = [...new Set((deals || []).map(d => d.builder_id).filter(Boolean))];
       if (builderIds.length > 0) {
         const { data: bps } = await supabase.from("builder_profiles").select("user_id, bank_details_provided, bank_account_name, bank_sort_code, bank_account_number").in("user_id", builderIds);
-        (bps || []).forEach(bp => { builderBankMap[bp.user_id] = { provided: bp.bank_details_provided || false, account_name: bp.bank_account_name || "", sort_code: bp.bank_sort_code || "", account_number: bp.bank_account_number || "" }; });
+        (bps || []).forEach(bp => {
+          builderBankMap[bp.user_id] = {
+            provided:       bp.bank_details_provided || false,
+            account_name:   bp.bank_account_name || "",
+            sort_code:      decrypt(bp.bank_sort_code || ""),
+            account_number: decrypt(bp.bank_account_number || ""),
+          };
+        });
       }
 
       (docs || []).forEach(d => { if (!dealDocsMap[d.deal_id]) dealDocsMap[d.deal_id] = []; dealDocsMap[d.deal_id].push(d); });
@@ -432,6 +441,13 @@ ${isBuilder ? "<p>Please make this repayment immediately to avoid further action
       supabase.from("notifications").insert({ user_id: builderUser.id, type: "deal_created", message: `${lenderName} created a milestone deal with you: ${sanitizeStr(title, 200)}` }).then(() => {}).catch(() => {});
     }
 
+    const totalVal = milestones.reduce((s, m) => s + Number(m.amount), 0);
+    logAudit(supabase, {
+      deal_id: deal.id, user_id: user.id, user_name: lenderName, user_role: "lender",
+      action: "deal_created", ip_address: getClientIp(req),
+      details: { title: deal.title, builder_name: sanitizeStr(builder_name, 100), milestone_count: milestones.length, total_value: totalVal },
+    }).catch(() => {});
+
     return res.status(200).json({ ok: true, deal });
   }
 
@@ -480,6 +496,11 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
       );
     }
     supabase.from("notifications").insert({ user_id: milestone.deals.lender_id, type: "milestone_complete", message: `${builderName} marked milestone "${milestone.title}" as complete` }).then(() => {}).catch(() => {});
+    logAudit(supabase, {
+      deal_id: milestone.deal_id, user_id: user.id, user_name: builderName, user_role: "builder",
+      action: "milestone_completed", ip_address: getClientIp(req),
+      details: { milestone_id, milestone_title: milestone.title, amount: milestone.amount, order_index: milestone.order_index },
+    }).catch(() => {});
     return res.status(200).json({ ok: true });
   }
 
@@ -528,6 +549,11 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
       }
       supabase.from("notifications").insert({ user_id: milestone.deals.builder_id, type: "milestone_approved", message: `${lenderName} approved milestone "${milestone.title}" — awaiting bank transfer` }).then(() => {}).catch(() => {});
     }
+    logAudit(supabase, {
+      deal_id: milestone.deals.id, user_id: user.id, user_name: lenderName, user_role: "lender",
+      action: "milestone_approved", ip_address: getClientIp(req),
+      details: { milestone_id, milestone_title: milestone.title, amount: milestone.amount },
+    }).catch(() => {});
     return res.status(200).json({ ok: true });
   }
 
@@ -585,6 +611,11 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
     sendEmail(ADMIN_EMAIL, `Deal document pending review — ${doc_type}`,
       `<p>Builder uploaded a required project document for deal <em>"${deal.title}"</em>: ${doc_type.replace(/_/g, " ")}.</p><p><a href="${PLATFORM_URL}">Review in admin panel</a></p>`
     );
+    logAudit(supabase, {
+      deal_id, user_id: user.id, user_name: user.user_metadata?.name || "", user_role: "builder",
+      action: "document_uploaded", ip_address: getClientIp(req),
+      details: { doc_type, deal_title: deal.title },
+    }).catch(() => {});
     return res.status(200).json({ ok: true });
   }
 
@@ -620,6 +651,11 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
     sendEmail(ADMIN_EMAIL, `URGENT: Dispute raised — ${deal.title}`,
       `<p>Dispute on <em>"${deal.title}"</em> raised by ${raisedByName} (${role}): ${cleanReason}</p><p><a href="${PLATFORM_URL}">Review in admin panel</a></p>`
     );
+    logAudit(supabase, {
+      deal_id, user_id: user.id, user_name: raisedByName, user_role: role,
+      action: "dispute_raised", ip_address: getClientIp(req),
+      details: { reason: cleanReason },
+    }).catch(() => {});
     return res.status(200).json({ ok: true });
   }
 
@@ -681,11 +717,16 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
     const { error: upErr } = await supabase.from("builder_profiles").update({
       bank_details_provided: true,
       bank_account_name: account_name.trim(),
-      bank_sort_code: sort_code.trim(),
-      bank_account_number: account_number.trim(),
+      bank_sort_code: encrypt(sort_code.trim().replace(/\D/g, "")),
+      bank_account_number: encrypt(account_number.trim().replace(/\D/g, "")),
     }).eq("user_id", user.id);
     if (upErr) return res.status(500).json({ error: upErr.message });
 
+    logAudit(supabase, {
+      user_id: user.id, user_name: user.user_metadata?.name || "", user_role: "builder",
+      action: "bank_details_confirmed", ip_address: getClientIp(req),
+      details: { account_name: account_name.trim() },
+    }).catch(() => {});
     return res.status(200).json({ ok: true });
   }
 
@@ -719,6 +760,11 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
       }
       supabase.from("notifications").insert({ user_id: milestone.deals.builder_id, type: "payment_sent", message: `${lenderName} has sent payment for milestone "${milestone.title}" — please confirm receipt` }).then(() => {}).catch(() => {});
     }
+    logAudit(supabase, {
+      deal_id: milestone.deals.id, user_id: user.id, user_name: lenderName, user_role: "lender",
+      action: "payment_sent", ip_address: getClientIp(req),
+      details: { milestone_id, milestone_title: milestone.title, amount: milestone.amount },
+    }).catch(() => {});
     return res.status(200).json({ ok: true });
   }
 
@@ -751,6 +797,12 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
       }
       supabase.from("notifications").insert({ user_id: milestone.deals.lender_id, type: "receipt_confirmed", message: `Builder confirmed receipt for milestone "${milestone.title}" — milestone complete` }).then(() => {}).catch(() => {});
     }
+    const builderDisplayName = user.user_metadata?.name || "Builder";
+    logAudit(supabase, {
+      deal_id: milestone.deals.id, user_id: user.id, user_name: builderDisplayName, user_role: "builder",
+      action: "receipt_confirmed", ip_address: getClientIp(req),
+      details: { milestone_id, milestone_title: milestone.title, amount: milestone.amount },
+    }).catch(() => {});
     return res.status(200).json({ ok: true });
   }
 
@@ -818,7 +870,11 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
         );
       }
     }
-
+    logAudit(supabase, {
+      deal_id: rep.deals.id || null, user_id: user.id, user_name: user.user_metadata?.name || "", user_role: "lender",
+      action: "repayment_received", ip_address: getClientIp(req),
+      details: { repayment_id, amount: rep.amount, confirmation_number: rep.confirmation_number },
+    }).catch(() => {});
     return res.status(200).json({ ok: true });
   }
 
@@ -855,6 +911,11 @@ ${photo_url ? `<p><a href="${photo_url}">View completion photo</a></p>` : ""}
       }
     }
 
+    logAudit(supabase, {
+      deal_id, user_id: user.id, user_name: user.user_metadata?.name || "", user_role: isLender ? "lender" : "builder",
+      action: "agreement_signed", ip_address: getClientIp(req),
+      details: { signed_as: isLender ? "lender" : "builder", both_signed: !!(updated?.agreement_signed_lender && updated?.agreement_signed_builder) },
+    }).catch(() => {});
     return res.status(200).json({ ok: true, both_signed: !!(updated?.agreement_signed_lender && updated?.agreement_signed_builder) });
   }
 

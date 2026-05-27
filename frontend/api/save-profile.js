@@ -1,6 +1,8 @@
 const { createClient } = require("@supabase/supabase-js");
 const { rateLimit, getClientIp } = require("./_rateLimit");
 const { sanitizeStr } = require("./_sanitize");
+const { encrypt } = require("./_crypto");
+const { logAudit } = require("./_audit");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -444,6 +446,25 @@ module.exports = async function handler(req, res) {
     }
   }
 
+  // ── Action: accept-risk-warning ───────────────────────────────────────────
+  if (action === "accept-risk-warning") {
+    const ip = getClientIp(req);
+    await supabase.auth.admin.updateUserById(user.id, {
+      user_metadata: {
+        ...user.user_metadata,
+        risk_warning_accepted: true,
+        risk_warning_accepted_at: new Date().toISOString(),
+        risk_warning_ip: ip || null,
+      },
+    });
+    logAudit(supabase, {
+      user_id: user.id, user_name: user.user_metadata?.name || user.email,
+      user_role: role, action: "risk_warning_accepted",
+      details: { accepted_at: new Date().toISOString() }, ip_address: ip,
+    }).catch(() => {});
+    return res.status(200).json({ ok: true });
+  }
+
   // ── Action: save-bank-details (builders only) ─────────────────────────────
   if (action === "save-bank-details") {
     if (role !== "builder") return res.status(403).json({ error: "Builders only" });
@@ -454,11 +475,22 @@ module.exports = async function handler(req, res) {
     if (sc.length !== 6) return res.status(400).json({ error: "Sort code must be 6 digits" });
     if (an.length !== 8) return res.status(400).json({ error: "Account number must be 8 digits" });
     const { data: existing } = await supabase.from("builder_profiles").select("id").eq("user_id", user.id).maybeSingle();
-    const patch = { bank_account_name: bank_account_name.trim(), bank_sort_code: sc, bank_account_number: an, bank_details_provided: true };
+    const patch = {
+      bank_account_name: bank_account_name.trim(),
+      bank_sort_code: encrypt(sc),
+      bank_account_number: encrypt(an),
+      bank_details_provided: true,
+    };
     const { error: bpErr } = existing
       ? await supabase.from("builder_profiles").update(patch).eq("user_id", user.id)
       : await supabase.from("builder_profiles").insert({ user_id: user.id, is_active: true, ...patch });
     if (bpErr) return res.status(500).json({ error: bpErr.message });
+    const clientIp = getClientIp(req);
+    logAudit(supabase, {
+      user_id: user.id, user_name: user.user_metadata?.name || user.email,
+      user_role: "builder", action: "bank_details_saved",
+      details: { account_name: bank_account_name.trim() }, ip_address: clientIp,
+    }).catch(() => {});
     return res.status(200).json({ ok: true });
   }
 

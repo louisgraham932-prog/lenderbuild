@@ -1,5 +1,6 @@
 const { createClient } = require("@supabase/supabase-js");
 const { rateLimit, getClientIp } = require("./_rateLimit");
+const { logAudit } = require("./_audit");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -108,6 +109,13 @@ module.exports = async function handler(req, res) {
         await sendEmail(userEmail, subject, html);
       }
 
+      logAudit(supabase, {
+        user_id: user.id, user_name: user.user_metadata?.name || user.email, user_role: "admin",
+        action: decision === "approved" ? "admin_doc_approved" : "admin_doc_rejected",
+        details: { submission_id, document_type: sub.document_type, target_user_id: sub.user_id, rejection_reason: rejection_reason || null },
+        ip_address: ip,
+      }).catch(() => {});
+
       return res.status(200).json({ ok: true });
     }
 
@@ -151,6 +159,14 @@ module.exports = async function handler(req, res) {
         }
       }
 
+      logAudit(supabase, {
+        user_id: user.id, user_name: user.user_metadata?.name || user.email, user_role: "admin",
+        action: action === "approve-deal-doc" ? "admin_deal_doc_approved" : "admin_deal_doc_rejected",
+        deal_id: doc.deal_id,
+        details: { deal_doc_id, doc_type: doc.doc_type, rejection_reason: rejReason || null },
+        ip_address: ip,
+      }).catch(() => {});
+
       return res.status(200).json({ ok: true });
     }
 
@@ -189,6 +205,14 @@ ${resolution_notes ? `<p><strong>Resolution:</strong> ${resolution_notes}</p>` :
         }
       }
 
+      logAudit(supabase, {
+        user_id: user.id, user_name: user.user_metadata?.name || user.email, user_role: "admin",
+        action: "admin_dispute_resolved",
+        deal_id: dispute.deal_id,
+        details: { dispute_id, resolution_notes: resolution_notes || null },
+        ip_address: ip,
+      }).catch(() => {});
+
       return res.status(200).json({ ok: true });
     }
 
@@ -218,6 +242,14 @@ ${resolution_notes ? `<p><strong>Notes:</strong> ${resolution_notes}</p>` : ""}
           );
         }
       }
+
+      logAudit(supabase, {
+        user_id: user.id, user_name: user.user_metadata?.name || user.email, user_role: "admin",
+        action: "admin_dispute_escalated",
+        deal_id: dispute.deal_id,
+        details: { dispute_id, notes: resolution_notes || null },
+        ip_address: ip,
+      }).catch(() => {});
 
       return res.status(200).json({ ok: true });
     }
@@ -252,6 +284,13 @@ ${resolution_notes ? `<p><strong>Notes:</strong> ${resolution_notes}</p>` : ""}
       }, { onConflict: "user_id" });
       if (banErr) return res.status(500).json({ error: banErr.message });
 
+      logAudit(supabase, {
+        user_id: user.id, user_name: user.user_metadata?.name || user.email, user_role: "admin",
+        action: "admin_user_banned",
+        details: { target_user_id: ban_uid, ban_type: ban_type || "temporary", reason: ban_reason || null, banned_until: ban_type === "permanent" ? null : (banned_until || null) },
+        ip_address: ip,
+      }).catch(() => {});
+
       // Notify user
       const { data: banTarget } = await supabase.auth.admin.getUserById(ban_uid);
       if (banTarget?.user?.email) {
@@ -271,6 +310,12 @@ ${ban_reason ? `<p><strong>Reason:</strong> ${ban_reason}</p>` : ""}
       const { ban_id } = req.body;
       if (!ban_id) return res.status(400).json({ error: "ban_id required" });
       await supabase.from("community_bans").delete().eq("id", ban_id);
+      logAudit(supabase, {
+        user_id: user.id, user_name: user.user_metadata?.name || user.email, user_role: "admin",
+        action: "admin_user_unbanned",
+        details: { ban_id },
+        ip_address: ip,
+      }).catch(() => {});
       return res.status(200).json({ ok: true });
     }
 

@@ -8651,6 +8651,8 @@ function PostDetailPage({ post: initialPost, user, setPage, onMessage, onBack, o
     if (!amount || amount <= 0) { setFundError("Please enter a valid amount"); return; }
     setFundLoading(true);
     setFundError("");
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 30000);
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const session = sessionData?.session;
@@ -8659,13 +8661,20 @@ function PostDetailPage({ post: initialPost, user, setPage, onMessage, onBack, o
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({ action: "funding-room-join-post", post_id: post.id, post_author_id: post.author_id, amount }),
+        signal: abort.signal,
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) { setFundError(json.error || "Failed to join. Please try again."); return; }
+      setShowFundForm(false);
       if (json.room_id) setPage("funding-room", json.room_id);
     } catch (err) {
-      setFundError("Something went wrong. Please try again.");
+      if (err.name === "AbortError") {
+        setFundError("Request timed out. Please try again.");
+      } else {
+        setFundError("Something went wrong. Please try again.");
+      }
     } finally {
+      clearTimeout(timer);
       setFundLoading(false);
     }
   }
@@ -9090,6 +9099,8 @@ function PostsFeedPage({ user, setPage }) {
     if (!amount || amount <= 0) { setFundError("Please enter a valid amount"); return; }
     setFundLoading(true);
     setFundError("");
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 30000);
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const session = sessionData?.session;
@@ -9103,6 +9114,7 @@ function PostsFeedPage({ user, setPage }) {
           post_author_id: fundModal.author_id,
           amount,
         }),
+        signal: abort.signal,
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) { setFundError(json.error || "Failed to join. Please try again."); return; }
@@ -9111,8 +9123,13 @@ function PostsFeedPage({ user, setPage }) {
       setTimeout(() => setToast(""), 4000);
       if (json.room_id) setPage("funding-room", json.room_id);
     } catch (err) {
-      setFundError("Something went wrong. Please try again.");
+      if (err.name === "AbortError") {
+        setFundError("Request timed out. Please try again.");
+      } else {
+        setFundError("Something went wrong. Please try again.");
+      }
     } finally {
+      clearTimeout(timer);
       setFundLoading(false);
     }
   }
@@ -20918,6 +20935,8 @@ export default function App() {
   const [loginLoading,      setLoginLoading]         = useState(false);
   const [initialising,      setInitialising]          = useState(true);
   const [showDeviceModal,   setShowDeviceModal]       = useState(false);
+  const [riskWarningAccepting, setRiskWarningAccepting] = useState(false);
+  const [riskWarningChecked,   setRiskWarningChecked]   = useState(false);
   const [devicePref,        setDevicePref]            = useState(() => {
     try { return localStorage.getItem("lb_device_preference") || "auto"; } catch { return "auto"; }
   });
@@ -21305,6 +21324,30 @@ export default function App() {
     setShowDeviceModal(false);
   }
 
+  async function handleAcceptRiskWarning() {
+    if (!riskWarningChecked || riskWarningAccepting) return;
+    setRiskWarningAccepting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        await fetch("/api/save-profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ action: "accept-risk-warning" }),
+        });
+      }
+      // Refresh user so the modal closes
+      const { data: { user: freshUser } } = await supabase.auth.getUser();
+      if (freshUser) setUser(freshUser);
+    } catch (_) {
+      // Even on network error, update local state so the modal doesn't block
+      setUser(u => u ? { ...u, user_metadata: { ...u.user_metadata, risk_warning_accepted: true } } : u);
+    } finally {
+      setRiskWarningAccepting(false);
+      setRiskWarningChecked(false);
+    }
+  }
+
   // navigateTo accepts an optional second arg for post/deal editing, or { authTab } for auth page
   function navigateTo(p, data) {
     if (p === "auth" && data?.authTab) {
@@ -21469,6 +21512,53 @@ export default function App() {
       )}
       {showDeviceModal && <DeviceDetectionModal onChoose={handleDeviceChoice} />}
       {celebration && <CelebrationOverlay message={celebration.message} subtitle={celebration.subtitle} onClose={() => setCelebration(null)} />}
+      {user && !user.user_metadata?.risk_warning_accepted && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
+          <div style={{ background: "#fff", borderRadius: 16, maxWidth: 520, width: "100%", padding: "2rem", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "1rem" }}>
+              <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#FEF2F2", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" stroke="#DC2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </div>
+              <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1E3A5F", margin: 0 }}>Important Risk Warning</h2>
+            </div>
+            <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, padding: "1rem 1.25rem", marginBottom: "1.25rem" }}>
+              <p style={{ fontSize: 15, color: "#111827", lineHeight: 1.65, margin: 0 }}>
+                <strong>Property investment carries significant risk.</strong> You may lose some or all of your investment. Past performance is not a guide to future returns.
+              </p>
+            </div>
+            <p style={{ fontSize: 14, color: "#374151", lineHeight: 1.65, marginBottom: "1.25rem" }}>
+              LenderBuild is an introducer only and does not provide financial advice. All investment decisions are made solely by you. You should seek independent financial and legal advice before committing any funds.
+            </p>
+            <p style={{ fontSize: 13, color: "#6B7280", marginBottom: "1.5rem" }}>
+              Property investments are not regulated by the Financial Conduct Authority (FCA) and are not covered by the Financial Services Compensation Scheme (FSCS).
+            </p>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", marginBottom: "1.5rem" }}>
+              <input
+                type="checkbox"
+                checked={riskWarningChecked}
+                onChange={e => setRiskWarningChecked(e.target.checked)}
+                style={{ marginTop: 2, width: 18, height: 18, cursor: "pointer", flexShrink: 0, accentColor: "#1E3A5F" }}
+              />
+              <span style={{ fontSize: 14, color: "#111827", lineHeight: 1.5 }}>
+                I confirm I have read and understood this risk warning and wish to proceed.
+              </span>
+            </label>
+            <button
+              onClick={handleAcceptRiskWarning}
+              disabled={!riskWarningChecked || riskWarningAccepting}
+              style={{
+                width: "100%", padding: "13px 0", borderRadius: 10, border: "none",
+                background: riskWarningChecked && !riskWarningAccepting ? "#1E3A5F" : "#D1D5DB",
+                color: riskWarningChecked && !riskWarningAccepting ? "#fff" : "#9CA3AF",
+                fontSize: 15, fontWeight: 600,
+                cursor: riskWarningChecked && !riskWarningAccepting ? "pointer" : "default",
+              }}
+            >
+              {riskWarningAccepting ? "Saving..." : "I Understand, Continue to LenderBuild"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
