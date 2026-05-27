@@ -20937,6 +20937,9 @@ export default function App() {
   const [showDeviceModal,   setShowDeviceModal]       = useState(false);
   const [riskWarningAccepting, setRiskWarningAccepting] = useState(false);
   const [riskWarningChecked,   setRiskWarningChecked]   = useState(false);
+  const [sessionFcaAccepted,   setSessionFcaAccepted]   = useState(() => {
+    try { return sessionStorage.getItem("fca_warning_accepted") === "true"; } catch { return false; }
+  });
   const [devicePref,        setDevicePref]            = useState(() => {
     try { return localStorage.getItem("lb_device_preference") || "auto"; } catch { return "auto"; }
   });
@@ -21343,6 +21346,8 @@ export default function App() {
       // Even on network error, update local state so the modal doesn't block
       setUser(u => u ? { ...u, user_metadata: { ...u.user_metadata, risk_warning_accepted: true } } : u);
     } finally {
+      try { sessionStorage.setItem("fca_warning_accepted", "true"); } catch (_) {}
+      setSessionFcaAccepted(true);
       setRiskWarningAccepting(false);
       setRiskWarningChecked(false);
     }
@@ -21512,7 +21517,7 @@ export default function App() {
       )}
       {showDeviceModal && <DeviceDetectionModal onChoose={handleDeviceChoice} />}
       {celebration && <CelebrationOverlay message={celebration.message} subtitle={celebration.subtitle} onClose={() => setCelebration(null)} />}
-      {user && !user.user_metadata?.risk_warning_accepted && (
+      {user && !user.user_metadata?.risk_warning_accepted && !sessionFcaAccepted && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
           <div style={{ background: "#fff", borderRadius: 16, maxWidth: 520, width: "100%", padding: "2rem", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "1rem" }}>
